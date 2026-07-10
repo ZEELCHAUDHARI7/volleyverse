@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+/* ============================================================
+   VolleyVerse design tokens — WHITE-LABEL LAYER
+   Club #2 = change these variables. Nothing else.
+   Current theme: Goa Guardians (navy base / yellow accent —
+   accent pending brand confirmation, see planning Phase 3).
+   ============================================================ */
+:root {
+  --brand-bg: #060d1f;
+  --brand-surface: #0c1730;
+  --brand-surface-2: #122042;
+  --brand-line: #1c2e54;
+  --brand-ink: #f2f6fc;
+  --brand-ink-dim: #8fa3c8;
+  --brand-accent: #ffc400;
+  --brand-accent-ink: #171200;
+  --brand-azure: #4fc3f7;
+  --brand-success: #2ee6a8;
+  --brand-error: #ff5c63;
+}
+
+/* Tailwind utilities resolve to the brand vars at runtime,
+   so a theme swap is pure CSS — no rebuild required. */
+@theme inline {
+  --color-bg: var(--brand-bg);
+  --color-surface: var(--brand-surface);
+  --color-surface2: var(--brand-surface-2);
+  --color-line: var(--brand-line);
+  --color-ink: var(--brand-ink);
+  --color-dim: var(--brand-ink-dim);
+  --color-accent: var(--brand-accent);
+  --color-accent-ink: var(--brand-accent-ink);
+  --color-azure: var(--brand-azure);
+  --color-ok: var(--brand-success);
+  --color-err: var(--brand-error);
+  --font-display: "Saira Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  background: var(--color-bg);
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Stats are the heroes: display face, tabular numerals */
+.stat-display {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Live-update pulse: a chart/tile that just changed glows once */
+@keyframes vv-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 196, 0, 0.45); }
+  100% { box-shadow: 0 0 0 14px rgba(255, 196, 0, 0); }
+}
+.vv-pulse {
+  animation: vv-pulse 600ms ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vv-pulse { animation: none; }
+  * { transition-duration: 0.01ms !important; }
+}
+
+/* Azulejos-inspired subtle tile texture for headers/skeletons */
+.tile-texture {
+  background-image:
+    linear-gradient(135deg, rgba(79, 195, 247, 0.05) 25%, transparent 25%),
+    linear-gradient(225deg, rgba(79, 195, 247, 0.05) 25%, transparent 25%),
+    linear-gradient(45deg, rgba(79, 195, 247, 0.05) 25%, transparent 25%),
+    linear-gradient(315deg, rgba(79, 195, 247, 0.05) 25%, transparent 25%);
+  background-size: 24px 24px;
+}
