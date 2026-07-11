@@ -6,13 +6,14 @@
    Current theme: Goa Guardians (deep navy / championship gold).
    ============================================================ */
 :root {
-  --brand-bg: #04091a;
-  --brand-bg-raise: #070f26;
-  --brand-surface: #0b1530;
-  --brand-surface-2: #111e40;
-  --brand-line: #1b2c52;
+  /* Match Night: the canvas is a stadium at night — near-black, cold. */
+  --brand-bg: #030509;
+  --brand-bg-raise: #060a14;
+  --brand-surface: #0a101f;
+  --brand-surface-2: #101a33;
+  --brand-line: #182342;
   --brand-ink: #f4f7fd;
-  --brand-ink-dim: #8ea3cb;
+  --brand-ink-dim: #8299c4;
   --brand-accent: #ffc400;
   --brand-accent-hot: #ff9500;
   --brand-accent-ink: #171200;
@@ -20,9 +21,12 @@
   --brand-violet: #7c6cff;
   --brand-success: #2ee6a8;
   --brand-error: #ff5c63;
+  /* Floodlight — the warm white of stadium lamps */
+  --brand-flood: #fff6dc;
   --glow-accent: rgba(255, 196, 0, 0.35);
   --glow-azure: rgba(79, 195, 247, 0.28);
   --glow-violet: rgba(124, 108, 255, 0.25);
+  --glow-flood: rgba(255, 246, 220, 0.14);
 }
 
 /* Tailwind utilities resolve to the brand vars at runtime,
@@ -42,8 +46,11 @@
   --color-violet: var(--brand-violet);
   --color-ok: var(--brand-success);
   --color-err: var(--brand-error);
+  --color-flood: var(--brand-flood);
   --font-display: "Saira Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
   --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-hero: "Anton", "Saira Condensed", "Arial Narrow", sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, monospace;
 }
 
 /* ---------- Base ---------- */
@@ -390,4 +397,357 @@ a.card-premium:hover,
     linear-gradient(45deg, rgba(79, 195, 247, 0.05) 25%, transparent 25%),
     linear-gradient(315deg, rgba(79, 195, 247, 0.05) 25%, transparent 25%);
   background-size: 24px 24px;
+}
+
+/* ============================================================
+   MATCH NIGHT — cinematic layer
+   Concept: the visitor walks out of the tunnel into a floodlit
+   arena. Everything below serves that one story.
+   ============================================================ */
+
+/* ---------- Hero typography ---------- */
+.hero-type {
+  font-family: var(--font-hero);
+  font-weight: 400; /* Anton is single-weight; never synthesize bold */
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  line-height: 0.86;
+}
+.data-type {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+
+/* Big ghosted display type — thicker stroke than .text-outline */
+.hero-outline {
+  color: transparent;
+  -webkit-text-stroke: 2px color-mix(in srgb, var(--brand-ink) 22%, transparent);
+}
+
+/* Character-by-character rise (staggered via --char-i) */
+.char-reveal {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+.char-reveal > span {
+  display: inline-block;
+  transform: translateY(110%) rotate(4deg);
+  animation: mn-char-rise 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: calc(var(--char-i, 0) * 42ms + var(--line-d, 0ms));
+}
+@keyframes mn-char-rise {
+  to { transform: translateY(0) rotate(0); }
+}
+
+/* ---------- Floodlights ---------- */
+/* A beam of stadium light. Position with utilities; rotate via --beam-r. */
+.light-cone {
+  position: absolute;
+  top: -12%;
+  width: 34vmax;
+  height: 80vmax;
+  pointer-events: none;
+  transform-origin: top center;
+  transform: rotate(var(--beam-r, 0deg));
+  background: linear-gradient(
+    to bottom,
+    var(--glow-flood) 0%,
+    rgba(255, 246, 220, 0.05) 45%,
+    transparent 78%
+  );
+  clip-path: polygon(46% 0, 54% 0, 100% 100%, 0 100%);
+  filter: blur(18px);
+  mix-blend-mode: screen;
+}
+.light-cone--accent {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--brand-accent) 22%, transparent) 0%,
+    color-mix(in srgb, var(--brand-accent) 7%, transparent) 45%,
+    transparent 78%
+  );
+}
+
+/* Lamp flicker-on: used by the entry sequence and section lights */
+@keyframes mn-ignite {
+  0% { opacity: 0; }
+  8% { opacity: 0.9; }
+  12% { opacity: 0.1; }
+  22% { opacity: 1; }
+  28% { opacity: 0.4; }
+  38%, 100% { opacity: 1; }
+}
+.ignite {
+  animation: mn-ignite 1.4s steps(1, end) both;
+  animation-delay: var(--ignite-d, 0ms);
+}
+
+/* Full-screen entry overlay */
+.lights-up-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #000;
+  display: grid;
+  place-items: center;
+  transition: opacity 0.7s ease 0.1s, visibility 0.7s;
+}
+.lights-up-overlay[data-done="true"] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Cursor spotlight — a following pool of stadium light */
+.cursor-spotlight {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  mix-blend-mode: soft-light;
+  background: radial-gradient(
+    340px circle at var(--spot-x, 50%) var(--spot-y, 30%),
+    rgba(255, 246, 220, 0.85),
+    transparent 70%
+  );
+}
+
+/* ---------- Photography grade ---------- */
+/* Any photo dropped in .mn-photo instantly becomes "match night". */
+.mn-photo {
+  position: relative;
+  overflow: hidden;
+  background: var(--brand-bg-raise);
+}
+.mn-photo > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: grayscale(1) contrast(1.12) brightness(0.82);
+}
+.mn-photo::before {
+  /* navy shadows + gold highlights duotone */
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--brand-accent) 30%, transparent),
+    color-mix(in srgb, var(--brand-surface-2) 85%, transparent) 60%,
+    var(--brand-bg) 105%
+  );
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+.mn-photo::after {
+  /* floodlight kiss from above + vignette floor */
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background:
+    radial-gradient(80% 55% at 50% -10%, var(--glow-flood), transparent 60%),
+    linear-gradient(to top, var(--brand-bg) 0%, transparent 38%);
+  pointer-events: none;
+}
+
+/* ---------- Broadcast graphics ---------- */
+/* Slanted lower-third bar, accent leading edge — TV graphic language */
+.lower-third {
+  position: relative;
+  background: color-mix(in srgb, var(--brand-surface) 88%, transparent);
+  backdrop-filter: blur(10px);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 18px) 100%, 0 100%);
+  border-left: 4px solid var(--brand-accent);
+}
+.broadcast-chip {
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+}
+
+/* Results ticker along the bottom of the hero */
+.ticker-shell {
+  border-top: 1px solid var(--brand-line);
+  border-bottom: 1px solid var(--brand-line);
+  background: color-mix(in srgb, var(--brand-bg) 78%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+/* LED scoreboard numerals */
+.led {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-accent);
+  text-shadow:
+    0 0 12px var(--glow-accent),
+    0 0 42px var(--glow-accent);
+}
+.led-dim {
+  color: color-mix(in srgb, var(--brand-accent) 22%, var(--brand-surface-2));
+  text-shadow: none;
+}
+
+/* Scoreboard panel: dark glass + scanlines */
+.scoreboard {
+  position: relative;
+  background: linear-gradient(180deg, #05070d 0%, #090d18 100%);
+  border: 1px solid var(--brand-line);
+}
+.scoreboard::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 3px,
+    rgba(0, 0, 0, 0.22) 3px 4px
+  );
+}
+
+/* ---------- Rafter banners (honours hanging from the roof) ---------- */
+.rafter-banner {
+  clip-path: polygon(0 0, 100% 0, 100% 82%, 50% 100%, 0 82%);
+  background: linear-gradient(
+    175deg,
+    var(--brand-surface-2) 0%,
+    var(--brand-surface) 70%
+  );
+  border-top: 3px solid var(--brand-accent);
+  transform-origin: top center;
+}
+.rafter-banner.swaying {
+  animation: mn-sway 7s ease-in-out infinite;
+  animation-delay: var(--sway-d, 0ms);
+}
+@keyframes mn-sway {
+  0%, 100% { transform: rotate(-1.1deg); }
+  50% { transform: rotate(1.1deg); }
+}
+/* Banner drop-in on reveal */
+@keyframes mn-banner-drop {
+  from { transform: translateY(-110%); }
+  to { transform: translateY(0); }
+}
+.banner-drop {
+  animation: mn-banner-drop 1s cubic-bezier(0.22, 1.4, 0.36, 1) both;
+  animation-delay: var(--drop-d, 0ms);
+}
+
+/* ---------- Court floor perspective ---------- */
+.court-floor {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 42%;
+  pointer-events: none;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--brand-azure) 14%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--brand-azure) 14%, transparent) 1px, transparent 1px);
+  background-size: 100% 44px, 72px 100%;
+  transform: perspective(420px) rotateX(58deg);
+  transform-origin: bottom center;
+  mask-image: linear-gradient(to top, black 20%, transparent 90%);
+  -webkit-mask-image: linear-gradient(to top, black 20%, transparent 90%);
+}
+
+/* ---------- Diagonal section seams ---------- */
+.seam-top {
+  clip-path: polygon(0 3.2vw, 100% 0, 100% 100%, 0 100%);
+  margin-top: -3.2vw;
+}
+.seam-both {
+  clip-path: polygon(0 3.2vw, 100% 0, 100% calc(100% - 3.2vw), 0 100%);
+}
+
+/* ---------- Magnetic / physical interactions ---------- */
+.magnetic {
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+.tilt-card {
+  transform: perspective(900px) rotateX(var(--tilt-x, 0deg))
+    rotateY(var(--tilt-y, 0deg)) translateZ(0);
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+.tilt-card:hover {
+  transition-duration: 0.08s;
+}
+
+/* Spotlight that follows the pointer inside a card */
+.card-spot {
+  position: relative;
+}
+.card-spot::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  background: radial-gradient(
+    240px circle at var(--card-x, 50%) var(--card-y, 20%),
+    rgba(255, 246, 220, 0.1),
+    transparent 65%
+  );
+  pointer-events: none;
+}
+.card-spot:hover::before {
+  opacity: 1;
+}
+
+/* ---------- Full-time flash ---------- */
+@keyframes mn-ft-flash {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.ft-bar {
+  background: linear-gradient(
+    100deg,
+    var(--brand-accent) 0%,
+    var(--brand-accent-hot) 40%,
+    var(--brand-accent) 80%
+  );
+  background-size: 220% auto;
+  animation: mn-ft-flash 3.2s ease-in-out infinite;
+  color: var(--brand-accent-ink);
+}
+
+/* ---------- Tunnel exit (final CTA) ---------- */
+.tunnel {
+  position: relative;
+  overflow: hidden;
+}
+.tunnel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(58% 82% at 50% 108%, var(--glow-flood), transparent 62%),
+    radial-gradient(120% 100% at 50% 118%, color-mix(in srgb, var(--brand-accent) 9%, transparent), transparent 66%);
+}
+
+/* ---------- Reduced motion for the Match Night layer ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .char-reveal > span {
+    animation: none;
+    transform: none;
+  }
+  .ignite,
+  .rafter-banner.swaying,
+  .banner-drop,
+  .ft-bar {
+    animation: none !important;
+  }
+  .cursor-spotlight {
+    display: none;
+  }
+  .tilt-card,
+  .magnetic {
+    transform: none !important;
+  }
 }
