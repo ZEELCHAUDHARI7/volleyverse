@@ -44,6 +44,18 @@ Open http://localhost:3000 — you'll land in the Console.
 
 ## What's inside
 
+**Public Showcase (fan-facing, no login, published matches only):**
+
+| Route | What it is |
+|---|---|
+| `/` | Cinematic home — hero, season count-up ticker, featured player, latest result |
+| `/team` | Roster with role filters and public player cards |
+| `/players/[id]` | Public player profile — hero stat card, trend, match log |
+| `/matches` | Match reports list |
+| `/matches/[id]` | Public match report — MVPs, team numbers, charts |
+
+**Console (staff-facing):**
+
 | Route | What it is |
 |---|---|
 | `/console` | Match Day home — live match, last-match summary, recent matches |
@@ -76,6 +88,9 @@ Open http://localhost:3000 — you'll land in the Console.
 4. End match → fix a count in Review → open the Match Dashboard.
 5. Show charts updating, then the **Publish** control (private by default).
 6. Players → Rohit Singh → trend chart ("is he improving?").
+7. Open `/` — the public site. Publish/unpublish the Ahmedabad match in
+   the Console and watch it appear/disappear from `/matches` — that's the
+   publish boundary, live.
 
 Planning reference: the full 8-phase product plan lives in the chat
 session (vision, personas, IA, requirements, stack rationale, roadmap).

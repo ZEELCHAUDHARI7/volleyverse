@@ -3,11 +3,18 @@
 import Link from "next/link";
 import { useStore } from "@/lib/store";
 import { lines, teamTotals, topBy } from "@/lib/metrics";
-import { BigStat, Card, EmptyState, LinkButton, PublishBadge } from "@/components/ui";
+import {
+  BigStat,
+  Card,
+  EmptyState,
+  LinkButton,
+  PageSkeleton,
+  PublishBadge,
+} from "@/components/ui";
 
 export default function ConsoleHome() {
   const { ready, db } = useStore();
-  if (!ready) return null;
+  if (!ready) return <PageSkeleton />;
 
   const live = db.matches.find((m) => m.status === "live");
   const completed = [...db.matches]
@@ -29,18 +36,18 @@ export default function ConsoleHome() {
             Match Day
           </h1>
           <p className="mt-1 text-sm text-dim">
-            {live ? "A match is live — jump back in." : "Ready when you are, coach."}
+            {live ? "A match is live. Jump back in." : "Ready when you are, coach."}
           </p>
         </div>
         {!live && <LinkButton href="/console/matches/new">+ New Match</LinkButton>}
       </div>
 
       {live && (
-        <Card className="vv-pulse border-accent/40">
+        <Card className="border-accent/40">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <div className="mb-1 flex items-center gap-2">
-                <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-err" />
+                <span className="live-ring inline-block h-2 w-2 rounded-full bg-err" />
                 <span className="text-[11px] font-bold uppercase tracking-widest text-err">
                   Live
                 </span>
@@ -76,12 +83,12 @@ export default function ConsoleHome() {
             <BigStat label="Team points" value={totals.points} accent />
             <BigStat
               label="Spike success"
-              value={totals.spikeRate === null ? "—" : `${totals.spikeRate}%`}
+              value={totals.spikeRate === null ? "N/A" : `${totals.spikeRate}%`}
             />
             <BigStat label="Blocks" value={totals.blocks} />
             <BigStat
               label="Top contributor"
-              value={mvpPlayer ? mvpPlayer.name.split(" ")[0] : "—"}
+              value={mvpPlayer ? mvpPlayer.name.split(" ")[0] : "N/A"}
             />
           </div>
           <div className="mt-4">
@@ -108,7 +115,7 @@ export default function ConsoleHome() {
               <Link
                 key={m.id}
                 href={`/console/matches/${m.id}`}
-                className="flex items-center justify-between rounded-2xl border border-line bg-surface px-4 py-3 transition-colors hover:bg-surface2"
+                className="card-premium card-lift flex items-center justify-between rounded-2xl px-4 py-3"
               >
                 <div>
                   <p className="font-semibold">vs {m.opponent}</p>

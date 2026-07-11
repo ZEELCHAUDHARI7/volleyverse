@@ -8,14 +8,17 @@ import {
   Card,
   LinkButton,
   PageHeader,
+  PageSkeleton,
   PublishBadge,
   Button,
 } from "@/components/ui";
 import {
+  AcesByPlayer,
   PointsBySpiker,
   ReachVsSuccess,
   SetterAccuracyVsAssists,
   SpikeSuccessRate,
+  SuperDigsByPlayer,
 } from "@/components/charts";
 
 /** Match Dashboard — the brief's one-page summary after each match. */
@@ -24,7 +27,7 @@ export default function MatchDashboard() {
   const { ready, db, setPublished } = useStore();
   const { match, roster, events } = useMatch(id);
 
-  if (!ready) return null;
+  if (!ready) return <PageSkeleton />;
   if (!match) return <p className="text-dim">Match not found.</p>;
 
   const ls = lines(roster, events);
@@ -33,7 +36,7 @@ export default function MatchDashboard() {
   const setter = topBy(ls, "assists");
   const defender = topDefender(ls);
   const name = (pid?: string) =>
-    pid ? (db.players.find((p) => p.id === pid)?.name.split(" ")[0] ?? "—") : "—";
+    pid ? (db.players.find((p) => p.id === pid)?.name.split(" ")[0] ?? "N/A") : "N/A";
 
   // Team vs previous completed match
   const completed = [...db.matches]
@@ -87,7 +90,7 @@ export default function MatchDashboard() {
         <Card className="tile-texture">
           <BigStat label="Strongest defender" value={name(defender?.playerId)} accent />
           <p className="tnum mt-1 text-sm text-dim">
-            {defender?.blocks ?? 0} blocks · {defender?.saves ?? 0} saves
+            {defender?.blocks ?? 0} blocks · {defender?.superDigs ?? 0} super digs
           </p>
         </Card>
       </div>
@@ -97,21 +100,25 @@ export default function MatchDashboard() {
         <h2 className="stat-display mb-3 text-lg font-bold uppercase tracking-wide">
           Team Performance{prev ? ` · vs previous (${prev.opponent})` : ""}
         </h2>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
           <BigStat label="Points" value={totals.points} accent />
           <BigStat
             label="Spike %"
-            value={totals.spikeRate === null ? "—" : `${totals.spikeRate}%`}
+            value={totals.spikeRate === null ? "N/A" : `${totals.spikeRate}%`}
           />
           <BigStat label="Assists" value={totals.assists} />
           <BigStat label="Blocks" value={totals.blocks} />
+          <BigStat label="Aces" value={totals.aces} />
+          <BigStat label="Super digs" value={totals.superDigs} />
           <BigStat label="Errors" value={totals.errors} />
         </div>
         {prevTotals && (
           <p className="tnum mt-3 text-xs text-dim">
             vs previous: points {delta(totals.points, prevTotals.points)} · assists{" "}
             {delta(totals.assists, prevTotals.assists)} · blocks{" "}
-            {delta(totals.blocks, prevTotals.blocks)} · errors{" "}
+            {delta(totals.blocks, prevTotals.blocks)} · aces{" "}
+            {delta(totals.aces, prevTotals.aces)} · super digs{" "}
+            {delta(totals.superDigs, prevTotals.superDigs)} · errors{" "}
             {delta(totals.errors, prevTotals.errors)}
           </p>
         )}
@@ -121,6 +128,8 @@ export default function MatchDashboard() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <PointsBySpiker players={roster} events={events} />
         <SpikeSuccessRate players={roster} events={events} />
+        <AcesByPlayer players={roster} events={events} />
+        <SuperDigsByPlayer players={roster} events={events} />
         <SetterAccuracyVsAssists players={roster} events={events} />
         <ReachVsSuccess players={roster} events={events} />
       </div>

@@ -2,12 +2,16 @@
 
 import { useState } from "react";
 import { useStore } from "@/lib/store";
-import { Button, Card, PageHeader } from "@/components/ui";
+import { Button, Card, PageHeader, PageSkeleton, Pill } from "@/components/ui";
 import {
+  AcesByPlayer,
+  DefendersLeaderboard,
   PointsBySpiker,
   ReachVsSuccess,
+  RecordsStrip,
   SetterAccuracyVsAssists,
   SpikeSuccessRate,
+  SuperDigsByPlayer,
   TrendAcrossMatches,
 } from "@/components/charts";
 
@@ -16,7 +20,7 @@ export default function SeasonAnalytics() {
   const { ready, db, resetDemoData } = useStore();
   const [trendPlayerId, setTrendPlayerId] = useState<string | null>(null);
 
-  if (!ready) return null;
+  if (!ready) return <PageSkeleton />;
 
   const completedIds = new Set(
     db.matches.filter((m) => m.status === "completed").map((m) => m.id),
@@ -33,29 +37,41 @@ export default function SeasonAnalytics() {
         subtitle={`${completedIds.size} completed matches · every number derived from courtside entries`}
       />
 
+      {/* Season records — auto-flagged the moment they're broken courtside */}
+      <RecordsStrip
+        players={db.players}
+        matches={db.matches}
+        events={events}
+      />
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <PointsBySpiker players={db.players} events={events} />
         <SpikeSuccessRate players={db.players} events={events} />
+        <AcesByPlayer players={db.players} events={events} />
+        <SuperDigsByPlayer players={db.players} events={events} />
         <SetterAccuracyVsAssists players={db.players} events={events} />
         <ReachVsSuccess players={db.players} events={events} />
       </div>
 
+      {/* Full-season defender rankings — every player with a defensive act,
+          not just the homepage top-3 teaser */}
+      <DefendersLeaderboard
+        players={db.players}
+        events={events}
+        limit={db.players.length}
+      />
+
       {trendPlayer && (
         <div>
-          <div className="mb-2 flex flex-wrap gap-1.5">
+          <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Select player">
             {db.players.map((p) => (
-              <button
+              <Pill
                 key={p.id}
-                type="button"
+                active={trendPlayer.id === p.id}
                 onClick={() => setTrendPlayerId(p.id)}
-                className={`min-h-10 rounded-xl px-3 text-xs font-bold transition-colors ${
-                  trendPlayer.id === p.id
-                    ? "bg-accent text-accent-ink"
-                    : "border border-line text-dim"
-                }`}
               >
                 {p.name.split(" ")[0]}
-              </button>
+              </Pill>
             ))}
           </div>
           <TrendAcrossMatches

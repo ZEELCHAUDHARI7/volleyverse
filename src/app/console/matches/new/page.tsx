@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useStore } from "@/lib/store";
-import { Button, Card, PageHeader, RoleTag } from "@/components/ui";
+import { Button, Card, PageHeader, PageSkeleton, RoleTag } from "@/components/ui";
 
 /**
  * Match setup (planning Phase 4): ≤6 fields, roster pre-selected
@@ -18,7 +18,7 @@ export default function NewMatch() {
   const [totalSets, setTotalSets] = useState(5);
   const [roster, setRoster] = useState<Set<string> | null>(null);
 
-  if (!ready) return null;
+  if (!ready) return <PageSkeleton />;
   const selected = roster ?? new Set(db.players.map((p) => p.id));
 
   const toggle = (id: string) => {
@@ -42,7 +42,7 @@ export default function NewMatch() {
   };
 
   const inputCls =
-    "min-h-12 w-full rounded-xl border border-line bg-surface2 px-4 text-sm text-ink placeholder:text-dim focus:border-accent focus:outline-none";
+    "min-h-12 w-full rounded-xl border border-line bg-surface2 px-4 text-sm text-ink transition-all duration-300 placeholder:text-dim focus:border-accent focus:shadow-[0_0_0_3px_var(--glow-accent)] focus:outline-none";
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">

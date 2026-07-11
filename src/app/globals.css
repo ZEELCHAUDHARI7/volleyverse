@@ -3,43 +3,53 @@
 /* ============================================================
    VolleyVerse design tokens — WHITE-LABEL LAYER
    Club #2 = change these variables. Nothing else.
-   Current theme: Goa Guardians (navy base / yellow accent —
-   accent pending brand confirmation, see planning Phase 3).
+   Current theme: Goa Guardians (deep navy / championship gold).
    ============================================================ */
 :root {
-  --brand-bg: #060d1f;
-  --brand-surface: #0c1730;
-  --brand-surface-2: #122042;
-  --brand-line: #1c2e54;
-  --brand-ink: #f2f6fc;
-  --brand-ink-dim: #8fa3c8;
+  --brand-bg: #04091a;
+  --brand-bg-raise: #070f26;
+  --brand-surface: #0b1530;
+  --brand-surface-2: #111e40;
+  --brand-line: #1b2c52;
+  --brand-ink: #f4f7fd;
+  --brand-ink-dim: #8ea3cb;
   --brand-accent: #ffc400;
+  --brand-accent-hot: #ff9500;
   --brand-accent-ink: #171200;
   --brand-azure: #4fc3f7;
+  --brand-violet: #7c6cff;
   --brand-success: #2ee6a8;
   --brand-error: #ff5c63;
+  --glow-accent: rgba(255, 196, 0, 0.35);
+  --glow-azure: rgba(79, 195, 247, 0.28);
+  --glow-violet: rgba(124, 108, 255, 0.25);
 }
 
 /* Tailwind utilities resolve to the brand vars at runtime,
    so a theme swap is pure CSS — no rebuild required. */
 @theme inline {
   --color-bg: var(--brand-bg);
+  --color-raise: var(--brand-bg-raise);
   --color-surface: var(--brand-surface);
   --color-surface2: var(--brand-surface-2);
   --color-line: var(--brand-line);
   --color-ink: var(--brand-ink);
   --color-dim: var(--brand-ink-dim);
   --color-accent: var(--brand-accent);
+  --color-accent-hot: var(--brand-accent-hot);
   --color-accent-ink: var(--brand-accent-ink);
   --color-azure: var(--brand-azure);
+  --color-violet: var(--brand-violet);
   --color-ok: var(--brand-success);
   --color-err: var(--brand-error);
   --font-display: "Saira Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
   --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
+/* ---------- Base ---------- */
 html {
   background: var(--color-bg);
+  scroll-behavior: smooth;
 }
 
 body {
@@ -47,9 +57,40 @@ body {
   color: var(--color-ink);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
 }
 
-/* Stats are the heroes: display face, tabular numerals */
+::selection {
+  background: var(--brand-accent);
+  color: var(--brand-accent-ink);
+}
+
+/* Slim, brand-aware scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--brand-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--brand-line);
+  border-radius: 8px;
+  border: 2px solid var(--brand-bg);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-ink-dim);
+}
+
+/* Accessible, on-brand focus */
+:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ---------- Typography ---------- */
 .stat-display {
   font-family: var(--font-display);
   font-variant-numeric: tabular-nums;
@@ -60,18 +101,285 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Live-update pulse: a chart/tile that just changed glows once */
+/* Gradient headline treatment (hero moments only) */
+.text-gradient {
+  background: linear-gradient(
+    100deg,
+    var(--brand-accent) 0%,
+    var(--brand-accent-hot) 55%,
+    var(--brand-accent) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: vv-gradient-pan 6s ease-in-out infinite;
+}
+
+/* Ghosted outline numerals (jersey art direction) */
+.text-outline {
+  color: transparent;
+  -webkit-text-stroke: 1.5px var(--brand-line);
+}
+
+/* ---------- Cinematic backdrop layers ---------- */
+/* Film grain — keeps big gradients from banding, adds texture */
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.04 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Floating aurora orbs — pure CSS, transform-only animation */
+.orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  pointer-events: none;
+  will-change: transform;
+}
+.orb-accent {
+  background: radial-gradient(circle, var(--glow-accent), transparent 65%);
+  animation: vv-drift 22s ease-in-out infinite;
+}
+.orb-azure {
+  background: radial-gradient(circle, var(--glow-azure), transparent 65%);
+  animation: vv-drift 26s ease-in-out infinite reverse;
+}
+.orb-violet {
+  background: radial-gradient(circle, var(--glow-violet), transparent 65%);
+  animation: vv-drift 30s ease-in-out 2s infinite;
+}
+
+/* Court-line texture: fine grid that fades out radially */
+.court-lines {
+  background-image:
+    linear-gradient(to right, rgba(79, 195, 247, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(79, 195, 247, 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 90% 80% at 50% 30%, black 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 30%, black 30%, transparent 75%);
+}
+
+/* ---------- Surfaces ---------- */
+/* Glass panel — nav, sheets, overlays */
+.glass {
+  background: color-mix(in srgb, var(--brand-surface) 62%, transparent);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid color-mix(in srgb, var(--brand-ink) 9%, transparent);
+}
+
+/* Premium card: soft depth + gradient border sheen + lift on hover */
+.card-premium {
+  position: relative;
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--brand-surface-2) 80%, transparent) 0%,
+    var(--brand-surface) 55%
+  );
+  border: 1px solid var(--brand-line);
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, var(--brand-ink) 6%, transparent) inset,
+    0 18px 40px -24px rgba(0, 0, 0, 0.7);
+  transition:
+    transform 0.35s cubic-bezier(0.21, 1, 0.32, 1),
+    border-color 0.35s ease,
+    box-shadow 0.35s ease;
+}
+.card-premium:hover {
+  border-color: color-mix(in srgb, var(--brand-accent) 45%, var(--brand-line));
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, var(--brand-ink) 8%, transparent) inset,
+    0 24px 60px -20px rgba(0, 0, 0, 0.8),
+    0 0 40px -12px var(--glow-accent);
+}
+a.card-premium:hover,
+.card-lift:hover {
+  transform: translateY(-4px);
+}
+
+/* Shine sweep across a card on hover */
+.shine {
+  position: relative;
+  overflow: hidden;
+}
+.shine::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    color-mix(in srgb, var(--brand-ink) 7%, transparent) 50%,
+    transparent 60%
+  );
+  transform: translateX(-120%);
+  transition: transform 0.9s cubic-bezier(0.21, 1, 0.32, 1);
+  pointer-events: none;
+}
+.shine:hover::before {
+  transform: translateX(120%);
+}
+
+/* ---------- Buttons ---------- */
+.btn-premium {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  transition:
+    transform 0.25s cubic-bezier(0.21, 1, 0.32, 1),
+    box-shadow 0.25s ease;
+}
+.btn-premium:hover {
+  transform: translateY(-1px);
+}
+.btn-premium:active {
+  transform: translateY(0) scale(0.98);
+}
+.btn-glow:hover {
+  box-shadow: 0 8px 30px -8px var(--glow-accent);
+}
+.btn-premium::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    105deg,
+    transparent 42%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 58%
+  );
+  transform: translateX(-130%);
+  transition: transform 0.7s ease;
+}
+.btn-premium:hover::after {
+  transform: translateX(130%);
+}
+
+/* Animated underline nav link */
+.nav-link {
+  position: relative;
+}
+.nav-link::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 6px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--brand-accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s cubic-bezier(0.21, 1, 0.32, 1);
+}
+.nav-link:hover::after,
+.nav-link[data-active="true"]::after {
+  transform: scaleX(1);
+}
+
+/* ---------- Motion ---------- */
 @keyframes vv-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(255, 196, 0, 0.45); }
+  0% { box-shadow: 0 0 0 0 var(--glow-accent); }
   100% { box-shadow: 0 0 0 14px rgba(255, 196, 0, 0); }
 }
 .vv-pulse {
   animation: vv-pulse 600ms ease-out 1;
 }
 
+@keyframes vv-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(6%, -8%, 0) scale(1.08); }
+  66% { transform: translate3d(-5%, 6%, 0) scale(0.94); }
+}
+
+@keyframes vv-gradient-pan {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes vv-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: vv-marquee 30s linear infinite;
+}
+
+@keyframes vv-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+.float-slow {
+  animation: vv-float 5s ease-in-out infinite;
+}
+
+@keyframes vv-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.skeleton {
+  border-radius: 12px;
+  background: linear-gradient(
+    100deg,
+    var(--brand-surface) 40%,
+    var(--brand-surface-2) 50%,
+    var(--brand-surface) 60%
+  );
+  background-size: 200% 100%;
+  animation: vv-shimmer 1.6s linear infinite;
+}
+
+@keyframes vv-scroll-cue {
+  0%, 100% { transform: translateY(0); opacity: 1; }
+  50% { transform: translateY(8px); opacity: 0.4; }
+}
+.scroll-cue {
+  animation: vv-scroll-cue 1.8s ease-in-out infinite;
+}
+
+@keyframes vv-sheet-up {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.sheet-up {
+  animation: vv-sheet-up 0.35s cubic-bezier(0.21, 1, 0.32, 1);
+}
+
+@keyframes vv-live-ring {
+  0% { box-shadow: 0 0 0 0 rgba(255, 92, 99, 0.5); }
+  100% { box-shadow: 0 0 0 8px rgba(255, 92, 99, 0); }
+}
+.live-ring {
+  animation: vv-live-ring 1.6s ease-out infinite;
+}
+
+/* ---------- Reduced motion: everything settles instantly ---------- */
 @media (prefers-reduced-motion: reduce) {
-  .vv-pulse { animation: none; }
-  * { transition-duration: 0.01ms !important; }
+  html { scroll-behavior: auto; }
+  .vv-pulse,
+  .orb-accent,
+  .orb-azure,
+  .orb-violet,
+  .marquee-track,
+  .float-slow,
+  .skeleton,
+  .scroll-cue,
+  .live-ring,
+  .sheet-up,
+  .text-gradient {
+    animation: none !important;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Azulejos-inspired subtle tile texture for headers/skeletons */

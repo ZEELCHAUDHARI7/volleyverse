@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useStore } from "@/lib/store";
 import { playerLine } from "@/lib/metrics";
-import { PageHeader, RoleTag } from "@/components/ui";
+import { PageHeader, PageSkeleton, Pill, RoleTag } from "@/components/ui";
 import type { Role } from "@/lib/types";
 import { useState } from "react";
 
@@ -12,7 +12,7 @@ const FILTERS: (Role | "ALL")[] = ["ALL", "SPIKER", "SETTER", "CENTRE"];
 export default function PlayersPage() {
   const { ready, db } = useStore();
   const [filter, setFilter] = useState<Role | "ALL">("ALL");
-  if (!ready) return null;
+  if (!ready) return <PageSkeleton />;
 
   const players = db.players.filter((p) => filter === "ALL" || p.role === filter);
 
@@ -20,18 +20,11 @@ export default function PlayersPage() {
     <div className="space-y-6">
       <PageHeader title="Players" subtitle="Season stats across all recorded matches." />
 
-      <div className="flex gap-1.5">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by role">
         {FILTERS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => setFilter(f)}
-            className={`min-h-10 rounded-xl px-4 text-xs font-bold uppercase tracking-wider transition-colors ${
-              filter === f ? "bg-accent text-accent-ink" : "border border-line text-dim"
-            }`}
-          >
+          <Pill key={f} active={filter === f} onClick={() => setFilter(f)}>
             {f === "ALL" ? "All" : `${f.charAt(0)}${f.slice(1).toLowerCase()}s`}
-          </button>
+          </Pill>
         ))}
       </div>
 
@@ -48,7 +41,7 @@ export default function PlayersPage() {
             <Link
               key={p.id}
               href={`/console/players/${p.id}`}
-              className="flex items-center justify-between rounded-2xl border border-line bg-surface px-4 py-3 transition-colors hover:bg-surface2"
+              className="card-premium card-lift flex items-center justify-between rounded-2xl px-4 py-3"
             >
               <div className="flex items-center gap-3">
                 <span className="stat-display tnum w-9 text-center text-lg font-extrabold text-dim">
@@ -69,7 +62,7 @@ export default function PlayersPage() {
                   {headline}
                 </p>
                 <p className="tnum text-[11px] text-dim">
-                  {l.successRate === null ? "—" : `${l.successRate}%`} season
+                  {l.successRate === null ? "N/A" : `${l.successRate}%`} season
                 </p>
               </div>
             </Link>

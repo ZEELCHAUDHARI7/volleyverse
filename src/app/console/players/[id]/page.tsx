@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { playerLine } from "@/lib/metrics";
-import { BigStat, Card, PageHeader, RoleTag } from "@/components/ui";
+import { BigStat, Card, PageHeader, PageSkeleton, Pill, RoleTag } from "@/components/ui";
 import { TrendAcrossMatches } from "@/components/charts";
 
 /** Player profile: season stats, per-match table, improvement trend. */
@@ -13,7 +13,7 @@ export default function PlayerProfile() {
   const { ready, db } = useStore();
   const [metric, setMetric] = useState<"points" | "successRate" | "contribution">("points");
 
-  if (!ready) return null;
+  if (!ready) return <PageSkeleton />;
   const player = db.players.find((p) => p.id === id);
   if (!player) return <p className="text-dim">Player not found.</p>;
 
@@ -27,20 +27,20 @@ export default function PlayerProfile() {
       ? [
           { label: "Points", value: season.points, accent: true },
           { label: "Attempts", value: season.spikeAttempts },
-          { label: "Success", value: season.successRate === null ? "—" : `${season.successRate}%` },
+          { label: "Success", value: season.successRate === null ? "N/A" : `${season.successRate}%` },
           { label: "Errors", value: season.errors },
         ]
       : player.role === "SETTER"
         ? [
             { label: "Assists", value: season.assists, accent: true },
             { label: "Set attempts", value: season.setAttempts },
-            { label: "Accuracy", value: season.successRate === null ? "—" : `${season.successRate}%` },
+            { label: "Accuracy", value: season.successRate === null ? "N/A" : `${season.successRate}%` },
             { label: "Errors", value: season.errors },
           ]
         : [
             { label: "Blocks", value: season.blocks, accent: true },
             { label: "Attempts", value: season.blockAttempts },
-            { label: "Block rate", value: season.successRate === null ? "—" : `${season.successRate}%` },
+            { label: "Block rate", value: season.successRate === null ? "N/A" : `${season.successRate}%` },
             { label: "Saves", value: season.saves },
           ];
 
@@ -65,23 +65,18 @@ export default function PlayerProfile() {
           ))}
         </div>
         <p className="tnum mt-3 text-xs text-dim">
-          Season contribution index: {season.contribution}
+          Season contribution index: {season.contribution} ·{" "}
+          <span className="text-accent">{season.aces} aces</span> ·{" "}
+          <span className="text-ok">{season.superDigs} super digs</span>
         </p>
       </Card>
 
       <div>
-        <div className="mb-2 flex gap-1.5">
+        <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Select metric">
           {METRICS.map((m) => (
-            <button
-              key={m.key}
-              type="button"
-              onClick={() => setMetric(m.key)}
-              className={`min-h-10 rounded-xl px-4 text-xs font-bold uppercase tracking-wider transition-colors ${
-                metric === m.key ? "bg-accent text-accent-ink" : "border border-line text-dim"
-              }`}
-            >
+            <Pill key={m.key} active={metric === m.key} onClick={() => setMetric(m.key)}>
               {m.label}
-            </button>
+            </Pill>
           ))}
         </div>
         <TrendAcrossMatches
@@ -124,7 +119,7 @@ export default function PlayerProfile() {
                     <td className="tnum py-2 pr-4 text-right">{l.assists}</td>
                     <td className="tnum py-2 pr-4 text-right">{l.blocks}</td>
                     <td className="tnum py-2 pr-4 text-right">
-                      {l.successRate === null ? "—" : `${l.successRate}%`}
+                      {l.successRate === null ? "N/A" : `${l.successRate}%`}
                     </td>
                     <td className="tnum py-2 text-right">{l.contribution}</td>
                   </tr>

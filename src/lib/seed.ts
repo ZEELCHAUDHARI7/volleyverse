@@ -136,11 +136,43 @@ function generateEvents(): StatEvent[] {
           push(match.id, player.id, set, success ? "BLOCK_WIN" : "BLOCK_MISS");
         }
       }
-      if (player.role === "CENTRE") {
-        const saves = Math.round(prof.x * variance * (0.85 + rand() * 0.3));
-        for (let i = 0; i < saves; i++) {
-          push(match.id, player.id, 1 + Math.floor(rand() * match.totalSets), "DIG_SAVE");
-        }
+      // ---- Serve (universal): everyone rotates through service ----
+      // Story beat: Rohit Singh (sp1) has an ace-storm game in match 2,
+      // seeding a season record the client can see get broken live.
+      const serves = 8 + Math.floor(rand() * 6);
+      const aceRate =
+        player.id === "sp1" && mi === 1
+          ? 0.42
+          : player.role === "SPIKER"
+            ? 0.12
+            : 0.07;
+      for (let i = 0; i < serves; i++) {
+        const set = 1 + Math.floor(rand() * match.totalSets);
+        const roll = rand();
+        push(
+          match.id,
+          player.id,
+          set,
+          roll < aceRate ? "SERVE_ACE" : roll < aceRate + 0.08 ? "SERVE_ERR" : "SERVE_IN",
+        );
+      }
+
+      // ---- Defence (universal): centres carry the load ----
+      // Story beat: Joel Fernandes (ct3) has a super-dig heroics game.
+      const digs =
+        player.role === "CENTRE"
+          ? 9 + Math.floor(rand() * 5)
+          : 3 + Math.floor(rand() * 3);
+      const superRate = player.id === "ct3" && mi === 2 ? 0.4 : 0.1;
+      for (let i = 0; i < digs; i++) {
+        const set = 1 + Math.floor(rand() * match.totalSets);
+        const roll = rand();
+        push(
+          match.id,
+          player.id,
+          set,
+          roll < superRate ? "DIG_SUPER" : roll < superRate + 0.62 ? "DIG_SAVE" : "DIG_FAIL",
+        );
       }
     }
   });

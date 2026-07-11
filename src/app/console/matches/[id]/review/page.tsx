@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 import { useMatch, useStore } from "@/lib/store";
 import { playerLine } from "@/lib/metrics";
 import type { EventType, Player } from "@/lib/types";
-import { Card, LinkButton, PageHeader, RoleTag } from "@/components/ui";
+import { Card, LinkButton, PageHeader, PageSkeleton, RoleTag } from "@/components/ui";
 
 /**
  * Post-match review & corrections (FR3): adjust any count inline.
@@ -12,7 +12,7 @@ import { Card, LinkButton, PageHeader, RoleTag } from "@/components/ui";
  * The coach never re-enters a match.
  */
 
-const ROWS: Record<Player["role"], { type: EventType; label: string }[]> = {
+const ROLE_ROWS: Record<Player["role"], { type: EventType; label: string }[]> = {
   SPIKER: [
     { type: "SPIKE_POINT", label: "Points (kills)" },
     { type: "SPIKE_IN", label: "Spikes in play" },
@@ -26,16 +26,27 @@ const ROWS: Record<Player["role"], { type: EventType; label: string }[]> = {
   CENTRE: [
     { type: "BLOCK_WIN", label: "Blocks won" },
     { type: "BLOCK_MISS", label: "Blocks beaten" },
-    { type: "DIG_SAVE", label: "Saves" },
   ],
 };
+
+// Universal serve + defence rows (every player)
+const COMMON_ROWS: { type: EventType; label: string }[] = [
+  { type: "SERVE_ACE", label: "Aces" },
+  { type: "SERVE_IN", label: "Serves in play" },
+  { type: "SERVE_ERR", label: "Serve errors" },
+  { type: "DIG_SUPER", label: "Super digs" },
+  { type: "DIG_SAVE", label: "Digs" },
+  { type: "DIG_FAIL", label: "Missed digs" },
+];
+
+const rowsFor = (role: Player["role"]) => [...ROLE_ROWS[role], ...COMMON_ROWS];
 
 export default function ReviewMatch() {
   const { id } = useParams<{ id: string }>();
   const { ready, addEvent, removeLatestOfType } = useStore();
   const { match, roster, events } = useMatch(id);
 
-  if (!ready) return null;
+  if (!ready) return <PageSkeleton />;
   if (!match) return <p className="text-dim">Match not found.</p>;
 
   const countOf = (playerId: string, type: EventType) =>
@@ -45,7 +56,7 @@ export default function ReviewMatch() {
     <div className="space-y-6">
       <PageHeader
         title="Review & Corrections"
-        subtitle={`vs ${match.opponent} · fix any mis-taps before publishing`}
+        subtitle={`vs ${match.opponent} · fix any wrong taps before publishing`}
         action={
           <LinkButton href={`/console/matches/${match.id}`}>
             Match Dashboard →
@@ -58,9 +69,9 @@ export default function ReviewMatch() {
           const l = playerLine(p, events);
           const summary =
             p.role === "SPIKER"
-              ? `${l.points} pts · ${l.successRate ?? "—"}%`
+              ? `${l.points} pts · ${l.successRate ?? "N/A"}%`
               : p.role === "SETTER"
-                ? `${l.assists} ast · ${l.successRate ?? "—"}%`
+                ? `${l.assists} ast · ${l.successRate ?? "N/A"}%`
                 : `${l.blocks} blk · ${l.saves} sv`;
           return (
             <Card key={p.id}>
@@ -73,7 +84,7 @@ export default function ReviewMatch() {
                 <span className="tnum text-xs text-dim">{summary}</span>
               </div>
               <div className="space-y-1.5">
-                {ROWS[p.role].map((row) => {
+                {rowsFor(p.role).map((row) => {
                   const count = countOf(p.id, row.type);
                   return (
                     <div

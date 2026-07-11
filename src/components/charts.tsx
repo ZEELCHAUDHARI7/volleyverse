@@ -16,7 +16,13 @@ import {
   ZAxis,
 } from "recharts";
 import type { Player, StatEvent, Match } from "@/lib/types";
-import { lines, playerLine } from "@/lib/metrics";
+import {
+  defensiveScore,
+  lines,
+  playerLine,
+  seasonRecord,
+  type RecordStat,
+} from "@/lib/metrics";
 
 /**
  * The five charts from the client brief, token-themed.
@@ -76,7 +82,7 @@ function ChartShell({
   height?: number;
 }) {
   return (
-    <div className="rounded-2xl border border-line bg-surface p-4">
+    <div className="card-premium rounded-2xl p-4">
       <h3 className="stat-display text-lg font-bold uppercase tracking-wide">
         {title}
       </h3>
@@ -166,7 +172,7 @@ export function SetterAccuracyVsAssists({
   return (
     <ChartShell
       title="Setter Accuracy vs Assists"
-      insight="Accuracy creates assists — side by side."
+      insight="Accuracy creates assists, side by side."
     >
       <BarChart data={data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke={t.line} vertical={false} />
@@ -232,6 +238,174 @@ export function ReachVsSuccess({
   );
 }
 
+/** 6 — Aces per player (Suggestion 1: the drama stat). */
+export function AcesByPlayer({
+  players,
+  events,
+}: {
+  players: Player[];
+  events: StatEvent[];
+}) {
+  const data = lines(players, events)
+    .map((l) => ({
+      name: firstName(players.find((p) => p.id === l.playerId)!.name),
+      aces: l.aces,
+    }))
+    .filter((d) => d.aces > 0)
+    .sort((a, b) => b.aces - a.aces)
+    .slice(0, 8);
+  const t = theme();
+  return (
+    <ChartShell title="Aces" insight="Untouched serves. Instant points, instant drama.">
+      <BarChart data={data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={t.line} vertical={false} />
+        <XAxis dataKey="name" {...axisProps()} />
+        <YAxis {...axisProps()} allowDecimals={false} />
+        <Tooltip {...tooltipStyle()} />
+        <Bar dataKey="aces" fill={t.accent} radius={[6, 6, 0, 0]} maxBarSize={44} />
+      </BarChart>
+    </ChartShell>
+  );
+}
+
+/** 7 — Super Digs per player (Suggestion 2: defenders become heroes). */
+export function SuperDigsByPlayer({
+  players,
+  events,
+}: {
+  players: Player[];
+  events: StatEvent[];
+}) {
+  const data = lines(players, events)
+    .map((l) => ({
+      name: firstName(players.find((p) => p.id === l.playerId)!.name),
+      superDigs: l.superDigs,
+    }))
+    .filter((d) => d.superDigs > 0)
+    .sort((a, b) => b.superDigs - a.superDigs)
+    .slice(0, 8);
+  const t = theme();
+  return (
+    <ChartShell
+      title="Super Digs"
+      insight="Impossible balls kept alive. The saves nobody used to count."
+    >
+      <BarChart data={data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={t.line} vertical={false} />
+        <XAxis dataKey="name" {...axisProps()} />
+        <YAxis {...axisProps()} allowDecimals={false} />
+        <Tooltip {...tooltipStyle()} />
+        <Bar dataKey="superDigs" name="Super digs" fill={t.ok} radius={[6, 6, 0, 0]} maxBarSize={44} />
+      </BarChart>
+    </ChartShell>
+  );
+}
+
+/** Season record cards — "Season High: X hit 7 aces in one match". */
+export function RecordsStrip({
+  players,
+  matches,
+  events,
+  stats = ["aces", "superDigs", "points"],
+}: {
+  players: Player[];
+  matches: Match[];
+  events: StatEvent[];
+  stats?: RecordStat[];
+}) {
+  const LABEL: Record<RecordStat, { title: string; unit: string }> = {
+    aces: { title: "Most aces in a match", unit: "aces" },
+    superDigs: { title: "Most super digs in a match", unit: "super digs" },
+    points: { title: "Most points in a match", unit: "points" },
+    blocks: { title: "Most blocks in a match", unit: "blocks" },
+  };
+  const records = stats
+    .map((s) => ({ stat: s, rec: seasonRecord(s, events) }))
+    .filter((r) => r.rec !== null);
+
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {records.map(({ stat, rec }) => {
+        const player = players.find((p) => p.id === rec!.playerId);
+        const match = matches.find((m) => m.id === rec!.matchId);
+        return (
+          <div
+            key={stat}
+            className="card-premium shine rounded-2xl border-accent/30 p-4"
+          >
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-accent">
+              🏆 Season high
+            </p>
+            <p className="stat-display mt-1 text-lg font-extrabold uppercase leading-tight">
+              {player?.name ?? "N/A"}
+            </p>
+            <p className="tnum mt-0.5 text-sm text-dim">
+              <span className="stat-display text-xl font-extrabold text-ink">
+                {rec!.value}
+              </span>{" "}
+              {LABEL[stat].unit}
+              {match ? ` · vs ${match.opponent}` : ""}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Top defenders of the season — blocks + digs, super digs weighted. */
+export function DefendersLeaderboard({
+  players,
+  events,
+  limit = 5,
+}: {
+  players: Player[];
+  events: StatEvent[];
+  limit?: number;
+}) {
+  const rows = lines(players, events)
+    .map((l) => ({ l, score: defensiveScore(l) }))
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
+  return (
+    <div className="card-premium rounded-2xl p-4">
+      <h3 className="stat-display text-lg font-bold uppercase tracking-wide">
+        Guardians of the Floor
+      </h3>
+      <p className="mb-3 mt-0.5 text-xs text-dim">
+        Top defenders: blocks, digs and super digs combined.
+      </p>
+      <div className="space-y-1.5">
+        {rows.map(({ l, score }, i) => {
+          const p = players.find((pl) => pl.id === l.playerId)!;
+          return (
+            <div
+              key={l.playerId}
+              className="flex items-center justify-between rounded-xl bg-surface2 px-3 py-2"
+            >
+              <span className="flex items-center gap-3">
+                <span className="stat-display tnum w-5 text-center text-sm font-extrabold text-dim">
+                  {i + 1}
+                </span>
+                <span className="text-sm font-semibold">{p.name}</span>
+              </span>
+              <span className="tnum text-xs text-dim">
+                {l.blocks} blk · {l.saves} dig ·{" "}
+                <span className="font-bold text-ok">{l.superDigs} super</span>
+                <span className="stat-display ml-3 text-base font-extrabold text-ink">
+                  {Math.round(score)}
+                </span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** 5 — Player performance across matches (is this player improving?). */
 export function TrendAcrossMatches({
   player,
@@ -268,7 +442,7 @@ export function TrendAcrossMatches({
   const t = theme();
   return (
     <ChartShell
-      title={`${firstName(player.name)} — ${label} per match`}
+      title={`${firstName(player.name)} · ${label} per match`}
       insight="Is this player improving across the season?"
       height={220}
     >

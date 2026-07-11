@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useMatch, useStore } from "@/lib/store";
-import { playerLine } from "@/lib/metrics";
+import { breaksRecord, playerLine } from "@/lib/metrics";
 import type { EventType, Player, Role } from "@/lib/types";
 import { RoleTag } from "@/components/ui";
 
@@ -18,9 +18,11 @@ import { RoleTag } from "@/components/ui";
  *   · touch targets ≥48px
  */
 
-const OUTCOMES: Record<Role, { type: EventType; label: string; sub: string; tone: "ok" | "mid" | "err" }[]> = {
+type Outcome = { type: EventType; label: string; sub: string; tone: "ok" | "mid" | "err" };
+
+const ROLE_OUTCOMES: Record<Role, Outcome[]> = {
   SPIKER: [
-    { type: "SPIKE_POINT", label: "Point", sub: "Kill — spike scored", tone: "ok" },
+    { type: "SPIKE_POINT", label: "Point", sub: "Kill, spike scored", tone: "ok" },
     { type: "SPIKE_IN", label: "In Play", sub: "Good spike, rally continued", tone: "mid" },
     { type: "SPIKE_ERR", label: "Error", sub: "Out / blocked / net", tone: "err" },
   ],
@@ -29,12 +31,33 @@ const OUTCOMES: Record<Role, { type: EventType; label: string; sub: string; tone
     { type: "SET_GOOD", label: "Good Set", sub: "Accurate, no direct point", tone: "mid" },
     { type: "SET_ERR", label: "Error", sub: "Inaccurate set", tone: "err" },
   ],
+  // Digs moved to the universal Defence section — blocks are the role act
   CENTRE: [
     { type: "BLOCK_WIN", label: "Block ✓", sub: "Successful block", tone: "ok" },
     { type: "BLOCK_MISS", label: "Block ✗", sub: "Attempt beaten", tone: "err" },
-    { type: "DIG_SAVE", label: "Save", sub: "Defensive point saved", tone: "mid" },
   ],
 };
+
+// Universal sections — every player serves and defends (still 2 taps:
+// one sheet, grouped sections, no extra screens)
+const SERVE_OUTCOMES: Outcome[] = [
+  { type: "SERVE_ACE", label: "Ace", sub: "Untouched, instant point", tone: "ok" },
+  { type: "SERVE_IN", label: "In Play", sub: "Serve received", tone: "mid" },
+  { type: "SERVE_ERR", label: "Error", sub: "Out / net", tone: "err" },
+];
+const DIG_OUTCOMES: Outcome[] = [
+  { type: "DIG_SUPER", label: "Super Dig", sub: "Impossible ball kept alive", tone: "ok" },
+  { type: "DIG_SAVE", label: "Dig", sub: "Ball saved in play", tone: "mid" },
+  { type: "DIG_FAIL", label: "Missed", sub: "Ball hits the floor", tone: "err" },
+];
+
+function sheetSections(role: Role): { name: string; outcomes: Outcome[] }[] {
+  return [
+    { name: role === "SPIKER" ? "Attack" : role === "SETTER" ? "Setting" : "Block", outcomes: ROLE_OUTCOMES[role] },
+    { name: "Serve", outcomes: SERVE_OUTCOMES },
+    { name: "Defence", outcomes: DIG_OUTCOMES },
+  ];
+}
 
 const TONE_CLS = {
   ok: "bg-ok/15 text-ok border-ok/40",
@@ -51,18 +74,28 @@ const EVENT_LABEL: Record<EventType, string> = {
   SET_ERR: "Set error",
   BLOCK_WIN: "Block",
   BLOCK_MISS: "Block beaten",
-  DIG_SAVE: "Save",
+  SERVE_ACE: "ACE",
+  SERVE_IN: "Serve in play",
+  SERVE_ERR: "Serve error",
+  DIG_SUPER: "SUPER DIG",
+  DIG_SAVE: "Dig",
+  DIG_FAIL: "Missed dig",
 };
 
 export default function LiveEntry() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { ready, completeMatch, addEvent, removeEvent } = useStore();
+  const { ready, db, completeMatch, addEvent, removeEvent } = useStore();
   const { match, roster, events } = useMatch(id);
+  const allEvents = db.events; // season-wide, for live record detection
 
   const [set, setSet] = useState(1);
   const [picked, setPicked] = useState<Player | null>(null);
-  const [lastEvent, setLastEvent] = useState<{ id: string; text: string } | null>(null);
+  const [lastEvent, setLastEvent] = useState<{
+    id: string;
+    text: string;
+    record?: boolean;
+  } | null>(null);
   const [pulseId, setPulseId] = useState<string | null>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -80,13 +113,30 @@ export default function LiveEntry() {
   }
 
   const record = (player: Player, type: EventType) => {
+    // Season-record check runs against events BEFORE this tap (Suggestion 1 & 2)
+    const broke =
+      type === "SERVE_ACE"
+        ? breaksRecord("aces", allEvents, match.id, player.id)
+        : type === "DIG_SUPER"
+          ? breaksRecord("superDigs", allEvents, match.id, player.id)
+          : false;
+
     const e = addEvent(match.id, player.id, set, type);
     setPicked(null);
     setPulseId(player.id);
     setTimeout(() => setPulseId(null), 650);
     if (undoTimer.current) clearTimeout(undoTimer.current);
-    setLastEvent({ id: e.id, text: `${player.name.split(" ")[0]} · ${EVENT_LABEL[type]}` });
-    undoTimer.current = setTimeout(() => setLastEvent(null), 5000);
+    const first = player.name.split(" ")[0];
+    setLastEvent(
+      broke
+        ? {
+            id: e.id,
+            text: `🏆 NEW SEASON RECORD! ${first}: most ${type === "SERVE_ACE" ? "aces" : "super digs"} in a match!`,
+            record: true,
+          }
+        : { id: e.id, text: `${first} · ${EVENT_LABEL[type]}` },
+    );
+    undoTimer.current = setTimeout(() => setLastEvent(null), broke ? 8000 : 5000);
   };
 
   const undo = () => {
@@ -117,7 +167,7 @@ export default function LiveEntry() {
             vs {match.opponent}
           </p>
           <p className="flex items-center justify-center gap-1.5 text-[11px] uppercase tracking-widest text-err">
-            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-err" />
+            <span className="live-ring inline-block h-1.5 w-1.5 rounded-full bg-err" />
             Live entry
           </p>
         </div>
@@ -171,7 +221,7 @@ export default function LiveEntry() {
                       key={p.id}
                       type="button"
                       onClick={() => setPicked(p)}
-                      className={`flex min-h-16 items-center justify-between rounded-2xl border border-line bg-surface px-4 py-3 text-left transition-colors active:bg-surface2 ${
+                      className={`card-premium flex min-h-16 items-center justify-between rounded-2xl px-4 py-3 text-left active:scale-[0.98] ${
                         pulseId === p.id ? "vv-pulse" : ""
                       }`}
                     >
@@ -200,7 +250,7 @@ export default function LiveEntry() {
           onClick={() => setPicked(null)}
         >
           <div
-            className="w-full max-w-lg rounded-t-3xl border border-line bg-surface p-4 pb-8"
+            className="glass sheet-up w-full max-w-lg rounded-t-3xl p-4 pb-8"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
@@ -214,21 +264,32 @@ export default function LiveEntry() {
               </div>
               <RoleTag role={picked.role} />
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {OUTCOMES[picked.role].map((o) => (
-                <button
-                  key={o.type}
-                  type="button"
-                  onClick={() => record(picked, o.type)}
-                  className={`flex min-h-24 flex-col items-center justify-center gap-1 rounded-2xl border px-2 text-center ${TONE_CLS[o.tone]}`}
-                >
-                  <span className="stat-display text-lg font-extrabold uppercase">
-                    {o.label}
-                  </span>
-                  <span className="text-[10px] leading-tight opacity-80">
-                    {o.sub}
-                  </span>
-                </button>
+            <div className="space-y-3">
+              {sheetSections(picked.role).map((section) => (
+                <div key={section.name}>
+                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-dim">
+                    {section.name}
+                  </p>
+                  <div
+                    className={`grid gap-2 ${section.outcomes.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}
+                  >
+                    {section.outcomes.map((o) => (
+                      <button
+                        key={o.type}
+                        type="button"
+                        onClick={() => record(picked, o.type)}
+                        className={`flex min-h-16 flex-col items-center justify-center gap-0.5 rounded-2xl border px-2 text-center ${TONE_CLS[o.tone]}`}
+                      >
+                        <span className="stat-display text-base font-extrabold uppercase">
+                          {o.label}
+                        </span>
+                        <span className="text-[9px] leading-tight opacity-80">
+                          {o.sub}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
             <button
@@ -245,12 +306,25 @@ export default function LiveEntry() {
       {/* Undo snackbar — replaces confirm dialogs */}
       {lastEvent && (
         <div className="fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
-          <div className="flex w-full max-w-md items-center justify-between rounded-2xl border border-line bg-surface2 py-2 pl-4 pr-2 shadow-lg">
-            <span className="text-sm">{lastEvent.text} ✓</span>
+          <div
+            className={`flex w-full max-w-md items-center justify-between rounded-2xl border py-2 pl-4 pr-2 shadow-lg ${
+              lastEvent.record
+                ? "vv-pulse border-accent bg-accent text-accent-ink"
+                : "border-line bg-surface2"
+            }`}
+          >
+            <span className={`text-sm ${lastEvent.record ? "font-bold" : ""}`}>
+              {lastEvent.text}
+              {lastEvent.record ? "" : " ✓"}
+            </span>
             <button
               type="button"
               onClick={undo}
-              className="min-h-10 rounded-xl bg-accent px-4 text-sm font-bold text-accent-ink"
+              className={`min-h-10 rounded-xl px-4 text-sm font-bold ${
+                lastEvent.record
+                  ? "bg-bg text-ink"
+                  : "bg-accent text-accent-ink"
+              }`}
             >
               Undo
             </button>

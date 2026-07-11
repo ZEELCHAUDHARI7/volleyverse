@@ -16,7 +16,11 @@ export const ROLE_LABEL: Record<Role, string> = {
   CENTRE: "Centre",
 };
 
-/** Courtside taps per role — exactly three outcomes each (2-tap flow). */
+/**
+ * Courtside taps — role outcomes plus universal Serve/Defence sections
+ * (every player serves in rotation; anyone can dig). Still 2 taps:
+ * the outcome sheet groups sections, it never adds a screen.
+ */
 export type EventType =
   // Spiker
   | "SPIKE_POINT" // successful spike that scored
@@ -29,7 +33,15 @@ export type EventType =
   // Centre
   | "BLOCK_WIN" // successful block
   | "BLOCK_MISS" // block attempt beaten
-  | "DIG_SAVE"; // defensive point saved
+  // Serve — universal ("Easy Serve" deliberately folded into SERVE_IN:
+  // ace/error are objective, easy-vs-pressure is a courtside judgment call)
+  | "SERVE_ACE" // untouched serve, instant point — the drama stat
+  | "SERVE_IN" // serve in play
+  | "SERVE_ERR" // out / net
+  // Defence — universal
+  | "DIG_SUPER" // extraordinary save against all odds — the highlight stat
+  | "DIG_SAVE" // ball kept alive normally
+  | "DIG_FAIL"; // ball hits the floor
 
 export interface Player {
   id: string;

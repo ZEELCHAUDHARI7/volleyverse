@@ -21,7 +21,8 @@ import { buildSeed } from "./seed";
  * within ~100ms of a tap (FR1) regardless of connectivity.
  */
 
-const KEY = "volleyverse:db:v1";
+// v2: serve + dig tracking added — bump forces a clean reseed
+const KEY = "volleyverse:db:v2";
 
 function load(): Db {
   if (typeof window === "undefined") return { players: [], matches: [], events: [] };

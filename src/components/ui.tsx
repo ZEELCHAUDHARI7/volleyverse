@@ -14,9 +14,7 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div
-      className={`rounded-2xl border border-line bg-surface p-4 ${className}`}
-    >
+    <div className={`card-premium rounded-2xl p-4 ${className}`}>
       {children}
     </div>
   );
@@ -34,7 +32,8 @@ export function PageHeader({
   return (
     <div className="mb-6 flex items-end justify-between gap-4">
       <div>
-        <h1 className="stat-display text-3xl font-bold uppercase tracking-wide">
+        <p className="mb-1 h-0.5 w-8 rounded-full bg-accent" aria-hidden />
+        <h1 className="stat-display text-3xl font-extrabold uppercase tracking-wide">
           {title}
         </h1>
         {subtitle && <p className="mt-1 text-sm text-dim">{subtitle}</p>}
@@ -68,9 +67,9 @@ export function BigStat({
 }
 
 const ROLE_COLOR: Record<Role, string> = {
-  SPIKER: "bg-accent/15 text-accent",
-  SETTER: "bg-azure/15 text-azure",
-  CENTRE: "bg-ok/15 text-ok",
+  SPIKER: "bg-accent/15 text-accent ring-1 ring-accent/25",
+  SETTER: "bg-azure/15 text-azure ring-1 ring-azure/25",
+  CENTRE: "bg-ok/15 text-ok ring-1 ring-ok/25",
 };
 
 export function RoleTag({ role }: { role: Role }) {
@@ -85,15 +84,26 @@ export function RoleTag({ role }: { role: Role }) {
 
 export function PublishBadge({ published }: { published: boolean }) {
   return published ? (
-    <span className="rounded-md bg-ok/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-ok">
+    <span className="inline-flex items-center gap-1.5 rounded-md bg-ok/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-ok ring-1 ring-ok/25">
+      <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-hidden />
       Published
     </span>
   ) : (
-    <span className="rounded-md bg-line px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-dim">
+    <span className="rounded-md bg-line/60 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-dim">
       Private
     </span>
   );
 }
+
+const BTN_BASE =
+  "btn-premium inline-flex min-h-12 items-center justify-center rounded-xl px-5 text-sm font-semibold";
+
+const BTN_STYLES = {
+  primary: "btn-glow bg-accent text-accent-ink hover:bg-accent-hot",
+  ghost:
+    "border border-line text-ink hover:border-accent/50 hover:bg-surface2",
+  danger: "bg-err/15 text-err ring-1 ring-err/25 hover:bg-err/25",
+};
 
 export function LinkButton({
   href,
@@ -106,14 +116,8 @@ export function LinkButton({
   variant?: "primary" | "ghost";
   className?: string;
 }) {
-  const base =
-    "inline-flex min-h-12 items-center justify-center rounded-xl px-5 text-sm font-semibold transition-colors";
-  const styles =
-    variant === "primary"
-      ? "bg-accent text-accent-ink hover:bg-accent/90"
-      : "border border-line text-ink hover:bg-surface2";
   return (
-    <Link href={href} className={`${base} ${styles} ${className}`}>
+    <Link href={href} className={`${BTN_BASE} ${BTN_STYLES[variant]} ${className}`}>
       {children}
     </Link>
   );
@@ -132,20 +136,38 @@ export function Button({
   className?: string;
   disabled?: boolean;
 }) {
-  const base =
-    "inline-flex min-h-12 items-center justify-center rounded-xl px-5 text-sm font-semibold transition-colors disabled:opacity-40";
-  const styles =
-    variant === "primary"
-      ? "bg-accent text-accent-ink hover:bg-accent/90"
-      : variant === "danger"
-        ? "bg-err/15 text-err hover:bg-err/25"
-        : "border border-line text-ink hover:bg-surface2";
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`${base} ${styles} ${className}`}
+      className={`${BTN_BASE} ${BTN_STYLES[variant]} disabled:pointer-events-none disabled:opacity-40 ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Filter pill group — the segmented control used across list screens. */
+export function Pill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`btn-premium min-h-10 rounded-full px-4 text-xs font-bold uppercase tracking-wider transition-colors ${
+        active
+          ? "bg-accent text-accent-ink shadow-[0_4px_20px_-6px_var(--glow-accent)]"
+          : "border border-line text-dim hover:border-accent/40 hover:text-ink"
+      }`}
     >
       {children}
     </button>
@@ -162,12 +184,42 @@ export function EmptyState({
   action?: React.ReactNode;
 }) {
   return (
-    <Card className="tile-texture flex flex-col items-center gap-3 py-12 text-center">
-      <p className="stat-display text-xl font-bold uppercase tracking-wide">
+    <Card className="relative flex flex-col items-center gap-3 overflow-hidden py-14 text-center">
+      <div className="court-lines absolute inset-0" aria-hidden />
+      <span
+        aria-hidden
+        className="float-slow text-3xl"
+        role="presentation"
+      >
+        🏐
+      </span>
+      <p className="stat-display relative text-xl font-bold uppercase tracking-wide">
         {title}
       </p>
-      {hint && <p className="max-w-sm text-sm text-dim">{hint}</p>}
-      {action}
+      {hint && <p className="relative max-w-sm text-sm text-dim">{hint}</p>}
+      {action && <div className="relative mt-1">{action}</div>}
     </Card>
+  );
+}
+
+/** Shimmer placeholder — replaces blank screens while the store hydrates. */
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`skeleton ${className}`} aria-hidden />;
+}
+
+export function PageSkeleton() {
+  return (
+    <div className="space-y-6" role="status" aria-label="Loading">
+      <div className="space-y-2">
+        <Skeleton className="h-9 w-56" />
+        <Skeleton className="h-4 w-80" />
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Skeleton className="h-28" />
+        <Skeleton className="h-28" />
+        <Skeleton className="h-28" />
+      </div>
+      <Skeleton className="h-64" />
+    </div>
   );
 }
