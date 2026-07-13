@@ -15,6 +15,11 @@ export interface PlayerLine {
   spikeAttempts: number;
   spikeSuccesses: number; // POINT + IN
   points: number; // POINT
+  // Receive (universal)
+  receiveAttempts: number;
+  receivesPerfect: number; // RECV_PERFECT only — pass-quality highlight
+  receivesGood: number; // RECV_PERFECT + RECV_GOOD (positive passes)
+  receiveErrors: number;
   // Setter
   setAttempts: number;
   setSuccesses: number; // ASSIST + GOOD
@@ -44,6 +49,10 @@ const zero = (playerId: string): PlayerLine => ({
   spikeAttempts: 0,
   spikeSuccesses: 0,
   points: 0,
+  receiveAttempts: 0,
+  receivesPerfect: 0,
+  receivesGood: 0,
+  receiveErrors: 0,
   setAttempts: 0,
   setSuccesses: 0,
   assists: 0,
@@ -73,6 +82,23 @@ const COUNTERS: Record<EventType, (l: PlayerLine) => void> = {
   },
   SPIKE_ERR: (l) => {
     l.spikeAttempts++;
+    l.errors++;
+  },
+  RECV_PERFECT: (l) => {
+    l.receiveAttempts++;
+    l.receivesPerfect++;
+    l.receivesGood++;
+  },
+  RECV_GOOD: (l) => {
+    l.receiveAttempts++;
+    l.receivesGood++;
+  },
+  RECV_POOR: (l) => {
+    l.receiveAttempts++;
+  },
+  RECV_ERR: (l) => {
+    l.receiveAttempts++;
+    l.receiveErrors++;
     l.errors++;
   },
   SET_ASSIST: (l) => {
@@ -203,6 +229,135 @@ export function teamTotals(players: Player[], events: StatEvent[]): TeamTotals {
   };
 }
 
+/**
+ * Team-level aggregate for ONE side of a match, straight from events.
+ * Works for the opponent too (whose players have no roles/roster) —
+ * powers the fan-facing head-to-head stat bars. Percentages are null
+ * until the first attempt exists, so the UI can render placeholders.
+ */
+export interface SideTotals {
+  /** Points earned by own action: kills + aces + block wins. */
+  earned: number;
+  kills: number;
+  spikeAttempts: number;
+  /** Kill percentage. */
+  attackPct: number | null;
+  aces: number;
+  serveAttempts: number;
+  /** Serves that stayed in play (incl. aces). */
+  servePct: number | null;
+  recvPositive: number;
+  recvAttempts: number;
+  /** Positive-pass percentage. */
+  recvPct: number | null;
+  blocks: number;
+  blockAttempts: number;
+  blockPct: number | null;
+  saves: number;
+  superDigs: number;
+  assists: number;
+  errors: number;
+}
+
+export function sideTotals(events: StatEvent[], opp: boolean): SideTotals {
+  const t: SideTotals = {
+    earned: 0,
+    kills: 0,
+    spikeAttempts: 0,
+    attackPct: null,
+    aces: 0,
+    serveAttempts: 0,
+    servePct: null,
+    recvPositive: 0,
+    recvAttempts: 0,
+    recvPct: null,
+    blocks: 0,
+    blockAttempts: 0,
+    blockPct: null,
+    saves: 0,
+    superDigs: 0,
+    assists: 0,
+    errors: 0,
+  };
+  let serveErrors = 0;
+  for (const e of events) {
+    if (!!e.opp !== opp) continue;
+    switch (e.type) {
+      case "SPIKE_POINT":
+        t.kills++;
+        t.spikeAttempts++;
+        t.earned++;
+        break;
+      case "SPIKE_IN":
+        t.spikeAttempts++;
+        break;
+      case "SPIKE_ERR":
+        t.spikeAttempts++;
+        t.errors++;
+        break;
+      case "SERVE_ACE":
+        t.aces++;
+        t.serveAttempts++;
+        t.earned++;
+        break;
+      case "SERVE_IN":
+        t.serveAttempts++;
+        break;
+      case "SERVE_ERR":
+        t.serveAttempts++;
+        serveErrors++;
+        t.errors++;
+        break;
+      case "RECV_PERFECT":
+      case "RECV_GOOD":
+        t.recvAttempts++;
+        t.recvPositive++;
+        break;
+      case "RECV_POOR":
+        t.recvAttempts++;
+        break;
+      case "RECV_ERR":
+        t.recvAttempts++;
+        t.errors++;
+        break;
+      case "BLOCK_WIN":
+        t.blocks++;
+        t.blockAttempts++;
+        t.earned++;
+        break;
+      case "BLOCK_MISS":
+        t.blockAttempts++;
+        t.errors++;
+        break;
+      case "DIG_SUPER":
+        t.saves++;
+        t.superDigs++;
+        break;
+      case "DIG_SAVE":
+        t.saves++;
+        break;
+      case "DIG_FAIL":
+        t.errors++;
+        break;
+      case "SET_ASSIST":
+        t.assists++;
+        break;
+      case "SET_GOOD":
+        break;
+      case "SET_ERR":
+        t.errors++;
+        break;
+    }
+  }
+  const pct = (num: number, den: number) =>
+    den > 0 ? Math.round((num / den) * 1000) / 10 : null;
+  t.attackPct = pct(t.kills, t.spikeAttempts);
+  t.servePct = pct(t.serveAttempts - serveErrors, t.serveAttempts);
+  t.recvPct = pct(t.recvPositive, t.recvAttempts);
+  t.blockPct = pct(t.blocks, t.blockAttempts);
+  return t;
+}
+
 /** Best performer helpers for the Match Dashboard. */
 export function topBy(
   ls: PlayerLine[],
@@ -250,6 +405,7 @@ export function seasonRecord(
   const types = new Set(RECORD_EVENT[stat]);
   for (const e of events) {
     if (!types.has(e.type)) continue;
+    if (e.opp) continue; // opponent taps never set Guardians season records
     const key = `${e.matchId}|${e.playerId}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }

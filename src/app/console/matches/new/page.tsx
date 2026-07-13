@@ -6,8 +6,10 @@ import { useStore } from "@/lib/store";
 import { Button, Card, PageHeader, PageSkeleton, RoleTag } from "@/components/ui";
 
 /**
- * Match setup (planning Phase 4): ≤6 fields, roster pre-selected
- * from the full squad, done in under 2 minutes.
+ * Match basics (planning Phase 4): ≤6 fields, squad pre-selected,
+ * done in under 2 minutes. Everything match-flow related — toss,
+ * starting six, opponent players, court view — lives in the setup
+ * wizard on the rally route, which this page hands off to.
  */
 export default function NewMatch() {
   const router = useRouter();
@@ -38,7 +40,7 @@ export default function NewMatch() {
       totalSets,
       roster: [...selected],
     });
-    router.push(`/console/matches/${match.id}/live`);
+    router.push(`/console/matches/${match.id}/rally`);
   };
 
   const inputCls =
@@ -136,7 +138,7 @@ export default function NewMatch() {
 
       <div className="flex gap-3">
         <Button onClick={submit} disabled={!valid} className="flex-1">
-          Start Match →
+          Continue → Toss
         </Button>
       </div>
       {!valid && (

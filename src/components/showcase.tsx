@@ -204,6 +204,7 @@ export function SectionLabel({ children }: { children: React.ReactNode }) {
 
 // ---- Scroll-aware public navigation (glass on scroll) ----
 const NAV_LINKS = [
+  { href: "/live", label: "Live" },
   { href: "/team", label: "Team" },
   { href: "/matches", label: "Matches" },
 ];

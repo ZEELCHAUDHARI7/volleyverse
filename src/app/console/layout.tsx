@@ -61,7 +61,8 @@ export default function ConsoleLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const isLive = pathname.includes("/live");
+  // Both courtside entry screens run full-screen (no nav competing with taps).
+  const isLive = pathname.includes("/live") || pathname.includes("/rally");
 
   return (
     <StoreProvider>

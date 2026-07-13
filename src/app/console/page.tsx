@@ -60,8 +60,8 @@ export default function ConsoleHome() {
               </p>
             </div>
             <div className="flex gap-2">
-              <LinkButton href={`/console/matches/${live.id}/live`}>
-                Enter Stats
+              <LinkButton href={`/console/matches/${live.id}/rally`}>
+                Rally Tracker
               </LinkButton>
               <LinkButton href={`/console/matches/${live.id}`} variant="ghost">
                 Dashboard

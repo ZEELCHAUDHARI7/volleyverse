@@ -65,8 +65,8 @@ export default function MatchDashboard() {
           <div className="flex items-center gap-2">
             <PublishBadge published={match.published} />
             {match.status === "live" ? (
-              <LinkButton href={`/console/matches/${match.id}/live`}>
-                Enter Stats
+              <LinkButton href={`/console/matches/${match.id}/rally`}>
+                Rally Tracker
               </LinkButton>
             ) : (
               <LinkButton href={`/console/matches/${match.id}/review`} variant="ghost">

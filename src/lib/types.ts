@@ -26,6 +26,12 @@ export type EventType =
   | "SPIKE_POINT" // successful spike that scored
   | "SPIKE_IN" // successful spike, rally continued
   | "SPIKE_ERR" // attempt failed (out / blocked / net)
+  // Receive — universal (Rally Tracker Action 2). Quality of first contact
+  // off the opponent serve; feeds the Libero/Defender pass-quality stats.
+  | "RECV_PERFECT" // ideal ball to the setter
+  | "RECV_GOOD" // setter can run the offence
+  | "RECV_POOR" // in play but limits attack options
+  | "RECV_ERR" // ball lost off the serve — point to server
   // Setter
   | "SET_ASSIST" // set that led directly to a point
   | "SET_GOOD" // accurate set, no direct point
@@ -55,6 +61,18 @@ export interface Player {
 
 export type MatchStatus = "live" | "completed";
 
+/**
+ * Opponent player — per-match manual entry (name is all we ask courtside).
+ * Lives on the Match, not in the club roster: opponents change every game
+ * and never appear in the public showcase. Their StatEvents (flagged
+ * `opp: true`) enable post-match scouting reports without touching any
+ * Guardians analytics, which all aggregate per roster player.
+ */
+export interface OppPlayer {
+  id: string; // `${matchId}_oppN` — unique across matches
+  name: string;
+}
+
 export interface Match {
   id: string;
   opponent: string;
@@ -66,6 +84,8 @@ export interface Match {
   published: boolean;
   /** Players registered for this match (roles can flex per match — FR6). */
   roster: string[];
+  /** Opponent's on-court players, entered at match setup (optional — older matches predate this). */
+  oppPlayers?: OppPlayer[];
 }
 
 export interface StatEvent {
@@ -75,6 +95,9 @@ export interface StatEvent {
   set: number; // 1-based
   type: EventType;
   ts: number; // epoch ms — preserves entry order for undo
+  /** True when playerId is an opponent player. Guardians metrics filter by
+   * roster ids anyway; this flag exists so season records skip them cheaply. */
+  opp?: boolean;
 }
 
 export interface Db {

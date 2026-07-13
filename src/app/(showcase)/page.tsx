@@ -25,6 +25,7 @@ import {
   type TickerItem,
 } from "@/components/match-night";
 import { LinkButton } from "@/components/ui";
+import { LiveNow } from "@/components/live-now";
 import { ROLE_LABEL } from "@/lib/types";
 
 /**
@@ -174,6 +175,9 @@ export default function ShowcaseHome() {
           <BroadcastTicker items={ticker} />
         </div>
       </section>
+
+      {/* ============ 01.5 · LIVE NOW — renders only while a match is live ============ */}
+      <LiveNow />
 
       {/* ============ 02 · MATCHDAY ============ */}
       {CLUB.nextFixture && (

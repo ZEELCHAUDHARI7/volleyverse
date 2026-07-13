@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { Db, EventType, Match, Player, StatEvent } from "./types";
+import type { Db, EventType, Match, OppPlayer, Player, StatEvent } from "./types";
 import { buildSeed } from "./seed";
 
 /**
@@ -51,7 +51,9 @@ interface StoreApi {
   createMatch: (m: Omit<Match, "id" | "status" | "published">) => Match;
   completeMatch: (matchId: string) => void;
   setPublished: (matchId: string, published: boolean) => void;
-  addEvent: (matchId: string, playerId: string, set: number, type: EventType) => StatEvent;
+  /** Attach the opponent's entered players to a match (rally setup wizard). */
+  setOppPlayers: (matchId: string, players: OppPlayer[]) => void;
+  addEvent: (matchId: string, playerId: string, set: number, type: EventType, opp?: boolean) => StatEvent;
   removeEvent: (eventId: string) => void;
   /** Post-match correction: remove the most recent event of a type (FR3). */
   removeLatestOfType: (matchId: string, playerId: string, type: EventType) => void;
@@ -68,6 +70,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setDb(load());
     setReady(true);
+  }, []);
+
+  // Cross-tab sync: the console tab writes, fan tabs follow instantly.
+  // localStorage fires `storage` in every OTHER tab of the same browser —
+  // the local-first stand-in for the future Supabase realtime channel.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== KEY || e.newValue == null) return;
+      try {
+        setDb(JSON.parse(e.newValue) as Db);
+      } catch {
+        // partial write / corrupt payload — keep current state
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   const update = useCallback((fn: (prev: Db) => Db) => {
@@ -103,8 +121,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           m.id === matchId ? { ...m, published } : m,
         ),
       })),
-    addEvent: (matchId, playerId, set, type) => {
-      const e: StatEvent = { id: newId("e"), matchId, playerId, set, type, ts: Date.now() };
+    setOppPlayers: (matchId, players) =>
+      update((prev) => ({
+        ...prev,
+        matches: prev.matches.map((m) =>
+          m.id === matchId ? { ...m, oppPlayers: players } : m,
+        ),
+      })),
+    addEvent: (matchId, playerId, set, type, opp) => {
+      const e: StatEvent = {
+        id: newId("e"),
+        matchId,
+        playerId,
+        set,
+        type,
+        ts: Date.now(),
+        ...(opp ? { opp: true } : {}),
+      };
       update((prev) => ({ ...prev, events: [...prev.events, e] }));
       return e;
     },
