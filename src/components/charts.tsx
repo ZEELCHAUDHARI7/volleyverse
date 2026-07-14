@@ -15,7 +15,7 @@ import {
   YAxis,
   ZAxis,
 } from "recharts";
-import type { Player, StatEvent, Match } from "@/lib/types";
+import type { Player, StatEvent, Match, Team } from "@/lib/types";
 import {
   defensiveScore,
   lines,
@@ -25,10 +25,19 @@ import {
 } from "@/lib/metrics";
 
 /**
- * The five charts from the client brief, token-themed.
+ * Analytics charts — fully prop-driven, token-themed.
  * All charts read brand colors from CSS variables at render time,
- * so the white-label theme swap covers data-viz too.
+ * so a theme swap covers data-viz too. No chart imports entity data;
+ * players/events/matches/teams always arrive via props.
  */
+
+/** Short label for the other side of a match, from a player's perspective. */
+function opponentLabel(m: Match, teamId: string | undefined, teams: Team[]): string {
+  const oppId = teamId && m.homeTeamId === teamId ? m.awayTeamId : m.homeTeamId;
+  return teams.find((t) => t.id === oppId)?.shortName ?? "TBD";
+}
+
+const isAttacker = (p: Player) => p.position === "OH" || p.position === "OPP";
 
 const css = (name: string, fallback: string) =>
   typeof window !== "undefined"
@@ -96,7 +105,7 @@ function ChartShell({
   );
 }
 
-/** 1 — Points scored by each spiker (match MVP). */
+/** 1 — Points scored by each attacker (match MVP). */
 export function PointsBySpiker({
   players,
   events,
@@ -104,16 +113,16 @@ export function PointsBySpiker({
   players: Player[];
   events: StatEvent[];
 }) {
-  const spikers = players.filter((p) => p.role === "SPIKER");
-  const data = lines(spikers, events)
+  const attackers = players.filter(isAttacker);
+  const data = lines(attackers, events)
     .map((l) => ({
-      name: firstName(spikers.find((p) => p.id === l.playerId)!.name),
+      name: firstName(attackers.find((p) => p.id === l.playerId)!.fullName),
       points: l.points,
     }))
     .sort((a, b) => b.points - a.points);
   const t = theme();
   return (
-    <ChartShell title="Points by Spiker" insight="Who is the MVP this match?">
+    <ChartShell title="Points by Attacker" insight="Who is the MVP this match?">
       <BarChart data={data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke={t.line} vertical={false} />
         <XAxis dataKey="name" {...axisProps()} />
@@ -125,7 +134,7 @@ export function PointsBySpiker({
   );
 }
 
-/** 2 — Spike success rate per spiker (reliability). */
+/** 2 — Spike success rate per attacker (reliability). */
 export function SpikeSuccessRate({
   players,
   events,
@@ -133,10 +142,10 @@ export function SpikeSuccessRate({
   players: Player[];
   events: StatEvent[];
 }) {
-  const spikers = players.filter((p) => p.role === "SPIKER");
-  const data = lines(spikers, events)
+  const attackers = players.filter(isAttacker);
+  const data = lines(attackers, events)
     .map((l) => ({
-      name: firstName(spikers.find((p) => p.id === l.playerId)!.name),
+      name: firstName(attackers.find((p) => p.id === l.playerId)!.fullName),
       rate: l.successRate ?? 0,
     }))
     .sort((a, b) => b.rate - a.rate);
@@ -162,9 +171,9 @@ export function SetterAccuracyVsAssists({
   players: Player[];
   events: StatEvent[];
 }) {
-  const setters = players.filter((p) => p.role === "SETTER");
+  const setters = players.filter((p) => p.position === "S");
   const data = lines(setters, events).map((l) => ({
-    name: firstName(setters.find((p) => p.id === l.playerId)!.name),
+    name: firstName(setters.find((p) => p.id === l.playerId)!.fullName),
     accuracy: l.successRate ?? 0,
     assists: l.assists,
   }));
@@ -187,7 +196,7 @@ export function SetterAccuracyVsAssists({
   );
 }
 
-/** 4 — Reach vs success rate (the key insight from the pitch deck). */
+/** 4 — Height vs attack success rate. */
 export function ReachVsSuccess({
   players,
   events,
@@ -195,13 +204,13 @@ export function ReachVsSuccess({
   players: Player[];
   events: StatEvent[];
 }) {
-  const spikers = players.filter((p) => p.role === "SPIKER");
-  const data = spikers
+  const data = players
+    .filter((p) => isAttacker(p) && p.heightCm !== null)
     .map((p) => {
       const l = playerLine(p, events);
       return {
-        name: p.name,
-        reach: p.reachM,
+        name: p.fullName,
+        height: p.heightCm as number,
         rate: l.successRate ?? 0,
         points: l.points,
       };
@@ -210,26 +219,25 @@ export function ReachVsSuccess({
   const t = theme();
   return (
     <ChartShell
-      title="Reach vs Success Rate"
-      insight="Higher reach above the net → higher success. The data makes it undeniable."
+      title="Height vs Attack Success"
+      insight="Does height above the net translate into kills?"
     >
       <ScatterChart margin={{ top: 8, right: 16, left: -8, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke={t.line} />
         <XAxis
           type="number"
-          dataKey="reach"
-          name="Reach"
-          unit="m"
-          domain={["dataMin - 0.03", "dataMax + 0.03"]}
+          dataKey="height"
+          name="Height"
+          unit="cm"
+          domain={["dataMin - 2", "dataMax + 2"]}
           {...axisProps()}
-          tickFormatter={(v: number) => v.toFixed(2)}
         />
-        <YAxis type="number" dataKey="rate" name="Success" unit="%" domain={[50, 100]} {...axisProps()} />
+        <YAxis type="number" dataKey="rate" name="Success" unit="%" domain={[0, 100]} {...axisProps()} />
         <ZAxis type="number" dataKey="points" range={[60, 260]} name="Points" />
         <Tooltip
           {...tooltipStyle()}
           formatter={(value, name) =>
-            name === "Reach" ? [`${Number(value).toFixed(2)} m`, name] : [name === "Success" ? `${value}%` : value, name]
+            name === "Height" ? [`${value} cm`, name] : [name === "Success" ? `${value}%` : value, name]
           }
         />
         <Scatter data={data} fill={t.accent} fillOpacity={0.85} stroke={t.accent} />
@@ -238,7 +246,7 @@ export function ReachVsSuccess({
   );
 }
 
-/** 6 — Aces per player (Suggestion 1: the drama stat). */
+/** 6 — Aces per player (the drama stat). */
 export function AcesByPlayer({
   players,
   events,
@@ -248,7 +256,7 @@ export function AcesByPlayer({
 }) {
   const data = lines(players, events)
     .map((l) => ({
-      name: firstName(players.find((p) => p.id === l.playerId)!.name),
+      name: firstName(players.find((p) => p.id === l.playerId)!.fullName),
       aces: l.aces,
     }))
     .filter((d) => d.aces > 0)
@@ -268,7 +276,7 @@ export function AcesByPlayer({
   );
 }
 
-/** 7 — Super Digs per player (Suggestion 2: defenders become heroes). */
+/** 7 — Super Digs per player (defenders become heroes). */
 export function SuperDigsByPlayer({
   players,
   events,
@@ -278,7 +286,7 @@ export function SuperDigsByPlayer({
 }) {
   const data = lines(players, events)
     .map((l) => ({
-      name: firstName(players.find((p) => p.id === l.playerId)!.name),
+      name: firstName(players.find((p) => p.id === l.playerId)!.fullName),
       superDigs: l.superDigs,
     }))
     .filter((d) => d.superDigs > 0)
@@ -305,11 +313,13 @@ export function SuperDigsByPlayer({
 export function RecordsStrip({
   players,
   matches,
+  teams,
   events,
   stats = ["aces", "superDigs", "points"],
 }: {
   players: Player[];
   matches: Match[];
+  teams: Team[];
   events: StatEvent[];
   stats?: RecordStat[];
 }) {
@@ -337,14 +347,14 @@ export function RecordsStrip({
               🏆 Season high
             </p>
             <p className="stat-display mt-1 text-lg font-extrabold uppercase leading-tight">
-              {player?.name ?? "N/A"}
+              {player?.fullName ?? "N/A"}
             </p>
             <p className="tnum mt-0.5 text-sm text-dim">
               <span className="stat-display text-xl font-extrabold text-ink">
                 {rec!.value}
               </span>{" "}
               {LABEL[stat].unit}
-              {match ? ` · vs ${match.opponent}` : ""}
+              {match ? ` · vs ${opponentLabel(match, player?.teamId, teams)}` : ""}
             </p>
           </div>
         );
@@ -372,7 +382,7 @@ export function DefendersLeaderboard({
   return (
     <div className="card-premium rounded-2xl p-4">
       <h3 className="stat-display text-lg font-bold uppercase tracking-wide">
-        Guardians of the Floor
+        Floor Defenders
       </h3>
       <p className="mb-3 mt-0.5 text-xs text-dim">
         Top defenders: blocks, digs and super digs combined.
@@ -389,7 +399,7 @@ export function DefendersLeaderboard({
                 <span className="stat-display tnum w-5 text-center text-sm font-extrabold text-dim">
                   {i + 1}
                 </span>
-                <span className="text-sm font-semibold">{p.name}</span>
+                <span className="text-sm font-semibold">{p.fullName}</span>
               </span>
               <span className="tnum text-xs text-dim">
                 {l.blocks} blk · {l.saves} dig ·{" "}
@@ -410,11 +420,13 @@ export function DefendersLeaderboard({
 export function TrendAcrossMatches({
   player,
   matches,
+  teams,
   events,
   metric = "points",
 }: {
   player: Player;
   matches: Match[];
+  teams: Team[];
   events: StatEvent[];
   metric?: "points" | "successRate" | "contribution";
 }) {
@@ -424,7 +436,7 @@ export function TrendAcrossMatches({
   const data = completed.map((m) => {
     const l = playerLine(player, events.filter((e) => e.matchId === m.id));
     return {
-      name: `vs ${m.opponent.split(" ")[0]}`,
+      name: `vs ${opponentLabel(m, player.teamId, teams)}`,
       value:
         metric === "points"
           ? l.points
@@ -442,7 +454,7 @@ export function TrendAcrossMatches({
   const t = theme();
   return (
     <ChartShell
-      title={`${firstName(player.name)} · ${label} per match`}
+      title={`${firstName(player.fullName)} · ${label} per match`}
       insight="Is this player improving across the season?"
       height={220}
     >

@@ -1,9 +1,10 @@
 /**
  * Pure-engine tests. Run: node --experimental-strip-types src/lib/rally.test.mjs
- * (rally.ts has only a type-only import so node's type-stripping handles it).
- * No test framework — tiny asserts, zero deps.
+ * (rally.ts has only a type-only import so node's type-stripping handles it.)
+ * No test framework — tiny asserts, zero deps. Presentation lives in console-ui.mjs.
  */
 import assert from "node:assert/strict";
+import { createRunner } from "./console-ui.mjs";
 import {
   rotate,
   serverId,
@@ -22,14 +23,14 @@ import {
   POSITIONS,
 } from "./rally.ts";
 
-let passed = 0;
-const t = (name, fn) => {
-  fn();
-  passed++;
-  console.log("  ✓", name);
-};
+const qa = createRunner({
+  title: "VOLLEYVERSE QA AGENT",
+  subtitle: "Rally Engine Verification Suite",
+  file: "src/lib/rally.test.mjs",
+});
+const t = (name, fn) => qa.test(name, fn);
 
-// ---- rotation ----
+qa.suite("Rotation Engine");
 const L = { 1: "a", 2: "b", 3: "c", 4: "d", 5: "e", 6: "f" };
 
 t("rotate shifts clockwise; P2 moves to the serving slot", () => {
@@ -56,7 +57,8 @@ t("lineup covers all six positions uniquely", () => {
   assert.equal(new Set(POSITIONS.map((p) => L[p])).size, 6);
 });
 
-// ---- toss ----
+qa.suite("Coin Toss & Serve Order");
+
 t("toss: winner chooses serve → they serve; chooses receive → other serves", () => {
   assert.equal(servingFromToss({ winner: "US", choice: "SERVE" }), "US");
   assert.equal(servingFromToss({ winner: "US", choice: "RECEIVE" }), "OPP");
@@ -71,7 +73,8 @@ t("first serve alternates each set from the toss", () => {
   assert.equal(servingForSet(toss, 3), "US");
 });
 
-// ---- side-out / rotation trigger (both teams) ----
+qa.suite("Side-Out & Rotation Trigger");
+
 t("server wins → keeps serving, nobody rotates", () => {
   const { nextServing, rotateWinner } = resolvePoint("US", "US");
   assert.equal(nextServing, "US");
@@ -86,7 +89,8 @@ t("receiver wins → side-out: winner rotates and gains serve", () => {
   }
 });
 
-// ---- action inference ----
+qa.suite("Action Inference");
+
 t("DEFEND infers block for front row, dig for back row/libero", () => {
   assert.equal(inferAction("DEFEND", true), "BLOCK");
   assert.equal(inferAction("DEFEND", false), "DIG");
@@ -95,7 +99,8 @@ t("DEFEND infers block for front row, dig for back row/libero", () => {
   assert.equal(inferAction("SERVE", false), "SERVE");
 });
 
-// ---- the ✓ O ✗ table ----
+qa.suite("Trio Resolution (✓ O ✗ Table)");
+
 t("every action × trio resolves to a point OR a next phase, never neither", () => {
   for (const action of ["SERVE", "RECEIVE", "SET", "ATTACK", "BLOCK", "DIG"]) {
     for (const trio of TRIOS) {
@@ -152,13 +157,15 @@ t("receive/set quality maps ✓=perfect/playable, O=good, both continue", () => 
   assert.equal(resolveTrio("SET", "US", "WIN").nextPhase, "ATTACK");
 });
 
-// ---- skip ----
+qa.suite("Phase Skipping");
+
 t("skip advances the flow without logging", () => {
   assert.deepEqual(skipPhase("SERVE", "US"), { nextPhase: "RECEIVE", nextSide: "OPP" });
   assert.deepEqual(skipPhase("DEFEND", "OPP"), { nextPhase: "SET", nextSide: "OPP" });
 });
 
-// ---- match state ----
+qa.suite("Match State");
+
 t("initial state: toss decides who serves, rally opens at their SERVE", () => {
   const us = { lineup: L, liberoId: null };
   const opp = { lineup: { 1: "o1", 2: "o2", 3: "o3", 4: "o4", 5: "o5", 6: "o6" }, liberoId: null };
@@ -176,7 +183,8 @@ t("openingRally always starts at SERVE for the serving side", () => {
   assert.equal(other(r.side), "OPP");
 });
 
-// ---- set point ----
+qa.suite("Set Point");
+
 t("25-23 is set; 25-24 is not (win by 2); deciding-set 15 respected", () => {
   assert.equal(setPointReached(25, 23), true);
   assert.equal(setPointReached(25, 24), false);
@@ -185,4 +193,4 @@ t("25-23 is set; 25-24 is not (win by 2); deciding-set 15 respected", () => {
   assert.equal(setPointReached(14, 10, 15), false);
 });
 
-console.log(`\n${passed} tests passed.`);
+qa.finish();

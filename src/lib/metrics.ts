@@ -1,17 +1,19 @@
-import type { EventType, Player, Role, StatEvent } from "./types";
+import type { EventType, Match, Player, PlayerPosition, StatEvent } from "./types";
 
 /**
- * Derived metrics — pure functions, no storage (FR5).
+ * Derived metrics — pure functions, no storage.
  *
- * OPEN CLIENT QUESTION (planning Phase 5): the reference Excel's
- * "Game Impact %" formula is undefined (values exceed 100%).
- * Until the client signs off a formula, we ship a documented
- * Contribution Index instead — see contribution() below.
+ * Everything here computes from StatEvents and Match set scores; nothing
+ * is stored by hand. In PostgreSQL these become SQL views over
+ * stat_events + match_sets (see supabase/schema.sql).
+ *
+ * OPEN PRODUCT QUESTION: the Contribution Index below is a documented
+ * placeholder weighting, pending a signed-off impact formula.
  */
 
 export interface PlayerLine {
   playerId: string;
-  // Spiker
+  // Attack
   spikeAttempts: number;
   spikeSuccesses: number; // POINT + IN
   points: number; // POINT
@@ -20,11 +22,11 @@ export interface PlayerLine {
   receivesPerfect: number; // RECV_PERFECT only — pass-quality highlight
   receivesGood: number; // RECV_PERFECT + RECV_GOOD (positive passes)
   receiveErrors: number;
-  // Setter
+  // Setting
   setAttempts: number;
   setSuccesses: number; // ASSIST + GOOD
   assists: number; // ASSIST
-  // Centre
+  // Blocking
   blockAttempts: number;
   blocks: number; // WIN
   // Serve (universal)
@@ -38,9 +40,9 @@ export interface PlayerLine {
   digFails: number;
   // Cross-role
   errors: number;
-  /** Role-appropriate success rate, 0–100, null when no attempts. */
+  /** Position-appropriate success rate, 0–100, null when no attempts. */
   successRate: number | null;
-  /** Contribution Index — documented placeholder for "Game Impact". */
+  /** Contribution Index — documented placeholder for impact. */
   contribution: number;
 }
 
@@ -150,22 +152,32 @@ const COUNTERS: Record<EventType, (l: PlayerLine) => void> = {
   },
 };
 
-function finalize(line: PlayerLine, role: Role): PlayerLine {
-  const rate =
-    role === "SPIKER"
-      ? line.spikeAttempts > 0
-        ? (line.spikeSuccesses / line.spikeAttempts) * 100
-        : null
-      : role === "SETTER"
-        ? line.setAttempts > 0
-          ? (line.setSuccesses / line.setAttempts) * 100
-          : null
-        : line.blockAttempts > 0
-          ? (line.blocks / line.blockAttempts) * 100
-          : null;
+/** The headline rate depends on what the position is on court to do. */
+function positionRate(line: PlayerLine, position: PlayerPosition): number | null {
+  const pct = (num: number, den: number) => (den > 0 ? (num / den) * 100 : null);
+  switch (position) {
+    case "OH":
+    case "OPP":
+      return pct(line.spikeSuccesses, line.spikeAttempts);
+    case "S":
+      return pct(line.setSuccesses, line.setAttempts);
+    case "MB":
+      return pct(line.blocks, line.blockAttempts);
+    case "L":
+    case "DS":
+      // Positive first contacts: good passes + successful digs.
+      return pct(
+        line.receivesGood + line.saves,
+        line.receiveAttempts + line.digAttempts,
+      );
+  }
+}
+
+function finalize(line: PlayerLine, position: PlayerPosition): PlayerLine {
+  const rate = positionRate(line, position);
 
   // Contribution Index: direct points weighted highest; creation and
-  // prevention valued; errors subtract. Pending client formula sign-off.
+  // prevention valued; errors subtract. Pending product sign-off.
   const contribution =
     line.points * 2 +
     line.assists * 1.5 +
@@ -193,7 +205,7 @@ export function playerLine(
   for (const e of events) {
     if (e.playerId === player.id) COUNTERS[e.type](line);
   }
-  return finalize(line, player.role);
+  return finalize(line, player.position);
 }
 
 /** Aggregate all players for a scope of events. */
@@ -231,9 +243,8 @@ export function teamTotals(players: Player[], events: StatEvent[]): TeamTotals {
 
 /**
  * Team-level aggregate for ONE side of a match, straight from events.
- * Works for the opponent too (whose players have no roles/roster) —
- * powers the fan-facing head-to-head stat bars. Percentages are null
- * until the first attempt exists, so the UI can render placeholders.
+ * Powers the head-to-head stat bars. Percentages are null until the
+ * first attempt exists, so the UI can render placeholders.
  */
 export interface SideTotals {
   /** Points earned by own action: kills + aces + block wins. */
@@ -259,7 +270,7 @@ export interface SideTotals {
   errors: number;
 }
 
-export function sideTotals(events: StatEvent[], opp: boolean): SideTotals {
+export function sideTotals(events: StatEvent[], teamId: string): SideTotals {
   const t: SideTotals = {
     earned: 0,
     kills: 0,
@@ -281,7 +292,7 @@ export function sideTotals(events: StatEvent[], opp: boolean): SideTotals {
   };
   let serveErrors = 0;
   for (const e of events) {
-    if (!!e.opp !== opp) continue;
+    if (e.teamId !== teamId) continue;
     switch (e.type) {
       case "SPIKE_POINT":
         t.kills++;
@@ -376,8 +387,8 @@ export function topDefender(ls: PlayerLine[]): PlayerLine | undefined {
 }
 
 // ---------------------------------------------------------------------
-// Season records engine (Suggestion 1 & 2): single-match highs, computed
-// live from events so a record "breaks" the moment it happens courtside.
+// Season records engine: single-match highs, computed live from events
+// so a record "breaks" the moment it happens courtside.
 // ---------------------------------------------------------------------
 
 export type RecordStat = "aces" | "superDigs" | "points" | "blocks";
@@ -405,7 +416,6 @@ export function seasonRecord(
   const types = new Set(RECORD_EVENT[stat]);
   for (const e of events) {
     if (!types.has(e.type)) continue;
-    if (e.opp) continue; // opponent taps never set Guardians season records
     const key = `${e.matchId}|${e.playerId}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
@@ -436,4 +446,94 @@ export function breaksRecord(
   ).length;
   // +1 for the event just tapped; a record only "breaks" if one existed
   return prior !== null && prior.value >= 2 && mine + 1 > prior.value;
+}
+
+// ---------------------------------------------------------------------
+// Standings — derived per tournament (or group) from completed matches.
+// In PostgreSQL this is the `standings` view; identical math.
+// ---------------------------------------------------------------------
+
+export interface StandingRow {
+  teamId: string;
+  played: number;
+  won: number;
+  lost: number;
+  setsWon: number;
+  setsLost: number;
+  pointsFor: number;
+  pointsAgainst: number;
+  /** League points: 3–0/3–1 win = 3, 3–2 win = 2, 2–3 loss = 1, else 0. */
+  points: number;
+  rank: number;
+}
+
+export function standings(matches: Match[]): StandingRow[] {
+  const rows = new Map<string, StandingRow>();
+  const row = (teamId: string): StandingRow => {
+    let r = rows.get(teamId);
+    if (!r) {
+      r = {
+        teamId,
+        played: 0,
+        won: 0,
+        lost: 0,
+        setsWon: 0,
+        setsLost: 0,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        points: 0,
+        rank: 0,
+      };
+      rows.set(teamId, r);
+    }
+    return r;
+  };
+
+  for (const m of matches) {
+    if (m.status !== "completed" || m.setScores.length === 0) continue;
+    const home = row(m.homeTeamId);
+    const away = row(m.awayTeamId);
+    let homeSets = 0;
+    let awaySets = 0;
+    for (const s of m.setScores) {
+      if (s.homePoints > s.awayPoints) homeSets++;
+      else if (s.awayPoints > s.homePoints) awaySets++;
+      home.pointsFor += s.homePoints;
+      home.pointsAgainst += s.awayPoints;
+      away.pointsFor += s.awayPoints;
+      away.pointsAgainst += s.homePoints;
+    }
+    home.played++;
+    away.played++;
+    home.setsWon += homeSets;
+    home.setsLost += awaySets;
+    away.setsWon += awaySets;
+    away.setsLost += homeSets;
+    const homeWon = m.winnerTeamId
+      ? m.winnerTeamId === m.homeTeamId
+      : homeSets > awaySets;
+    const [w, l, wSets, lSets] = homeWon
+      ? [home, away, homeSets, awaySets]
+      : [away, home, awaySets, homeSets];
+    w.won++;
+    l.lost++;
+    // FIVB-style points split.
+    if (wSets - lSets >= 2) {
+      w.points += 3;
+    } else {
+      w.points += 2;
+      l.points += 1;
+    }
+  }
+
+  const sorted = [...rows.values()].sort(
+    (a, b) =>
+      b.points - a.points ||
+      b.won - a.won ||
+      b.setsWon / Math.max(1, b.setsLost) - a.setsWon / Math.max(1, a.setsLost) ||
+      b.pointsFor / Math.max(1, b.pointsAgainst) -
+        a.pointsFor / Math.max(1, a.pointsAgainst),
+  );
+  sorted.forEach((r, i) => (r.rank = i + 1));
+  return sorted;
 }

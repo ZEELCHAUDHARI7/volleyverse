@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { CLUB } from "@/lib/club";
-import { lines, seasonRecord, teamTotals, topBy } from "@/lib/metrics";
+import { lines, seasonRecord, standings, topBy } from "@/lib/metrics";
 import type { RecordStat } from "@/lib/metrics";
 import {
   CountUp,
@@ -14,41 +13,55 @@ import {
 import {
   BroadcastTicker,
   CharReveal,
-  HeroCamera,
   Kicker,
   LedCountdown,
   LightsUp,
   Magnetic,
   Parallax,
   RafterBanner,
-  TiltCard,
   type TickerItem,
 } from "@/components/match-night";
 import { LinkButton } from "@/components/ui";
 import { LiveNow } from "@/components/live-now";
-import { ROLE_LABEL } from "@/lib/types";
+import { useActiveLeague } from "@/lib/store";
+import { POSITION_LABEL } from "@/lib/types";
+import type { Match, Team } from "@/lib/types";
 
 /**
- * MATCH NIGHT — the homepage as a walk through the arena.
+ * MATCH NIGHT — the league homepage as a walk through the arena.
+ * Every number and name on this page derives from store data
+ * (published matches only); nothing is hardcoded.
  *
  * 00 Lights up (entry, once per session)
  * 01 The court — floodlit hero, broadcast ticker
  * 02 Matchday — next fixture, LED countdown
  * 03 The scoreboard — season in numbers
- * 04 The spotlight — star player under one light
- * 05 Full-time — latest result as a TV graphic
- * 06 The squad — roster under the lights
- * 07 The rafters — honours + record banners overhead
- * 08 The tunnel — join the club
+ * 04 The spotlight — leading player of the season
+ * 05 Full-time — latest result
+ * 06 The table — league standings
+ * 07 The rafters — season record banners
  */
 export default function ShowcaseHome() {
   const { ready, db, matches, events } = usePublished();
+  const { league, season } = useActiveLeague();
   const [lit, setLit] = useState(false);
 
   if (!ready) return <ShowcaseSkeleton />;
 
+  const teamName = (id: string) => db.teams.find((t) => t.id === id)?.name ?? "TBD";
+  const teamShort = (id: string) =>
+    db.teams.find((t) => t.id === id)?.shortName ?? teamName(id);
+  const setsLine = (m: Match) => {
+    let home = 0;
+    let away = 0;
+    for (const s of m.setScores) {
+      if (s.homePoints > s.awayPoints) home++;
+      else if (s.awayPoints > s.homePoints) away++;
+    }
+    return `${home}–${away}`;
+  };
+
   // ---- derived, always from published events only ----
-  const totals = teamTotals(db.players, events);
   const seasonLines = lines(db.players, events);
   const star = topBy(seasonLines, "contribution");
   const starPlayer = star && db.players.find((p) => p.id === star.playerId);
@@ -60,14 +73,23 @@ export default function ShowcaseHome() {
   const latestTopPlayer =
     latestTop && db.players.find((p) => p.id === latestTop.playerId);
 
+  const nextFixture = db.matches
+    .filter((m) => m.status === "scheduled")
+    .sort((a, b) => a.dateISO.localeCompare(b.dateISO))[0];
+  const nextFixtureVenue =
+    nextFixture && db.venues.find((v) => v.id === nextFixture.venueId);
+
+  const table = standings(matches).slice(0, 6);
+
   const ticker: TickerItem[] = matches.slice(0, 6).map((m) => {
     const ls = lines(db.players, events.filter((e) => e.matchId === m.id));
     const top = topBy(ls, "points");
-    const topName = top && db.players.find((p) => p.id === top.playerId)?.name;
+    const topName =
+      top && db.players.find((p) => p.id === top.playerId)?.fullName;
     return {
       tag: "FT",
-      text: `${CLUB.nameShort} vs ${m.opponent}`,
-      detail: topName && top ? `${topName} ${top.points} pts` : m.venue,
+      text: `${teamShort(m.homeTeamId)} ${setsLine(m)} ${teamShort(m.awayTeamId)}`,
+      detail: topName && top ? `${topName} ${top.points} pts` : undefined,
     };
   });
 
@@ -82,30 +104,45 @@ export default function ShowcaseHome() {
     const r = seasonRecord(stat, events);
     if (!r) return [];
     const p = db.players.find((pl) => pl.id === r.playerId);
-    const m = matches.find((ma) => ma.id === r.matchId);
     return [
       {
         label,
         value: String(r.value),
-        sub: p ? `${p.name}${m ? ` · vs ${m.opponent}` : ""}` : undefined,
+        sub: p?.fullName,
       },
     ];
   });
 
+  const wordmark = league?.name ?? "VolleyVerse";
+  const words = wordmark.trim().split(/\s+/);
+  const lead = words.slice(0, -1).join(" ");
+  const accent = words[words.length - 1];
+
+  const scoreboard = [
+    { n: db.teams.length, label: "Teams", suffix: "" },
+    { n: matches.length, label: "Matches played", suffix: "" },
+    {
+      n: matches.reduce(
+        (s, m) => s + m.setScores.reduce((x, ss) => x + ss.homePoints + ss.awayPoints, 0),
+        0,
+      ),
+      label: "Points scored",
+      suffix: "",
+    },
+    {
+      n: seasonLines.reduce((s, l) => s + l.aces, 0),
+      label: "Service aces",
+      suffix: "",
+    },
+  ];
+
   return (
     <div className="overflow-x-clip">
-      <LightsUp wordmark={CLUB.name} onDone={() => setLit(true)} />
+      <LightsUp wordmark={wordmark} onDone={() => setLit(true)} />
 
       {/* ============ 01 · THE COURT ============ */}
       <section className="relative -mt-20 min-h-[100svh] overflow-hidden">
-        {/* graded photo, slow camera push */}
-        <HeroCamera className="absolute inset-0">
-          <div className="mn-photo h-full w-full">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={CLUB.photos.hero.src} alt={CLUB.photos.hero.alt} loading="eager" />
-          </div>
-        </HeroCamera>
-
+        <div className="court-floor absolute inset-0" aria-hidden />
         {/* floodlight rig */}
         <div aria-hidden className="absolute inset-0 overflow-hidden">
           <div className="light-cone left-[6%]" style={{ ["--beam-r" as string]: "14deg" }} />
@@ -122,43 +159,39 @@ export default function ShowcaseHome() {
             className="data-type mb-5 text-[11px] font-semibold uppercase tracking-[0.4em]"
             style={{ color: "var(--brand-flood)" }}
           >
-            {CLUB.league} · {CLUB.city}
+            {season ? `Season ${season.name}` : "Professional volleyball, tracked live"}
           </p>
-          <h1 className="hero-type text-[clamp(4.2rem,16vw,14rem)] text-ink">
+          <h1 className="hero-type text-[clamp(3.2rem,13vw,12rem)] text-ink">
             {lit ? (
               <>
-                <span className="block">
-                  <CharReveal text="Goa" />
-                </span>
+                {lead && (
+                  <span className="block">
+                    <CharReveal text={lead} />
+                  </span>
+                )}
                 <span className="block text-accent drop-shadow-[0_0_60px_var(--glow-accent)]">
-                  <CharReveal text="Guardians" lineDelay={260} />
+                  <CharReveal text={accent} lineDelay={260} />
                 </span>
               </>
             ) : (
               <span className="block opacity-0">
-                Goa
+                {lead}
                 <br />
-                Guardians
+                {accent}
               </span>
             )}
           </h1>
 
-          {/* broadcast lower-third: home court / promise / actions */}
+          {/* broadcast lower-third */}
           <div className="mt-10 flex flex-wrap items-center gap-4">
-            <div className="lower-third px-5 py-3 pr-8">
-              <p className="data-type text-[10px] uppercase tracking-[0.3em] text-dim">
-                Home court
-              </p>
-              <p className="stat-display text-lg font-bold uppercase">{CLUB.arena}</p>
-            </div>
             <p className="max-w-sm text-sm text-dim">
-              Every spike, block and ace — tracked live courtside, told here.{" "}
-              <span className="text-ink">This is our house.</span>
+              Every spike, block and ace, tracked live courtside,{" "}
+              <span className="text-ink">told here.</span>
             </p>
             <div className="ml-auto hidden gap-3 sm:flex">
               <Magnetic>
                 <LinkButton href="/team" className="min-w-40 text-base">
-                  Meet the Squad
+                  The Teams
                 </LinkButton>
               </Magnetic>
               <Magnetic>
@@ -170,7 +203,7 @@ export default function ShowcaseHome() {
           </div>
         </div>
 
-        {/* live results ticker pinned to the hero floor */}
+        {/* results ticker pinned to the hero floor */}
         <div className="absolute inset-x-0 bottom-0 z-10">
           <BroadcastTicker items={ticker} />
         </div>
@@ -180,56 +213,46 @@ export default function ShowcaseHome() {
       <LiveNow />
 
       {/* ============ 02 · MATCHDAY ============ */}
-      {CLUB.nextFixture && (
+      {nextFixture && (
         <section className="relative overflow-hidden border-b border-line">
           <div aria-hidden className="absolute inset-0">
             <div className="light-cone left-1/2 -translate-x-1/2 opacity-70" />
           </div>
-          <div className="relative mx-auto grid max-w-7xl items-center gap-10 px-4 py-24 md:grid-cols-[1.2fr_1fr] md:px-8">
-            <div>
-              <Reveal>
-                <Kicker index="02">Matchday approaches</Kicker>
-              </Reveal>
-              <Reveal delay={90}>
-                <h2 className="hero-type text-5xl leading-[0.9] sm:text-7xl">
-                  {CLUB.nameShort}
-                  <span className="mx-3 align-middle text-2xl text-dim sm:text-4xl">vs</span>
-                  <span className="block text-accent sm:inline">
-                    {CLUB.nextFixture.opponent}
-                  </span>
-                </h2>
-              </Reveal>
-              <Reveal delay={170}>
-                <p className="data-type mt-4 text-[11px] uppercase tracking-[0.25em] text-dim">
-                  {CLUB.nextFixture.competition} · {CLUB.nextFixture.venue}
-                </p>
-              </Reveal>
-              <Reveal delay={250}>
-                <div className="mt-9">
-                  <LedCountdown toISO={CLUB.nextFixture.dateISO} />
-                </div>
-              </Reveal>
-              <Reveal delay={330}>
-                <div className="mt-9">
-                  <Magnetic>
-                    <LinkButton href="/matches" className="min-w-44 text-base">
-                      Match Centre →
-                    </LinkButton>
-                  </Magnetic>
-                </div>
-              </Reveal>
-            </div>
-            {/* diagonal cut action shot */}
-            <Reveal from="right" delay={150} className="hidden md:block">
-              <Parallax speed={0.5}>
-                <div
-                  className="mn-photo h-[420px]"
-                  style={{ clipPath: "polygon(12% 0, 100% 0, 88% 100%, 0 100%)" }}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={CLUB.photos.attack.src} alt={CLUB.photos.attack.alt} loading="lazy" />
-                </div>
-              </Parallax>
+          <div className="relative mx-auto max-w-7xl px-4 py-24 md:px-8">
+            <Reveal>
+              <Kicker index="02">Matchday approaches</Kicker>
+            </Reveal>
+            <Reveal delay={90}>
+              <h2 className="hero-type text-5xl leading-[0.9] sm:text-7xl">
+                {teamName(nextFixture.homeTeamId)}
+                <span className="mx-3 align-middle text-2xl text-dim sm:text-4xl">vs</span>
+                <span className="block text-accent sm:inline">
+                  {teamName(nextFixture.awayTeamId)}
+                </span>
+              </h2>
+            </Reveal>
+            <Reveal delay={170}>
+              <p className="data-type mt-4 text-[11px] uppercase tracking-[0.25em] text-dim">
+                {nextFixture.dateISO}
+                {nextFixture.time ? ` · ${nextFixture.time}` : ""}
+                {nextFixtureVenue ? ` · ${nextFixtureVenue.name}` : ""}
+              </p>
+            </Reveal>
+            <Reveal delay={250}>
+              <div className="mt-9">
+                <LedCountdown
+                  toISO={`${nextFixture.dateISO}T${nextFixture.time ?? "18:00"}:00`}
+                />
+              </div>
+            </Reveal>
+            <Reveal delay={330}>
+              <div className="mt-9">
+                <Magnetic>
+                  <LinkButton href="/matches" className="min-w-44 text-base">
+                    Match Centre →
+                  </LinkButton>
+                </Magnetic>
+              </div>
             </Reveal>
           </div>
         </section>
@@ -243,12 +266,7 @@ export default function ShowcaseHome() {
             <Kicker index="03">Season on the board</Kicker>
           </Reveal>
           <div className="mt-10 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {[
-              { n: totals.points, label: "Points scored", suffix: "" },
-              { n: Math.round(totals.spikeRate ?? 0), label: "Spike success", suffix: "%" },
-              { n: totals.blocks, label: "Blocks won", suffix: "" },
-              { n: totals.aces, label: "Service aces", suffix: "" },
-            ].map((s, i) => (
+            {scoreboard.map((s, i) => (
               <Reveal key={s.label} delay={i * 110} from="scale">
                 <div className="scoreboard rounded-2xl px-4 py-8 text-center">
                   <p className="led text-6xl font-semibold sm:text-7xl">
@@ -264,7 +282,7 @@ export default function ShowcaseHome() {
           <Reveal delay={480}>
             <p className="data-type mt-6 text-[10px] uppercase tracking-[0.25em] text-dim">
               Derived live from {matches.length} published{" "}
-              {matches.length === 1 ? "match" : "matches"} — no hand-typed numbers.
+              {matches.length === 1 ? "match" : "matches"}. No hand-typed numbers.
             </p>
           </Reveal>
         </div>
@@ -273,92 +291,76 @@ export default function ShowcaseHome() {
       {/* ============ 04 · THE SPOTLIGHT ============ */}
       {starPlayer && star && (
         <section className="relative overflow-hidden border-b border-line">
-          {/* one light, one player */}
           <div aria-hidden className="absolute inset-0">
             <div
               className="light-cone light-cone--accent left-[58%] -translate-x-1/2"
               style={{ ["--beam-r" as string]: "0deg" }}
             />
           </div>
-          {/* ghost numeral fills the background */}
           <Parallax
             speed={-0.4}
             className="pointer-events-none absolute -right-6 top-1/2 -translate-y-1/2 select-none"
           >
             <span aria-hidden className="hero-type hero-outline text-[38vw] leading-none lg:text-[28rem]">
-              {starPlayer.jersey}
+              {starPlayer.jerseyNo}
             </span>
           </Parallax>
 
-          <div className="relative mx-auto grid max-w-7xl items-end gap-10 px-4 py-24 md:grid-cols-2 md:px-8">
-            <div className="order-2 md:order-1">
-              <Reveal>
-                <Kicker index="04">Player of the season</Kicker>
-              </Reveal>
-              <Reveal delay={90}>
-                <h2 className="hero-type text-6xl leading-[0.88] sm:text-8xl">
-                  {starPlayer.name.split(" ")[0]}
-                  <span className="block text-accent">
-                    {starPlayer.name.split(" ").slice(1).join(" ")}
-                  </span>
-                </h2>
-              </Reveal>
-              <Reveal delay={170}>
-                <p className="data-type mt-4 text-[11px] uppercase tracking-[0.25em] text-dim">
-                  #{starPlayer.jersey} · {ROLE_LABEL[starPlayer.role]} ·{" "}
-                  {starPlayer.heightM.toFixed(2)}m
-                </p>
-              </Reveal>
-              {/* broadcast stat bar */}
-              <Reveal delay={260}>
-                <div className="mt-9 flex flex-wrap gap-3">
-                  {[
-                    { n: String(star.points), label: "Points" },
-                    {
-                      n:
-                        star.successRate === null
-                          ? "N/A"
-                          : `${Math.round(star.successRate)}%`,
-                      label: "Success",
-                    },
-                    { n: String(star.contribution), label: "Impact" },
-                  ].map((c) => (
-                    <div key={c.label} className="lower-third px-5 py-3 pr-8">
-                      <p className="stat-display tnum text-3xl font-extrabold text-accent">
-                        {c.n}
-                      </p>
-                      <p className="data-type text-[9px] uppercase tracking-[0.3em] text-dim">
-                        {c.label}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </Reveal>
-              <Reveal delay={340}>
-                <div className="mt-9">
-                  <Magnetic>
-                    <LinkButton
-                      href={`/players/${starPlayer.id}`}
-                      variant="ghost"
-                      className="min-w-44"
-                    >
-                      Full profile →
-                    </LinkButton>
-                  </Magnetic>
-                </div>
-              </Reveal>
-            </div>
-            <Reveal from="right" delay={140} className="order-1 md:order-2">
-              <TiltCard max={4}>
-                <div className="mn-photo h-[420px] rounded-3xl sm:h-[540px]">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={CLUB.photos.spotlight.src}
-                    alt={CLUB.photos.spotlight.alt}
-                    loading="lazy"
-                  />
-                </div>
-              </TiltCard>
+          <div className="relative mx-auto max-w-7xl px-4 py-24 md:px-8">
+            <Reveal>
+              <Kicker index="04">Player of the season</Kicker>
+            </Reveal>
+            <Reveal delay={90}>
+              <h2 className="hero-type text-6xl leading-[0.88] sm:text-8xl">
+                {starPlayer.fullName.split(" ")[0]}
+                <span className="block text-accent">
+                  {starPlayer.fullName.split(" ").slice(1).join(" ")}
+                </span>
+              </h2>
+            </Reveal>
+            <Reveal delay={170}>
+              <p className="data-type mt-4 text-[11px] uppercase tracking-[0.25em] text-dim">
+                #{starPlayer.jerseyNo} · {POSITION_LABEL[starPlayer.position]} ·{" "}
+                {teamName(starPlayer.teamId)}
+                {starPlayer.heightCm ? ` · ${starPlayer.heightCm} cm` : ""}
+              </p>
+            </Reveal>
+            <Reveal delay={260}>
+              <div className="mt-9 flex flex-wrap gap-3">
+                {[
+                  { n: String(star.points), label: "Points" },
+                  {
+                    n:
+                      star.successRate === null
+                        ? "N/A"
+                        : `${Math.round(star.successRate)}%`,
+                    label: "Success",
+                  },
+                  { n: String(star.contribution), label: "Impact" },
+                ].map((c) => (
+                  <div key={c.label} className="lower-third px-5 py-3 pr-8">
+                    <p className="stat-display tnum text-3xl font-extrabold text-accent">
+                      {c.n}
+                    </p>
+                    <p className="data-type text-[9px] uppercase tracking-[0.3em] text-dim">
+                      {c.label}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+            <Reveal delay={340}>
+              <div className="mt-9">
+                <Magnetic>
+                  <LinkButton
+                    href={`/players/${starPlayer.id}`}
+                    variant="ghost"
+                    className="min-w-44"
+                  >
+                    Full profile →
+                  </LinkButton>
+                </Magnetic>
+              </div>
             </Reveal>
           </div>
         </section>
@@ -374,16 +376,18 @@ export default function ShowcaseHome() {
               </span>
               <span aria-hidden className="h-1 w-1 rounded-full bg-accent-ink/60" />
               <span className="data-type text-[11px] uppercase tracking-[0.2em]">
-                {latest.dateISO} · {latest.venue}
+                {latest.dateISO}
               </span>
             </div>
           </div>
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-8 px-4 py-14 md:px-8">
             <Reveal>
               <h2 className="hero-type text-4xl sm:text-6xl">
-                {CLUB.nameShort}
-                <span className="mx-3 text-2xl text-dim sm:text-3xl">vs</span>
-                <span className="hero-outline">{latest.opponent}</span>
+                {teamName(latest.homeTeamId)}
+                <span className="led mx-3 text-3xl text-accent sm:text-4xl">
+                  {setsLine(latest)}
+                </span>
+                <span className="hero-outline">{teamName(latest.awayTeamId)}</span>
               </h2>
             </Reveal>
             {latestTopPlayer && latestTop && (
@@ -393,7 +397,7 @@ export default function ShowcaseHome() {
                     Player of the match
                   </p>
                   <p className="stat-display text-xl font-extrabold uppercase">
-                    {latestTopPlayer.name}
+                    {latestTopPlayer.fullName}
                     <span className="led ml-3 text-lg">{latestTop.points} pts</span>
                   </p>
                 </div>
@@ -410,108 +414,72 @@ export default function ShowcaseHome() {
         </section>
       )}
 
-      {/* ============ 06 · THE SQUAD ============ */}
-      <section className="relative overflow-hidden border-b border-line bg-raise">
-        <div className="relative mx-auto max-w-7xl px-4 py-24 md:px-8">
-          <Reveal>
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <Kicker index="06">The squad</Kicker>
-                <h2 className="hero-type text-5xl sm:text-7xl">
-                  Built for the <span className="text-accent">big points</span>
-                </h2>
+      {/* ============ 06 · THE TABLE ============ */}
+      {table.length > 0 && (
+        <section className="relative overflow-hidden border-b border-line bg-raise">
+          <div className="relative mx-auto max-w-7xl px-4 py-24 md:px-8">
+            <Reveal>
+              <div className="flex flex-wrap items-end justify-between gap-4">
+                <div>
+                  <Kicker index="06">The table</Kicker>
+                  <h2 className="hero-type text-5xl sm:text-7xl">
+                    Every point <span className="text-accent">counts</span>
+                  </h2>
+                </div>
+                <Magnetic className="hidden sm:block">
+                  <LinkButton href="/team" variant="ghost">
+                    All teams →
+                  </LinkButton>
+                </Magnetic>
               </div>
-              <Magnetic className="hidden sm:block">
-                <LinkButton href="/team" variant="ghost">
-                  All players →
-                </LinkButton>
-              </Magnetic>
-            </div>
-          </Reveal>
+            </Reveal>
 
-          {/* horizontal shelf of players under the lights */}
-          <div className="-mx-4 mt-12 flex snap-x snap-mandatory gap-5 overflow-x-auto px-4 pb-6 md:-mx-8 md:px-8">
-            {db.players.map((p, i) => {
-              const l = seasonLines.find((sl) => sl.playerId === p.id);
-              const headline =
-                p.role === "SPIKER"
-                  ? { n: l?.points ?? 0, label: "Points" }
-                  : p.role === "SETTER"
-                    ? { n: l?.assists ?? 0, label: "Assists" }
-                    : { n: l?.blocks ?? 0, label: "Blocks" };
-              return (
-                <Reveal key={p.id} delay={Math.min(i, 5) * 90} className="snap-start">
-                  <TiltCard max={6}>
-                    <Link
-                      href={`/players/${p.id}`}
-                      className="card-premium relative block w-[264px] shrink-0 overflow-hidden rounded-3xl p-6 sm:w-[300px]"
-                    >
-                      {/* jersey numeral as the art */}
-                      <span
-                        aria-hidden
-                        className="hero-type hero-outline pointer-events-none absolute -right-3 -top-7 text-[130px] leading-none"
-                      >
-                        {p.jersey}
-                      </span>
-                      <div className="relative z-10">
-                        <p className="data-type text-[9px] uppercase tracking-[0.3em] text-accent">
-                          {ROLE_LABEL[p.role]}
-                        </p>
-                        <p className="hero-type mt-16 text-3xl leading-[0.95]">
-                          {p.name.split(" ")[0]}
-                          <span className="block text-accent">
-                            {p.name.split(" ").slice(1).join(" ")}
-                          </span>
-                        </p>
-                        <div className="mt-6 flex items-end justify-between border-t border-line pt-4">
-                          <div>
-                            <p className="stat-display tnum text-2xl font-extrabold">
-                              {headline.n}
-                            </p>
-                            <p className="data-type text-[9px] uppercase tracking-[0.25em] text-dim">
-                              {headline.label}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="stat-display tnum text-2xl font-extrabold">
-                              {l?.successRate == null ? "—" : `${Math.round(l.successRate)}%`}
-                            </p>
-                            <p className="data-type text-[9px] uppercase tracking-[0.25em] text-dim">
-                              Success
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </Link>
-                  </TiltCard>
-                </Reveal>
-              );
-            })}
+            <Reveal delay={140}>
+              <div className="card-premium mt-12 overflow-x-auto rounded-3xl p-2">
+                <table className="w-full min-w-[560px] text-left text-sm">
+                  <thead>
+                    <tr className="data-type text-[10px] uppercase tracking-[0.25em] text-dim">
+                      <th className="px-4 py-3">#</th>
+                      <th className="px-4 py-3">Team</th>
+                      <th className="px-4 py-3 text-center">P</th>
+                      <th className="px-4 py-3 text-center">W</th>
+                      <th className="px-4 py-3 text-center">L</th>
+                      <th className="px-4 py-3 text-center">Sets</th>
+                      <th className="px-4 py-3 text-right">Pts</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {table.map((r) => (
+                      <tr key={r.teamId} className="border-t border-line/60">
+                        <td className="stat-display px-4 py-3 font-extrabold text-dim">
+                          {r.rank}
+                        </td>
+                        <td className="px-4 py-3 font-semibold">{teamName(r.teamId)}</td>
+                        <td className="tnum px-4 py-3 text-center">{r.played}</td>
+                        <td className="tnum px-4 py-3 text-center text-ok">{r.won}</td>
+                        <td className="tnum px-4 py-3 text-center text-err">{r.lost}</td>
+                        <td className="tnum px-4 py-3 text-center text-dim">
+                          {r.setsWon}–{r.setsLost}
+                        </td>
+                        <td className="stat-display tnum px-4 py-3 text-right text-lg font-extrabold text-accent">
+                          {r.points}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Reveal>
           </div>
-          <Link
-            href="/team"
-            className="mt-2 block text-center text-sm font-semibold text-accent sm:hidden"
-          >
-            All players →
-          </Link>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* ============ 07 · THE RAFTERS ============ */}
-      <section className="relative overflow-hidden border-b border-line">
-        <div className="mx-auto max-w-7xl px-4 pb-24 pt-4 md:px-8">
-          {/* banners hang from the very top edge — the roof */}
-          <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4">
-            {[
-              ...CLUB.honours.map((h) => ({
-                label: h.title,
-                value: h.season,
-                sub: undefined as string | undefined,
-              })),
-              ...recordBanners,
-            ]
-              .slice(0, 4)
-              .map((b, i) => (
+      {recordBanners.length > 0 && (
+        <section className="relative overflow-hidden border-b border-line">
+          <div className="mx-auto max-w-7xl px-4 pb-24 pt-4 md:px-8">
+            <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4">
+              {recordBanners.slice(0, 4).map((b, i) => (
                 <RafterBanner
                   key={b.label}
                   title={b.label}
@@ -520,63 +488,45 @@ export default function ShowcaseHome() {
                   delay={i * 140}
                 />
               ))}
+            </div>
+            <Reveal delay={200}>
+              <div className="mt-14 text-center">
+                <h2 className="hero-type text-4xl sm:text-6xl">
+                  History is <span className="text-accent">kept overhead</span>
+                </h2>
+                <p className="mx-auto mt-4 max-w-md text-sm text-dim">
+                  Single-match records, computed live from the season’s events.
+                  Break one courtside and it hangs here the same night.
+                </p>
+              </div>
+            </Reveal>
           </div>
-          <Reveal delay={200}>
-            <div className="mt-14 text-center">
+        </section>
+      )}
+
+      {/* ============ EMPTY STATE — a brand-new platform ============ */}
+      {matches.length === 0 && !nextFixture && (
+        <section className="border-b border-line">
+          <div className="mx-auto max-w-7xl px-4 py-24 text-center md:px-8">
+            <Reveal>
               <h2 className="hero-type text-4xl sm:text-6xl">
-                History is <span className="text-accent">kept overhead</span>
+                The season <span className="text-accent">starts here</span>
               </h2>
               <p className="mx-auto mt-4 max-w-md text-sm text-dim">
-                Honours and single-match records, computed live from the season’s
-                events. Break one courtside and it hangs here the same night.
+                No published matches yet. Set up your league, teams and fixtures
+                in the console. Results appear here the moment they’re published.
               </p>
-            </div>
-          </Reveal>
-        </div>
-      </section>
-
-      {/* ============ 08 · THE TUNNEL ============ */}
-      <section className="tunnel relative overflow-hidden">
-        <Parallax speed={0.6} className="absolute inset-0">
-          <div className="mn-photo h-[120%] w-full opacity-60">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={CLUB.photos.community.src}
-              alt={CLUB.photos.community.alt}
-              loading="lazy"
-            />
+              <div className="mt-8">
+                <Magnetic className="inline-block">
+                  <LinkButton href="/console" className="min-w-44">
+                    Open the Console →
+                  </LinkButton>
+                </Magnetic>
+              </div>
+            </Reveal>
           </div>
-        </Parallax>
-        <div className="relative mx-auto flex min-h-[70vh] max-w-7xl flex-col items-center justify-center px-4 py-28 text-center md:px-8">
-          <Reveal>
-            <p className="data-type text-[11px] uppercase tracking-[0.4em] text-dim">
-              {CLUB.city} · est. {CLUB.founded}
-            </p>
-          </Reveal>
-          <Reveal delay={100}>
-            <h2 className="hero-type mt-5 text-6xl leading-[0.88] sm:text-8xl md:text-9xl">
-              This is
-              <span className="block text-accent drop-shadow-[0_0_60px_var(--glow-accent)]">
-                our house
-              </span>
-            </h2>
-          </Reveal>
-          <Reveal delay={220}>
-            <div className="mt-10 flex flex-wrap justify-center gap-4">
-              <Magnetic>
-                <LinkButton href="/team" className="min-w-44 text-base">
-                  Join the journey
-                </LinkButton>
-              </Magnetic>
-              <Magnetic>
-                <LinkButton href="/matches" variant="ghost" className="min-w-44 text-base">
-                  Relive the matches
-                </LinkButton>
-              </Magnetic>
-            </div>
-          </Reveal>
-        </div>
-      </section>
+        </section>
+      )}
     </div>
   );
 }

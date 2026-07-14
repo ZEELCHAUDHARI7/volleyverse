@@ -3,11 +3,11 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Goa Guardians Console | VolleyVerse",
+    default: "VolleyVerse",
     template: "%s | VolleyVerse",
   },
   description:
-    "Match analytics console for Goa Guardians. Courtside stat entry, live charts, player performance.",
+    "Professional volleyball league management. Courtside stat entry, live scoreboards, standings and player analytics.",
 };
 
 export const viewport: Viewport = {

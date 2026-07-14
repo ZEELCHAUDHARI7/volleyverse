@@ -1,107 +1,295 @@
 /**
- * VolleyVerse domain types.
+ * VolleyVerse domain types — professional league management platform.
  *
- * Architecture note: StatEvent is the single source of truth (FR5).
- * Every number shown anywhere is DERIVED from events in metrics.ts —
- * success rates, points, impact are never stored by hand.
- * This is also what makes the future Supabase swap clean: the tables
- * mirror these types 1:1, and RLS enforces the publish boundary.
+ * These interfaces mirror the relational schema in supabase/schema.sql
+ * 1:1 (camelCase ↔ snake_case). Player/Match embed a few child rows
+ * (set scores, rosters, officials) that live in their own tables in
+ * PostgreSQL; the provider layer is responsible for the join.
+ *
+ * Architecture note: StatEvent remains the single source of truth.
+ * Every statistic shown anywhere — match stats, standings, records —
+ * is DERIVED from events + set scores in metrics.ts, never stored by hand.
  */
 
-export type Role = "SPIKER" | "SETTER" | "CENTRE";
+// ---------------------------------------------------------------------
+// People & positions
+// ---------------------------------------------------------------------
 
-export const ROLE_LABEL: Record<Role, string> = {
-  SPIKER: "Spiker",
-  SETTER: "Setter",
-  CENTRE: "Centre",
+/** Standard indoor volleyball positions. */
+export type PlayerPosition = "OH" | "OPP" | "MB" | "S" | "L" | "DS";
+
+export const POSITION_LABEL: Record<PlayerPosition, string> = {
+  OH: "Outside Hitter",
+  OPP: "Opposite",
+  MB: "Middle Blocker",
+  S: "Setter",
+  L: "Libero",
+  DS: "Defensive Specialist",
 };
 
-/**
- * Courtside taps — role outcomes plus universal Serve/Defence sections
- * (every player serves in rotation; anyone can dig). Still 2 taps:
- * the outcome sheet groups sections, it never adds a screen.
- */
-export type EventType =
-  // Spiker
-  | "SPIKE_POINT" // successful spike that scored
-  | "SPIKE_IN" // successful spike, rally continued
-  | "SPIKE_ERR" // attempt failed (out / blocked / net)
-  // Receive — universal (Rally Tracker Action 2). Quality of first contact
-  // off the opponent serve; feeds the Libero/Defender pass-quality stats.
-  | "RECV_PERFECT" // ideal ball to the setter
-  | "RECV_GOOD" // setter can run the offence
-  | "RECV_POOR" // in play but limits attack options
-  | "RECV_ERR" // ball lost off the serve — point to server
-  // Setter
-  | "SET_ASSIST" // set that led directly to a point
-  | "SET_GOOD" // accurate set, no direct point
-  | "SET_ERR" // inaccurate set
-  // Centre
-  | "BLOCK_WIN" // successful block
-  | "BLOCK_MISS" // block attempt beaten
-  // Serve — universal ("Easy Serve" deliberately folded into SERVE_IN:
-  // ace/error are objective, easy-vs-pressure is a courtside judgment call)
-  | "SERVE_ACE" // untouched serve, instant point — the drama stat
-  | "SERVE_IN" // serve in play
-  | "SERVE_ERR" // out / net
-  // Defence — universal
-  | "DIG_SUPER" // extraordinary save against all odds — the highlight stat
-  | "DIG_SAVE" // ball kept alive normally
-  | "DIG_FAIL"; // ball hits the floor
+export const POSITIONS_ALL: PlayerPosition[] = ["OH", "OPP", "MB", "S", "L", "DS"];
 
+/**
+ * Denormalized roster row the UI consumes: players ⋈ team_players.
+ * In PostgreSQL, person data (name, height, nationality) lives in
+ * `players` and per-team registration (team, jersey, captaincy) in
+ * `team_players`; the provider flattens them into this shape.
+ */
 export interface Player {
   id: string;
-  name: string;
-  jersey: number;
-  role: Role;
-  heightM: number;
-  /** Max reach above ground (m). Player ATTRIBUTE, not per-match entry — see Phase 5 open question. */
-  reachM: number;
+  fullName: string;
+  jerseyNo: number;
+  position: PlayerPosition;
+  heightCm: number | null;
+  nationality: string | null;
+  photoUrl: string | null;
+  teamId: string;
+  isCaptain: boolean;
 }
 
-export type MatchStatus = "live" | "completed";
+export type StaffRole = "HEAD_COACH" | "ASSISTANT_COACH" | "MANAGER" | "PHYSIO" | "ANALYST";
+
+export const STAFF_ROLE_LABEL: Record<StaffRole, string> = {
+  HEAD_COACH: "Head Coach",
+  ASSISTANT_COACH: "Assistant Coach",
+  MANAGER: "Team Manager",
+  PHYSIO: "Physiotherapist",
+  ANALYST: "Performance Analyst",
+};
+
+export interface Staff {
+  id: string;
+  teamId: string;
+  name: string;
+  role: StaffRole;
+}
+
+// ---------------------------------------------------------------------
+// Competition structure: League → Season → Tournament → Match
+// ---------------------------------------------------------------------
+
+export interface League {
+  id: string;
+  name: string;
+  logoUrl: string | null;
+  status: "active" | "archived";
+}
+
+export interface Season {
+  id: string;
+  leagueId: string;
+  name: string; // e.g. "2026–27"
+  startDate: string | null; // yyyy-mm-dd
+  endDate: string | null;
+  status: "upcoming" | "active" | "completed";
+}
+
+export interface Division {
+  id: string;
+  seasonId: string;
+  name: string; // e.g. "Division 1", "Women's Premier"
+}
+
+export type TournamentFormat = "LEAGUE" | "GROUPS_KNOCKOUT" | "KNOCKOUT";
+
+export interface Tournament {
+  id: string;
+  seasonId: string;
+  divisionId: string | null;
+  name: string;
+  logoUrl: string | null;
+  organizer: string | null;
+  venueId: string | null; // primary venue; matches may override
+  startDate: string | null;
+  endDate: string | null;
+  format: TournamentFormat;
+  status: "upcoming" | "active" | "completed";
+}
+
+/** Group inside a GROUPS_KNOCKOUT tournament (e.g. "Pool A"). */
+export interface TournamentGroup {
+  id: string;
+  tournamentId: string;
+  name: string;
+}
+
+// ---------------------------------------------------------------------
+// Venues
+// ---------------------------------------------------------------------
+
+export interface Venue {
+  id: string;
+  name: string;
+  address: string | null;
+  city: string | null;
+  capacity: number | null;
+  /** Map link or lat,lng — presentation decides. */
+  mapUrl: string | null;
+}
+
+export interface Court {
+  id: string;
+  venueId: string;
+  name: string; // e.g. "Court 1", "Centre Court"
+}
+
+// ---------------------------------------------------------------------
+// Teams
+// ---------------------------------------------------------------------
+
+export interface Honour {
+  title: string;
+  seasonLabel: string;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  shortName: string; // e.g. "MUM" or "Mumbai"
+  logoUrl: string | null;
+  city: string | null;
+  founded: number | null;
+  honours: Honour[];
+}
+
+// ---------------------------------------------------------------------
+// Matches
+// ---------------------------------------------------------------------
+
+export type MatchStatus = "scheduled" | "live" | "completed" | "postponed" | "cancelled";
+
+export type OfficialRole = "FIRST_REFEREE" | "SECOND_REFEREE" | "SCORER" | "LINE_JUDGE";
+
+export const OFFICIAL_ROLE_LABEL: Record<OfficialRole, string> = {
+  FIRST_REFEREE: "1st Referee",
+  SECOND_REFEREE: "2nd Referee",
+  SCORER: "Scorer",
+  LINE_JUDGE: "Line Judge",
+};
+
+/** match_officials table row (embedded on Match by the provider). */
+export interface MatchOfficial {
+  name: string;
+  role: OfficialRole;
+}
+
+/** match_sets table row — persisted final score of a completed set. */
+export interface MatchSet {
+  setNo: number; // 1-based
+  homePoints: number;
+  awayPoints: number;
+}
 
 /**
- * Opponent player — per-match manual entry (name is all we ask courtside).
- * Lives on the Match, not in the club roster: opponents change every game
- * and never appear in the public showcase. Their StatEvents (flagged
- * `opp: true`) enable post-match scouting reports without touching any
- * Guardians analytics, which all aggregate per roster player.
+ * match_rosters table row — who is registered on the scoresheet for one
+ * side of one match. Starters vs bench is a per-match decision.
  */
-export interface OppPlayer {
-  id: string; // `${matchId}_oppN` — unique across matches
-  name: string;
+export interface MatchRosterEntry {
+  teamId: string;
+  playerId: string;
+  isStarter: boolean;
+  isLibero: boolean;
 }
 
 export interface Match {
   id: string;
-  opponent: string;
+  tournamentId: string;
+  groupId: string | null;
+  /** Official match number within the tournament (e.g. 14). */
+  matchNo: number | null;
   dateISO: string; // yyyy-mm-dd
-  venue: string;
-  totalSets: number;
+  time: string | null; // HH:mm local
+  venueId: string | null;
+  courtId: string | null;
+  homeTeamId: string;
+  awayTeamId: string;
   status: MatchStatus;
-  /** Publish boundary: nothing is publicly visible unless true (FR4). */
+  /** Best-of sets (3 or 5). */
+  totalSets: number;
+  /** Publish boundary: nothing is publicly visible unless true. */
   published: boolean;
-  /** Players registered for this match (roles can flex per match — FR6). */
-  roster: string[];
-  /** Opponent's on-court players, entered at match setup (optional — older matches predate this). */
-  oppPlayers?: OppPlayer[];
+  winnerTeamId: string | null;
+  officials: MatchOfficial[];
+  setScores: MatchSet[];
+  rosters: MatchRosterEntry[];
 }
+
+// ---------------------------------------------------------------------
+// Stat events — the single source of truth for all statistics
+// ---------------------------------------------------------------------
+
+/**
+ * Courtside taps — contact outcomes. Every statistic (attack %, service %,
+ * reception %, standings tie-breaks, season records) derives from these.
+ */
+export type EventType =
+  // Attack
+  | "SPIKE_POINT" // kill — attack that scored
+  | "SPIKE_IN" // attack kept in play
+  | "SPIKE_ERR" // attack error (out / blocked / net)
+  // Reception
+  | "RECV_PERFECT" // ideal ball to the setter
+  | "RECV_GOOD" // setter can run the offence
+  | "RECV_POOR" // in play but limits attack options
+  | "RECV_ERR" // reception error — point to server
+  // Setting
+  | "SET_ASSIST" // set that led directly to a point
+  | "SET_GOOD" // accurate set, no direct point
+  | "SET_ERR" // setting error
+  // Blocking
+  | "BLOCK_WIN" // kill block
+  | "BLOCK_MISS" // block attempt beaten
+  // Serving
+  | "SERVE_ACE" // untouched serve, instant point
+  | "SERVE_IN" // serve in play
+  | "SERVE_ERR" // service error
+  // Defence
+  | "DIG_SUPER" // extraordinary save
+  | "DIG_SAVE" // ball kept alive
+  | "DIG_FAIL"; // ball hits the floor
 
 export interface StatEvent {
   id: string;
   matchId: string;
+  /** Which side produced the contact — every event belongs to a real team. */
+  teamId: string;
   playerId: string;
-  set: number; // 1-based
+  setNo: number; // 1-based
   type: EventType;
   ts: number; // epoch ms — preserves entry order for undo
-  /** True when playerId is an opponent player. Guardians metrics filter by
-   * roster ids anyway; this flag exists so season records skip them cheaply. */
-  opp?: boolean;
 }
 
+// ---------------------------------------------------------------------
+// Local database shape (the LocalProvider's persisted document).
+// Each array corresponds to a PostgreSQL table.
+// ---------------------------------------------------------------------
+
 export interface Db {
+  leagues: League[];
+  seasons: Season[];
+  divisions: Division[];
+  tournaments: Tournament[];
+  groups: TournamentGroup[];
+  venues: Venue[];
+  courts: Court[];
+  teams: Team[];
+  staff: Staff[];
   players: Player[];
   matches: Match[];
   events: StatEvent[];
 }
+
+export const EMPTY_DB: Db = {
+  leagues: [],
+  seasons: [],
+  divisions: [],
+  tournaments: [],
+  groups: [],
+  venues: [],
+  courts: [],
+  teams: [],
+  staff: [],
+  players: [],
+  matches: [],
+  events: [],
+};

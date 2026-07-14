@@ -1,96 +1,67 @@
-# VolleyVerse — Goa Guardians Console
+# VolleyVerse
 
-Match analytics console for Goa Guardians (Prime Volleyball League).
-Courtside stat entry, live charts, player profiles, match dashboards.
+A professional volleyball **league management platform**: competition
+structure (League → Season → Tournament → Match), two-team live match
+tracking, derived statistics, standings and a broadcast-styled public
+showcase.
 
-**v1 pilot build (local-first):** all data lives in your browser
-(localStorage) — no account or internet needed after setup. It comes
-pre-seeded with a 3-match demo season derived from the client's
-reference Excel. Supabase backend plugs in behind the same data layer
-in a later phase (see `src/lib/store.tsx`).
+## Architecture
 
----
+- **Event-sourced statistics.** `StatEvent` is the single source of
+  truth. Every number on the platform — match stats, attack/serve/
+  reception percentages, standings, season records — is derived in
+  `src/lib/metrics.ts`. Nothing is hand-stored.
+- **Repository boundary.** The UI talks only to the `DataProvider`
+  surface (`src/lib/repository.ts`). Today that is the localStorage
+  `LocalProvider` (`src/lib/store.tsx`, offline-first courtside queue);
+  `src/lib/providers/supabase.ts` is the stub for the PostgreSQL
+  swap — no screen changes required.
+- **Relational model.** TypeScript entities (`src/lib/types.ts`) mirror
+  the PostgreSQL schema (`supabase/schema.sql`) 1:1: leagues, seasons,
+  divisions, tournaments, groups, venues, courts, teams, staff,
+  players (`roster_view`), matches, officials, match_sets,
+  match_rosters, stat_events — plus derived `match_statistics` and
+  `standings` views and RLS policies for the publish boundary.
+- **No seed data.** The platform starts empty; everything is created in
+  the console under **League Setup**.
 
-## Run it (from zero)
+## App structure
 
-**1. Install Node.js (one time).**
-Go to https://nodejs.org and install the **LTS** version. Accept all
-defaults. Restart your terminal afterwards.
+| Route | Purpose |
+| --- | --- |
+| `/` | Public league homepage: live strip, next fixture, standings, records |
+| `/live` | Live Match Centre (read-only second screen) |
+| `/matches`, `/matches/[id]` | Published results and match reports |
+| `/team`, `/players/[id]` | Teams, rosters and player profiles |
+| `/console` | Match day home |
+| `/console/league` | League setup: competition, venues, teams, players, staff |
+| `/console/matches/new` | Schedule a match (tournament, teams, rosters) |
+| `/console/matches/[id]/rally` | Courtside rally tracker (toss → line-ups → live) |
+| `/console/matches/[id]` | Match dashboard + publish control |
+| `/console/matches/[id]/review` | Post-match corrections |
+| `/console/players`, `/console/analytics` | Player and season analytics |
 
-**2. Open a terminal in this folder.**
-On Windows: open this folder in File Explorer, click the address bar,
-type `cmd`, press Enter.
+## Rules engine
 
-**3. Install the project's packages (one time, ~1 min):**
+`src/lib/rally.ts` is a pure FIVB state machine (rotation for both
+teams, side-out, toss alternation, 25/15 set targets). The engine's
+abstract sides `US`/`OPP` map to the **home**/**away** team at the page
+level. Tests: `node src/lib/rally.test.mjs`.
 
-```
+## Development
+
+```bash
 npm install
-```
-
-**4. Start the app:**
-
-```
 npm run dev
 ```
 
-Open http://localhost:3000 — you'll land in the Console.
+First run: open `/console/league`, create your league, season, a
+tournament, venues, at least two teams with 6+ players each — then
+schedule a match from Match Day.
 
-> OneDrive tip: if `npm install` is slow or flaky inside OneDrive,
-> copy this folder somewhere outside OneDrive (e.g. `C:\dev\volleyverse`)
-> and work there. `node_modules` and `.next` are git-ignored and should
-> never be synced.
+## Backend integration (next step)
 
----
-
-## What's inside
-
-**Public Showcase (fan-facing, no login, published matches only):**
-
-| Route | What it is |
-|---|---|
-| `/` | Cinematic home — hero, season count-up ticker, featured player, latest result |
-| `/team` | Roster with role filters and public player cards |
-| `/players/[id]` | Public player profile — hero stat card, trend, match log |
-| `/matches` | Match reports list |
-| `/matches/[id]` | Public match report — MVPs, team numbers, charts |
-
-**Console (staff-facing):**
-
-| Route | What it is |
-|---|---|
-| `/console` | Match Day home — live match, last-match summary, recent matches |
-| `/console/matches/new` | Match setup (≤2 minutes, roster pre-selected) |
-| `/console/matches/[id]/live` | **Live Entry** — 2-tap courtside stat entry with undo |
-| `/console/matches/[id]` | Match Dashboard — MVPs, team vs previous, 4 charts, publish control |
-| `/console/matches/[id]/review` | Post-match corrections (+/− any count) |
-| `/console/players` | Roster with season stats |
-| `/console/players/[id]` | Player profile — trend chart, match-by-match table |
-| `/console/analytics` | Season analytics — all 5 charts + demo-data reset |
-
-## Architecture notes (for future-you)
-
-- **`src/lib/types.ts`** — domain model. `StatEvent` is the single
-  source of truth; every displayed number is derived.
-- **`src/lib/metrics.ts`** — all derived metrics (pure functions).
-  ⚠ "Contribution Index" is a documented placeholder until the client
-  signs off the real "Game Impact" formula.
-- **`src/lib/store.tsx`** — the repository boundary. Swap
-  localStorage → Supabase here; no screen changes needed.
-- **`src/lib/seed.ts`** — deterministic demo season from the Excel.
-- **`src/app/globals.css`** — the white-label layer. Club #2 =
-  change the `--brand-*` variables, nothing else.
-
-## Demo flow for the client pitch
-
-1. Open `/console` — show the seeded season.
-2. Create a new match (New Match → keep defaults → Start).
-3. Tap a few stats in Live Entry — show the 2-tap flow and Undo.
-4. End match → fix a count in Review → open the Match Dashboard.
-5. Show charts updating, then the **Publish** control (private by default).
-6. Players → Rohit Singh → trend chart ("is he improving?").
-7. Open `/` — the public site. Publish/unpublish the Ahmedabad match in
-   the Console and watch it appear/disappear from `/matches` — that's the
-   publish boundary, live.
-
-Planning reference: the full 8-phase product plan lives in the chat
-session (vision, personas, IA, requirements, stack rationale, roadmap).
+Apply `supabase/schema.sql` to a Supabase project and implement
+`createSupabaseProvider()` per the notes in
+`src/lib/providers/supabase.ts` (queries, mutations, realtime channels,
+auth). The publish boundary is enforced by RLS.

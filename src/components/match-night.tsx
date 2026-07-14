@@ -330,8 +330,8 @@ export function LedCountdown({ toISO }: { toISO: string }) {
 
 export interface TickerItem {
   tag: string; // e.g. "FT"
-  text: string; // e.g. "GUARDIANS vs CHENNAI BLITZ"
-  detail?: string; // e.g. "R. Naik 14 PTS"
+  text: string; // e.g. "HOME TEAM vs AWAY TEAM"
+  detail?: string; // e.g. "top scorer + points"
 }
 
 /** Bottom-of-hero broadcast results ticker. */

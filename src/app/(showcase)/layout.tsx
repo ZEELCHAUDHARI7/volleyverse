@@ -5,9 +5,9 @@ import { SmoothScroll } from "@/components/smooth-scroll";
 import { CursorSpotlight } from "@/components/match-night";
 
 export const metadata: Metadata = {
-  title: "Goa Guardians | The Home of Goa Volleyball",
+  title: "Live Volleyball | VolleyVerse",
   description:
-    "Official stats, players and match reports of the Goa Guardians, Prime Volleyball League.",
+    "Official stats, standings, teams and match reports, tracked live courtside.",
 };
 
 /** Public Showcase shell: the Match Night arena. Zero login. */

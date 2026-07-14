@@ -5,8 +5,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Player, StatEvent, Match, Db } from "@/lib/types";
 import { playerLine } from "@/lib/metrics";
-import { RoleTag, Skeleton } from "@/components/ui";
-import { useStore } from "@/lib/store";
+import { PositionTag, Skeleton } from "@/components/ui";
+import { useActiveLeague, useStore } from "@/lib/store";
 
 /**
  * Showcase building blocks: cinematic backdrop, scroll-aware navigation,
@@ -15,7 +15,7 @@ import { useStore } from "@/lib/store";
  * prefers-reduced-motion fully honored.
  */
 
-// ---- Publish boundary for the public site (FR4) ----
+// ---- Publish boundary for the public site ----
 // Everything fan-facing derives ONLY from published matches.
 export function usePublished(): {
   ready: boolean;
@@ -54,7 +54,7 @@ export function Aurora({ subtle = false }: { subtle?: boolean }) {
   );
 }
 
-// ---- Kinetic marquee strip (Nike / F1 energy) ----
+// ---- Kinetic marquee strip ----
 export function Marquee({ items }: { items: string[] }) {
   const row = (key: string, hidden = false) => (
     <div key={key} aria-hidden={hidden} className="flex shrink-0 items-center">
@@ -205,9 +205,38 @@ export function SectionLabel({ children }: { children: React.ReactNode }) {
 // ---- Scroll-aware public navigation (glass on scroll) ----
 const NAV_LINKS = [
   { href: "/live", label: "Live" },
-  { href: "/team", label: "Team" },
+  { href: "/team", label: "Teams" },
   { href: "/matches", label: "Matches" },
 ];
+
+/** League wordmark, split for the two-tone treatment. Data-driven —
+ * falls back to the platform name until a league exists. */
+export function useWordmark(): { lead: string; accent: string; full: string } {
+  const { league } = useActiveLeague();
+  if (!league) return { lead: "Volley", accent: "Verse", full: "VolleyVerse" };
+  const words = league.name.trim().split(/\s+/);
+  if (words.length === 1) return { lead: "", accent: words[0], full: league.name };
+  return {
+    lead: words.slice(0, -1).join(" "),
+    accent: words[words.length - 1],
+    full: league.name,
+  };
+}
+
+function Wordmark() {
+  const wm = useWordmark();
+  return (
+    <Link
+      href="/"
+      className="stat-display group text-lg font-extrabold uppercase tracking-wide"
+    >
+      {wm.lead && <>{wm.lead} </>}
+      <span className="text-accent transition-all group-hover:drop-shadow-[0_0_12px_var(--glow-accent)]">
+        {wm.accent}
+      </span>
+    </Link>
+  );
+}
 
 export function ShowcaseNav() {
   const pathname = usePathname();
@@ -231,15 +260,7 @@ export function ShowcaseNav() {
           scrolled ? "h-14" : "h-20"
         }`}
       >
-        <Link
-          href="/"
-          className="stat-display group text-lg font-extrabold uppercase tracking-wide"
-        >
-          Goa{" "}
-          <span className="text-accent transition-all group-hover:drop-shadow-[0_0_12px_var(--glow-accent)]">
-            Guardians
-          </span>
-        </Link>
+        <Wordmark />
         <nav className="flex items-center gap-1 text-sm font-semibold">
           {NAV_LINKS.map((l) => (
             <Link
@@ -267,6 +288,7 @@ export function ShowcaseNav() {
 
 // ---- Public footer: oversized wordmark, quiet meta ----
 export function ShowcaseFooter() {
+  const wm = useWordmark();
   return (
     <footer className="relative overflow-hidden border-t border-line">
       <div className="court-lines absolute inset-0" aria-hidden />
@@ -275,11 +297,11 @@ export function ShowcaseFooter() {
           aria-hidden
           className="stat-display select-none text-[16vw] font-extrabold uppercase leading-none text-outline sm:text-[7rem] md:text-[9rem]"
         >
-          Guardians
+          {wm.accent}
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line/60 pt-6">
           <p className="text-xs text-dim">
-            © {new Date().getFullYear()} Goa Guardians · Prime Volleyball League
+            © {new Date().getFullYear()} {wm.full}
           </p>
           <nav className="flex items-center gap-4 text-xs font-semibold text-dim">
             <Link href="/team" className="transition-colors hover:text-ink">
@@ -337,11 +359,13 @@ export function PlayerCard({
 }) {
   const l = playerLine(player, events);
   const headline =
-    player.role === "SPIKER"
-      ? { n: l.points, label: "Points" }
-      : player.role === "SETTER"
-        ? { n: l.assists, label: "Assists" }
-        : { n: l.blocks, label: "Blocks" };
+    player.position === "S"
+      ? { n: l.assists, label: "Assists" }
+      : player.position === "MB"
+        ? { n: l.blocks, label: "Blocks" }
+        : player.position === "L" || player.position === "DS"
+          ? { n: l.saves, label: "Digs" }
+          : { n: l.points, label: "Points" };
 
   return (
     <Reveal delay={delay}>
@@ -354,15 +378,15 @@ export function PlayerCard({
           aria-hidden
           className="stat-display text-outline pointer-events-none absolute -right-2 -top-8 text-[110px] font-extrabold leading-none transition-all duration-500 group-hover:-translate-y-1 group-hover:text-accent/20 group-hover:[-webkit-text-stroke-color:transparent]"
         >
-          {player.jersey}
+          {player.jerseyNo}
         </span>
         <div className="relative">
-          <RoleTag role={player.role} />
+          <PositionTag position={player.position} />
           <p className="stat-display mt-3 text-2xl font-extrabold uppercase leading-none">
-            {player.name.split(" ")[0]}
+            {player.fullName.split(" ")[0]}
             <br />
             <span className="text-accent">
-              {player.name.split(" ").slice(1).join(" ")}
+              {player.fullName.split(" ").slice(1).join(" ")}
             </span>
           </p>
           <div className="mt-4 flex items-end gap-4">

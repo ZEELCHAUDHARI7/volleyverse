@@ -1,0 +1,316 @@
+-- =====================================================================
+-- VolleyVerse — professional volleyball league management platform
+-- PostgreSQL / Supabase schema. Mirrors src/lib/types.ts 1:1
+-- (snake_case ↔ camelCase). stat_events is the single source of truth:
+-- statistics and standings are VIEWS, never hand-stored numbers.
+-- =====================================================================
+
+create extension if not exists "pgcrypto";
+
+-- ---------- Competition structure ----------
+
+create table leagues (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  logo_url text,
+  status text not null default 'active' check (status in ('active', 'archived')),
+  created_at timestamptz not null default now()
+);
+
+create table seasons (
+  id uuid primary key default gen_random_uuid(),
+  league_id uuid not null references leagues (id) on delete cascade,
+  name text not null,
+  start_date date,
+  end_date date,
+  status text not null default 'upcoming' check (status in ('upcoming', 'active', 'completed'))
+);
+
+create table divisions (
+  id uuid primary key default gen_random_uuid(),
+  season_id uuid not null references seasons (id) on delete cascade,
+  name text not null
+);
+
+create table venues (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  address text,
+  city text,
+  capacity integer,
+  map_url text
+);
+
+create table courts (
+  id uuid primary key default gen_random_uuid(),
+  venue_id uuid not null references venues (id) on delete cascade,
+  name text not null
+);
+
+create table tournaments (
+  id uuid primary key default gen_random_uuid(),
+  season_id uuid not null references seasons (id) on delete cascade,
+  division_id uuid references divisions (id) on delete set null,
+  name text not null,
+  logo_url text,
+  organizer text,
+  venue_id uuid references venues (id) on delete set null,
+  start_date date,
+  end_date date,
+  format text not null default 'LEAGUE' check (format in ('LEAGUE', 'GROUPS_KNOCKOUT', 'KNOCKOUT')),
+  status text not null default 'upcoming' check (status in ('upcoming', 'active', 'completed'))
+);
+
+create table tournament_groups (
+  id uuid primary key default gen_random_uuid(),
+  tournament_id uuid not null references tournaments (id) on delete cascade,
+  name text not null
+);
+
+-- ---------- Teams & people ----------
+
+create table teams (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  short_name text not null,
+  logo_url text,
+  city text,
+  founded integer
+);
+
+create table team_honours (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references teams (id) on delete cascade,
+  title text not null,
+  season_label text not null
+);
+
+create table staff (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references teams (id) on delete cascade,
+  name text not null,
+  role text not null check (role in ('HEAD_COACH', 'ASSISTANT_COACH', 'MANAGER', 'PHYSIO', 'ANALYST'))
+);
+
+-- Person data lives here; per-team registration in team_players.
+create table players (
+  id uuid primary key default gen_random_uuid(),
+  full_name text not null,
+  date_of_birth date,
+  height_cm integer,
+  nationality text,
+  photo_url text
+);
+
+create table team_players (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references teams (id) on delete cascade,
+  season_id uuid references seasons (id) on delete cascade,
+  player_id uuid not null references players (id) on delete cascade,
+  jersey_no integer not null,
+  position text not null check (position in ('OH', 'OPP', 'MB', 'S', 'L', 'DS')),
+  is_captain boolean not null default false,
+  unique (team_id, season_id, jersey_no)
+);
+
+-- Frontend consumes this flattened shape (src/lib/types.ts Player).
+create view roster_view as
+select
+  tp.id,
+  p.full_name,
+  tp.jersey_no,
+  tp.position,
+  p.height_cm,
+  p.nationality,
+  p.photo_url,
+  tp.team_id,
+  tp.is_captain
+from team_players tp
+join players p on p.id = tp.player_id;
+
+-- ---------- Matches ----------
+
+create table matches (
+  id uuid primary key default gen_random_uuid(),
+  tournament_id uuid not null references tournaments (id) on delete cascade,
+  group_id uuid references tournament_groups (id) on delete set null,
+  match_no integer,
+  date date not null,
+  time time,
+  venue_id uuid references venues (id) on delete set null,
+  court_id uuid references courts (id) on delete set null,
+  home_team_id uuid not null references teams (id),
+  away_team_id uuid not null references teams (id),
+  status text not null default 'scheduled'
+    check (status in ('scheduled', 'live', 'completed', 'postponed', 'cancelled')),
+  total_sets integer not null default 5 check (total_sets in (3, 5)),
+  published boolean not null default false,
+  winner_team_id uuid references teams (id),
+  check (home_team_id <> away_team_id)
+);
+
+create table match_officials (
+  id uuid primary key default gen_random_uuid(),
+  match_id uuid not null references matches (id) on delete cascade,
+  name text not null,
+  role text not null check (role in ('FIRST_REFEREE', 'SECOND_REFEREE', 'SCORER', 'LINE_JUDGE'))
+);
+
+create table match_sets (
+  id uuid primary key default gen_random_uuid(),
+  match_id uuid not null references matches (id) on delete cascade,
+  set_no integer not null,
+  home_points integer not null,
+  away_points integer not null,
+  unique (match_id, set_no)
+);
+
+create table match_rosters (
+  id uuid primary key default gen_random_uuid(),
+  match_id uuid not null references matches (id) on delete cascade,
+  team_id uuid not null references teams (id),
+  player_id uuid not null references team_players (id),
+  is_starter boolean not null default false,
+  is_libero boolean not null default false,
+  unique (match_id, player_id)
+);
+
+-- ---------- Stat events: THE single source of truth ----------
+
+create table stat_events (
+  id uuid primary key default gen_random_uuid(),
+  match_id uuid not null references matches (id) on delete cascade,
+  team_id uuid not null references teams (id),
+  player_id uuid not null references team_players (id),
+  set_no integer not null,
+  type text not null check (type in (
+    'SPIKE_POINT','SPIKE_IN','SPIKE_ERR',
+    'RECV_PERFECT','RECV_GOOD','RECV_POOR','RECV_ERR',
+    'SET_ASSIST','SET_GOOD','SET_ERR',
+    'BLOCK_WIN','BLOCK_MISS',
+    'SERVE_ACE','SERVE_IN','SERVE_ERR',
+    'DIG_SUPER','DIG_SAVE','DIG_FAIL'
+  )),
+  ts timestamptz not null default now()
+);
+
+create index stat_events_match_idx on stat_events (match_id);
+create index stat_events_player_idx on stat_events (player_id);
+create index matches_tournament_idx on matches (tournament_id);
+
+-- ---------- Derived views (mirror src/lib/metrics.ts) ----------
+
+-- Per-side match statistics: sets, points, aces, blocks, errors,
+-- attack % / service % / reception %.
+create view match_statistics as
+select
+  m.id as match_id,
+  t.id as team_id,
+  (select count(*) from match_sets s
+    where s.match_id = m.id
+      and ((t.id = m.home_team_id and s.home_points > s.away_points)
+        or (t.id = m.away_team_id and s.away_points > s.home_points))) as sets_won,
+  (select coalesce(sum(case when t.id = m.home_team_id then s.home_points else s.away_points end), 0)
+    from match_sets s where s.match_id = m.id) as points,
+  count(*) filter (where e.type = 'SERVE_ACE') as aces,
+  count(*) filter (where e.type = 'BLOCK_WIN') as blocks,
+  count(*) filter (where e.type in ('SPIKE_ERR','SERVE_ERR','RECV_ERR','SET_ERR','BLOCK_MISS','DIG_FAIL')) as errors,
+  round(100.0 * count(*) filter (where e.type = 'SPIKE_POINT')
+    / nullif(count(*) filter (where e.type in ('SPIKE_POINT','SPIKE_IN','SPIKE_ERR')), 0), 1) as attack_pct,
+  round(100.0 * count(*) filter (where e.type in ('SERVE_ACE','SERVE_IN'))
+    / nullif(count(*) filter (where e.type in ('SERVE_ACE','SERVE_IN','SERVE_ERR')), 0), 1) as service_pct,
+  round(100.0 * count(*) filter (where e.type in ('RECV_PERFECT','RECV_GOOD'))
+    / nullif(count(*) filter (where e.type in ('RECV_PERFECT','RECV_GOOD','RECV_POOR','RECV_ERR')), 0), 1) as reception_pct
+from matches m
+join teams t on t.id in (m.home_team_id, m.away_team_id)
+left join stat_events e on e.match_id = m.id and e.team_id = t.id
+group by m.id, t.id;
+
+-- Standings per tournament: FIVB points (3-0/3-1 → 3pts; 3-2 → 2/1).
+create view standings as
+with per_match as (
+  select
+    m.tournament_id,
+    m.id as match_id,
+    t.id as team_id,
+    ms.sets_won,
+    ms.points as points_for,
+    (select ms2.points from match_statistics ms2
+      where ms2.match_id = m.id and ms2.team_id <> t.id) as points_against,
+    (select ms2.sets_won from match_statistics ms2
+      where ms2.match_id = m.id and ms2.team_id <> t.id) as sets_lost,
+    (m.winner_team_id = t.id) as won
+  from matches m
+  join teams t on t.id in (m.home_team_id, m.away_team_id)
+  join match_statistics ms on ms.match_id = m.id and ms.team_id = t.id
+  where m.status = 'completed'
+)
+select
+  tournament_id,
+  team_id,
+  count(*) as played,
+  count(*) filter (where won) as won,
+  count(*) filter (where not won) as lost,
+  sum(sets_won) as sets_won,
+  sum(sets_lost) as sets_lost,
+  sum(points_for) as points_for,
+  sum(points_against) as points_against,
+  sum(case
+    when won and sets_won - sets_lost >= 2 then 3
+    when won then 2
+    when not won and sets_lost - sets_won = 1 then 1
+    else 0
+  end) as points,
+  rank() over (
+    partition by tournament_id
+    order by sum(case
+      when won and sets_won - sets_lost >= 2 then 3
+      when won then 2
+      when not won and sets_lost - sets_won = 1 then 1
+      else 0
+    end) desc, count(*) filter (where won) desc
+  ) as rank
+from per_match
+group by tournament_id, team_id;
+
+-- ---------- Row Level Security: the publish boundary ----------
+-- Public (anon) readers see only published, completed matches and the
+-- events/sets attached to them. Authenticated league staff see all and
+-- write through their role. Adjust to your auth model before go-live.
+
+alter table matches enable row level security;
+alter table stat_events enable row level security;
+alter table match_sets enable row level security;
+
+create policy "public reads published matches"
+  on matches for select
+  using (published = true or auth.role() = 'authenticated');
+
+create policy "public reads events of published matches"
+  on stat_events for select
+  using (
+    exists (select 1 from matches m where m.id = match_id
+      and (m.published = true or auth.role() = 'authenticated'))
+  );
+
+create policy "public reads sets of published matches"
+  on match_sets for select
+  using (
+    exists (select 1 from matches m where m.id = match_id
+      and (m.published = true or auth.role() = 'authenticated'))
+  );
+
+create policy "staff writes matches"
+  on matches for all
+  using (auth.role() = 'authenticated')
+  with check (auth.role() = 'authenticated');
+
+create policy "staff writes events"
+  on stat_events for all
+  using (auth.role() = 'authenticated')
+  with check (auth.role() = 'authenticated');
+
+create policy "staff writes sets"
+  on match_sets for all
+  using (auth.role() = 'authenticated')
+  with check (auth.role() = 'authenticated');

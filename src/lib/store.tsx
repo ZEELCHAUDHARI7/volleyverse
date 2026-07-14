@@ -8,33 +8,41 @@ import {
   useRef,
   useState,
 } from "react";
-import type { Db, EventType, Match, OppPlayer, Player, StatEvent } from "./types";
-import { buildSeed } from "./seed";
+import type {
+  Db,
+  Match,
+  MatchRosterEntry,
+  Player,
+  StatEvent,
+} from "./types";
+import { EMPTY_DB } from "./types";
+import type { Collection, DataProvider } from "./repository";
 
 /**
- * Local-first repository (planning Phase 7 decision).
+ * LocalProvider — localStorage-backed implementation of DataProvider.
  *
- * The UI talks only to this store's actions/selectors — a repository
- * boundary. Swapping localStorage for Supabase later means replacing
- * load/persist and adding realtime subscriptions; no screen changes.
- * localStorage doubles as the courtside entry queue: entries persist
- * within ~100ms of a tap (FR1) regardless of connectivity.
+ * The UI talks only to this repository surface; swapping in the
+ * SupabaseProvider later means replacing load/persist with queries and
+ * the storage event with realtime channels. No screen changes.
+ *
+ * The database starts EMPTY. All leagues, teams, players, venues and
+ * matches are created through the console — there is no seed data.
  */
 
-// v2: serve + dig tracking added — bump forces a clean reseed
-const KEY = "volleyverse:db:v2";
+// v3: league-platform data model (two real teams per match, persisted
+// set scores, standard positions). Bump intentionally discards v2
+// prototype data — see REFACTOR_AUDIT.md, risk #2.
+const KEY = "volleyverse:db:v3";
 
 function load(): Db {
-  if (typeof window === "undefined") return { players: [], matches: [], events: [] };
+  if (typeof window === "undefined") return EMPTY_DB;
   try {
     const raw = window.localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw) as Db;
+    if (raw) return { ...EMPTY_DB, ...(JSON.parse(raw) as Partial<Db>) };
   } catch {
-    // corrupted storage → reseed
+    // corrupted storage → start clean
   }
-  const seeded = buildSeed();
-  window.localStorage.setItem(KEY, JSON.stringify(seeded));
-  return seeded;
+  return EMPTY_DB;
 }
 
 function persist(db: Db) {
@@ -45,25 +53,10 @@ function persist(db: Db) {
   }
 }
 
-interface StoreApi {
-  ready: boolean;
-  db: Db;
-  createMatch: (m: Omit<Match, "id" | "status" | "published">) => Match;
-  completeMatch: (matchId: string) => void;
-  setPublished: (matchId: string, published: boolean) => void;
-  /** Attach the opponent's entered players to a match (rally setup wizard). */
-  setOppPlayers: (matchId: string, players: OppPlayer[]) => void;
-  addEvent: (matchId: string, playerId: string, set: number, type: EventType, opp?: boolean) => StatEvent;
-  removeEvent: (eventId: string) => void;
-  /** Post-match correction: remove the most recent event of a type (FR3). */
-  removeLatestOfType: (matchId: string, playerId: string, type: EventType) => void;
-  resetDemoData: () => void;
-}
-
-const StoreContext = createContext<StoreApi | null>(null);
+const StoreContext = createContext<DataProvider | null>(null);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [db, setDb] = useState<Db>({ players: [], matches: [], events: [] });
+  const [db, setDb] = useState<Db>(EMPTY_DB);
   const [ready, setReady] = useState(false);
   const idCounter = useRef(0);
 
@@ -72,14 +65,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setReady(true);
   }, []);
 
-  // Cross-tab sync: the console tab writes, fan tabs follow instantly.
+  // Cross-tab sync: the console tab writes, public tabs follow instantly.
   // localStorage fires `storage` in every OTHER tab of the same browser —
   // the local-first stand-in for the future Supabase realtime channel.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key !== KEY || e.newValue == null) return;
       try {
-        setDb(JSON.parse(e.newValue) as Db);
+        setDb({ ...EMPTY_DB, ...(JSON.parse(e.newValue) as Partial<Db>) });
       } catch {
         // partial write / corrupt payload — keep current state
       }
@@ -88,7 +81,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  const update = useCallback((fn: (prev: Db) => Db) => {
+  const updateDb = useCallback((fn: (prev: Db) => Db) => {
     setDb((prev) => {
       const next = fn(prev);
       persist(next);
@@ -99,55 +92,91 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const newId = (prefix: string) =>
     `${prefix}_${Date.now().toString(36)}_${(idCounter.current++).toString(36)}`;
 
-  const api: StoreApi = {
+  const patchMatch = (matchId: string, patch: (m: Match) => Match) =>
+    updateDb((prev) => ({
+      ...prev,
+      matches: prev.matches.map((m) => (m.id === matchId ? patch(m) : m)),
+    }));
+
+  const api: DataProvider = {
     ready,
     db,
+
+    insert: (collection, row) => {
+      const withId = { ...row, id: newId(String(collection).slice(0, 2)) } as Db[typeof collection][number];
+      updateDb((prev) => ({
+        ...prev,
+        [collection]: [...prev[collection], withId],
+      }));
+      return withId;
+    },
+    update: (collection, id, patch) =>
+      updateDb((prev) => ({
+        ...prev,
+        [collection]: (prev[collection] as { id: string }[]).map((r) =>
+          r.id === id ? { ...r, ...patch } : r,
+        ),
+      })),
+    remove: (collection: Collection, id: string) =>
+      updateDb((prev) => ({
+        ...prev,
+        [collection]: (prev[collection] as { id: string }[]).filter((r) => r.id !== id),
+      })),
+
     createMatch: (m) => {
-      const match: Match = { ...m, id: newId("m"), status: "live", published: false };
-      update((prev) => ({ ...prev, matches: [...prev.matches, match] }));
+      const match: Match = {
+        ...m,
+        id: newId("m"),
+        status: "scheduled",
+        published: false,
+        winnerTeamId: null,
+        setScores: [],
+      };
+      updateDb((prev) => ({ ...prev, matches: [...prev.matches, match] }));
       return match;
     },
-    completeMatch: (matchId) =>
-      update((prev) => ({
-        ...prev,
-        matches: prev.matches.map((m) =>
-          m.id === matchId ? { ...m, status: "completed" as const } : m,
+    startMatch: (matchId) =>
+      patchMatch(matchId, (m) => ({ ...m, status: "live" as const })),
+    recordSetScore: (matchId, set) =>
+      patchMatch(matchId, (m) => ({
+        ...m,
+        setScores: [...m.setScores.filter((s) => s.setNo !== set.setNo), set].sort(
+          (a, b) => a.setNo - b.setNo,
         ),
+      })),
+    completeMatch: (matchId, winnerTeamId) =>
+      patchMatch(matchId, (m) => ({
+        ...m,
+        status: "completed" as const,
+        winnerTeamId,
       })),
     setPublished: (matchId, published) =>
-      update((prev) => ({
-        ...prev,
-        matches: prev.matches.map((m) =>
-          m.id === matchId ? { ...m, published } : m,
-        ),
-      })),
-    setOppPlayers: (matchId, players) =>
-      update((prev) => ({
-        ...prev,
-        matches: prev.matches.map((m) =>
-          m.id === matchId ? { ...m, oppPlayers: players } : m,
-        ),
-      })),
-    addEvent: (matchId, playerId, set, type, opp) => {
+      patchMatch(matchId, (m) => ({ ...m, published })),
+    setRosters: (matchId, rosters: MatchRosterEntry[]) =>
+      patchMatch(matchId, (m) => ({ ...m, rosters })),
+    setOfficials: (matchId, officials) =>
+      patchMatch(matchId, (m) => ({ ...m, officials })),
+
+    addEvent: (matchId, teamId, playerId, setNo, type) => {
       const e: StatEvent = {
         id: newId("e"),
         matchId,
+        teamId,
         playerId,
-        set,
+        setNo,
         type,
         ts: Date.now(),
-        ...(opp ? { opp: true } : {}),
       };
-      update((prev) => ({ ...prev, events: [...prev.events, e] }));
+      updateDb((prev) => ({ ...prev, events: [...prev.events, e] }));
       return e;
     },
     removeEvent: (eventId) =>
-      update((prev) => ({
+      updateDb((prev) => ({
         ...prev,
         events: prev.events.filter((e) => e.id !== eventId),
       })),
     removeLatestOfType: (matchId, playerId, type) =>
-      update((prev) => {
+      updateDb((prev) => {
         const idx = [...prev.events]
           .map((e, i) => ({ e, i }))
           .filter(({ e }) => e.matchId === matchId && e.playerId === playerId && e.type === type)
@@ -158,33 +187,65 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         events.splice(idx, 1);
         return { ...prev, events };
       }),
-    resetDemoData: () => {
-      const seeded = buildSeed();
-      persist(seeded);
-      setDb(seeded);
-    },
   };
 
   return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>;
 }
 
-export function useStore(): StoreApi {
+export function useStore(): DataProvider {
   const ctx = useContext(StoreContext);
   if (!ctx) throw new Error("useStore must be used inside <StoreProvider>");
   return ctx;
 }
 
 // ---- Convenience selectors ----
-export function useMatch(matchId: string): {
+
+export interface MatchContext {
   match: Match | undefined;
-  roster: Player[];
+  homeTeam: ReturnType<typeof findTeam>;
+  awayTeam: ReturnType<typeof findTeam>;
+  homeRoster: Player[];
+  awayRoster: Player[];
   events: StatEvent[];
-} {
+}
+
+function findTeam(db: Db, id: string | undefined) {
+  return db.teams.find((t) => t.id === id);
+}
+
+/** Everything one match screen needs: both teams, both rosters, events. */
+export function useMatch(matchId: string): MatchContext {
   const { db } = useStore();
   const match = db.matches.find((m) => m.id === matchId);
-  const roster = match
-    ? db.players.filter((p) => match.roster.includes(p.id))
+  const rosterFor = (teamId: string | undefined): Player[] => {
+    if (!match || !teamId) return [];
+    const ids = new Set(
+      match.rosters.filter((r) => r.teamId === teamId).map((r) => r.playerId),
+    );
+    // Fall back to the full team roster when no match roster was set.
+    return ids.size > 0
+      ? db.players.filter((p) => ids.has(p.id))
+      : db.players.filter((p) => p.teamId === teamId);
+  };
+  return {
+    match,
+    homeTeam: findTeam(db, match?.homeTeamId),
+    awayTeam: findTeam(db, match?.awayTeamId),
+    homeRoster: rosterFor(match?.homeTeamId),
+    awayRoster: rosterFor(match?.awayTeamId),
+    events: db.events.filter((e) => e.matchId === matchId),
+  };
+}
+
+/** Active league context: first active league, its seasons/tournaments. */
+export function useActiveLeague() {
+  const { db } = useStore();
+  const league = db.leagues.find((l) => l.status === "active") ?? db.leagues[0];
+  const seasons = league ? db.seasons.filter((s) => s.leagueId === league.id) : [];
+  const season =
+    seasons.find((s) => s.status === "active") ?? seasons[seasons.length - 1];
+  const tournaments = season
+    ? db.tournaments.filter((t) => t.seasonId === season.id)
     : [];
-  const events = db.events.filter((e) => e.matchId === matchId);
-  return { match, roster, events };
+  return { league, season, tournaments };
 }

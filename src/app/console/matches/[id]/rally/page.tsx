@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMatch, useStore } from "@/lib/store";
 import { breaksRecord, lines } from "@/lib/metrics";
-import type { Match, OppPlayer, Player } from "@/lib/types";
+import type { Match, Player, Team } from "@/lib/types";
 import {
   BACK_ROW,
   FRONT_ROW,
@@ -25,7 +25,6 @@ import {
   initialMatchState,
   isFrontRow,
   openingRally,
-  other,
   resolvePoint,
   resolveTrio,
   rotate,
@@ -35,15 +34,19 @@ import {
   setPointReached,
   skipPhase,
 } from "@/lib/rally";
-import { RoleTag } from "@/components/ui";
+import { PositionTag } from "@/components/ui";
 
 /**
- * RALLY TRACKER v2 — the live courtside engine.
+ * RALLY TRACKER v3 — the live courtside engine, two real teams.
  *
- * Two screens behind one route: the SETUP WIZARD (toss → starting six →
- * opponent six → court view), then the LIVE tracker.
+ * Two screens behind one route: the SETUP WIZARD (toss → home starting
+ * six → away starting six → court view), then the LIVE tracker.
  *
- * Live contract (the "three buttons" redesign):
+ * Side mapping: the pure rally engine models sides as "US"/"OPP";
+ * here US = the HOME team, OPP = the AWAY team. Every StatEvent is
+ * written with the acting team's real id.
+ *
+ * Live contract (the "three buttons" design):
  *   · the COURT never leaves the screen — both teams, net in the middle
  *   · tap the player who acted → everyone else fades → ✓ O ✗ appear
  *   · WHAT happened (serve/spike/block/dig…) is inferred from the rally
@@ -55,7 +58,7 @@ import { RoleTag } from "@/components/ui";
 
 const RALLY_KEY = (matchId: string) => `volleyverse:rally:${matchId}`;
 
-/** Display metadata for anyone on court — Guardians or opponent. */
+/** Display metadata for anyone on court. */
 interface CourtPlayer {
   id: string;
   name: string;
@@ -65,7 +68,7 @@ interface CourtPlayer {
 
 export default function RallyTracker() {
   const { id } = useParams<{ id: string }>();
-  const { match, roster } = useMatch(id);
+  const { match, homeTeam, awayTeam, homeRoster, awayRoster } = useMatch(id);
   const store = useStore();
   const ready = store.ready;
 
@@ -79,7 +82,6 @@ export default function RallyTracker() {
       const raw = window.localStorage.getItem(RALLY_KEY(match.id));
       if (raw) {
         const parsed = JSON.parse(raw) as MatchState;
-        // v1 states (single-lineup schema) can't drive the two-sided court.
         if (parsed.oppLineup && parsed.usLineup) setState(parsed);
       }
     } catch {
@@ -104,7 +106,7 @@ export default function RallyTracker() {
   );
 
   if (!ready || !loaded) return null;
-  if (!match) {
+  if (!match || !homeTeam || !awayTeam) {
     return (
       <div className="flex min-h-dvh items-center justify-center">
         <p className="text-dim">Match not found.</p>
@@ -113,13 +115,26 @@ export default function RallyTracker() {
   }
 
   if (!state) {
-    return <SetupWizard match={match} roster={roster} store={store} onStart={persist} />;
+    return (
+      <SetupWizard
+        match={match}
+        homeTeam={homeTeam}
+        awayTeam={awayTeam}
+        homeRoster={homeRoster}
+        awayRoster={awayRoster}
+        store={store}
+        onStart={persist}
+      />
+    );
   }
 
   return (
     <LiveScreen
       match={match}
-      roster={roster}
+      homeTeam={homeTeam}
+      awayTeam={awayTeam}
+      homeRoster={homeRoster}
+      awayRoster={awayRoster}
       state={state}
       setState={persist}
       store={store}
@@ -128,19 +143,30 @@ export default function RallyTracker() {
 }
 
 // =====================================================================
-// SETUP WIZARD — Toss → Guardians six → Opponent six → Court view
+// SETUP WIZARD — Toss → Home six → Away six → Court view
 // =====================================================================
 
-type WizardStep = "TOSS" | "US_SIX" | "OPP_SIX" | "COURT";
+type WizardStep = "TOSS" | "HOME_SIX" | "AWAY_SIX" | "COURT";
+
+interface SixState {
+  slots: Partial<Record<Position, string>>;
+  liberoId: string | null;
+}
 
 function SetupWizard({
   match,
-  roster,
+  homeTeam,
+  awayTeam,
+  homeRoster,
+  awayRoster,
   store,
   onStart,
 }: {
   match: Match;
-  roster: Player[];
+  homeTeam: Team;
+  awayTeam: Team;
+  homeRoster: Player[];
+  awayRoster: Player[];
   store: ReturnType<typeof useStore>;
   onStart: (m: MatchState) => void;
 }) {
@@ -150,61 +176,55 @@ function SetupWizard({
   const [tossWinner, setTossWinner] = useState<Side | null>(null);
   const [tossChoice, setTossChoice] = useState<Toss["choice"] | null>(null);
 
-  // Step 2 — our starting six + libero (tap to place, P1 first)
-  const [slots, setSlots] = useState<Partial<Record<Position, string>>>({});
-  const [liberoId, setLiberoId] = useState<string | null>(null);
-
-  // Step 3 — opponent players (manual entry, position order)
-  const [oppNames, setOppNames] = useState<string[]>(Array(6).fill(""));
-  const [oppLibero, setOppLibero] = useState("");
+  // Steps 2 & 3 — starting six + libero per side (tap to place, P1 first)
+  const [home, setHome] = useState<SixState>({ slots: {}, liberoId: null });
+  const [away, setAway] = useState<SixState>({ slots: {}, liberoId: null });
 
   const toss: Toss | null =
     tossWinner && tossChoice ? { winner: tossWinner, choice: tossChoice } : null;
-  const placed = useMemo(() => new Set(Object.values(slots)), [slots]);
-  const nextPos = POSITIONS.find((p) => !slots[p]);
-  const sixReady = POSITIONS.every((p) => slots[p]);
 
-  const tapPlayer = (playerId: string) => {
-    const existing = POSITIONS.find((p) => slots[p] === playerId);
-    if (existing) {
-      setSlots((s) => {
-        const n = { ...s };
-        delete n[existing];
-        return n;
-      });
-      return;
-    }
-    if (liberoId === playerId || !nextPos) return;
-    setSlots((s) => ({ ...s, [nextPos]: playerId }));
-  };
+  const sixReady = (s: SixState) => POSITIONS.every((p) => s.slots[p]);
+  const homeReady = sixReady(home);
+  const awayReady = sixReady(away);
 
-  // Opponent ids are stable per match — StatEvents reference them forever.
-  const oppPlayers: OppPlayer[] = useMemo(() => {
-    const six = oppNames.map((n, i) => ({
-      id: `${match.id}_opp${i + 1}`,
-      name: n.trim() || `${match.opponent.split(" ")[0]} ${i + 1}`,
-    }));
-    return oppLibero.trim()
-      ? [...six, { id: `${match.id}_opp7`, name: oppLibero.trim() }]
-      : six;
-  }, [oppNames, oppLibero, match.id, match.opponent]);
+  const allPlayers = useMemo(
+    () =>
+      new Map<string, CourtPlayer>([
+        ...homeRoster.map((p): [string, CourtPlayer] => [
+          p.id,
+          { id: p.id, name: p.fullName.split(" ")[0], jersey: p.jerseyNo, side: "US" },
+        ]),
+        ...awayRoster.map((p): [string, CourtPlayer] => [
+          p.id,
+          { id: p.id, name: p.fullName.split(" ")[0], jersey: p.jerseyNo, side: "OPP" },
+        ]),
+      ]),
+    [homeRoster, awayRoster],
+  );
 
   const start = () => {
-    if (!sixReady || !toss) return;
-    const us: TeamSetup = { lineup: slots as Lineup, liberoId };
-    const oppLineup = Object.fromEntries(
-      POSITIONS.map((p, i) => [p, oppPlayers[i].id]),
-    ) as unknown as Lineup;
-    const opp: TeamSetup = {
-      lineup: oppLineup,
-      liberoId: oppLibero.trim() ? `${match.id}_opp7` : null,
-    };
-    store.setOppPlayers(match.id, oppPlayers);
+    if (!homeReady || !awayReady || !toss) return;
+    const us: TeamSetup = { lineup: home.slots as Lineup, liberoId: home.liberoId };
+    const opp: TeamSetup = { lineup: away.slots as Lineup, liberoId: away.liberoId };
+
+    // Persist scoresheet detail: starters + liberos on the match roster.
+    const starters = new Set([
+      ...Object.values(home.slots),
+      ...Object.values(away.slots),
+    ]);
+    store.setRosters(
+      match.id,
+      match.rosters.map((r) => ({
+        ...r,
+        isStarter: starters.has(r.playerId),
+        isLibero: r.playerId === home.liberoId || r.playerId === away.liberoId,
+      })),
+    );
+    if (match.status === "scheduled") store.startMatch(match.id);
     onStart(initialMatchState(us, opp, toss));
   };
 
-  const nameOf = (pid?: string) => roster.find((p) => p.id === pid)?.name.split(" ")[0] ?? "";
-  const stepIndex = { TOSS: 1, US_SIX: 2, OPP_SIX: 3, COURT: 4 }[step];
+  const stepIndex = { TOSS: 1, HOME_SIX: 2, AWAY_SIX: 3, COURT: 4 }[step];
 
   const bigChoice = (active: boolean) =>
     `card-premium flex min-h-16 flex-1 items-center justify-center rounded-2xl px-3 text-center text-sm font-bold uppercase tracking-wide transition-all active:scale-[0.98] ${
@@ -220,7 +240,9 @@ function SetupWizard({
         >
           ← Exit
         </Link>
-        <p className="stat-display text-base font-bold uppercase">vs {match.opponent}</p>
+        <p className="stat-display text-base font-bold uppercase">
+          {homeTeam.shortName} vs {awayTeam.shortName}
+        </p>
         <span className="tnum text-xs text-dim">Step {stepIndex}/4</span>
       </header>
 
@@ -232,10 +254,10 @@ function SetupWizard({
           </p>
           <div className="mb-6 flex gap-2">
             <button type="button" onClick={() => setTossWinner("US")} className={bigChoice(tossWinner === "US")}>
-              Goa Guardians
+              {homeTeam.name}
             </button>
             <button type="button" onClick={() => setTossWinner("OPP")} className={bigChoice(tossWinner === "OPP")}>
-              {match.opponent}
+              {awayTeam.name}
             </button>
           </div>
           <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-dim">
@@ -251,166 +273,185 @@ function SetupWizard({
           </div>
           {toss && (
             <p className="mb-4 text-center text-sm font-bold text-accent">
-              → {servingFromToss(toss) === "US" ? "Goa Guardians" : match.opponent} serve first
+              → {servingFromToss(toss) === "US" ? homeTeam.name : awayTeam.name} serve first
             </p>
           )}
-          <WizardNext label="Next · Guardians line-up" disabled={!toss} onClick={() => setStep("US_SIX")} />
+          <WizardNext
+            label={`Next · ${homeTeam.shortName} line-up`}
+            disabled={!toss}
+            onClick={() => setStep("HOME_SIX")}
+          />
         </>
       )}
 
-      {step === "US_SIX" && (
+      {step === "HOME_SIX" && (
         <>
-          <StepTitle n={2} title="Guardians starting six" sub="Tap to place — P1 serves first. Libero optional." />
-          <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-dim">
-            On court <span className="text-accent">{Object.keys(slots).length}/6</span> · position 1 serves
-          </p>
-          <div className="card-premium mb-5 rounded-2xl p-4">
-            <p className="mb-2 text-center text-[10px] uppercase tracking-widest text-dim">← net →</p>
-            <div className="grid grid-cols-3 gap-2">
-              {[...FRONT_ROW, ...BACK_ROW].map((p) => (
-                <MiniSlot key={p} pos={p} name={nameOf(slots[p])} active={p === nextPos} />
-              ))}
-            </div>
-          </div>
-          <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-dim">
-            Tap to place · tap again to remove
-          </p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {roster.map((p) => {
-              const pos = POSITIONS.find((x) => slots[x] === p.id);
-              const isLibero = liberoId === p.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => tapPlayer(p.id)}
-                  className={`card-premium flex min-h-16 items-center justify-between rounded-2xl px-3 py-2.5 text-left active:scale-[0.98] ${
-                    pos ? "ring-2 ring-accent" : isLibero ? "opacity-40" : ""
-                  }`}
-                >
-                  <span>
-                    <span className="block text-sm font-bold leading-tight">{p.name.split(" ")[0]}</span>
-                    <span className="tnum text-[11px] text-dim">#{p.jersey}</span>
-                  </span>
-                  {pos ? (
-                    <span className="stat-display tnum text-lg font-extrabold text-accent">P{pos}</span>
-                  ) : (
-                    <RoleTag role={p.role} />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <p className="mb-2 mt-5 text-[11px] font-bold uppercase tracking-[0.2em] text-dim">
-            Libero <span className="text-dim/60">(optional · defensive specialist)</span>
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {roster.map((p) => {
-              const disabled = placed.has(p.id);
-              const active = liberoId === p.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => setLiberoId(active ? null : p.id)}
-                  className={`min-h-10 rounded-full px-3 text-xs font-bold uppercase tracking-wider transition-colors ${
-                    active
-                      ? "bg-violet text-white"
-                      : disabled
-                        ? "border border-line text-dim/40"
-                        : "border border-line text-dim"
-                  }`}
-                >
-                  {p.name.split(" ")[0]}
-                </button>
-              );
-            })}
-          </div>
+          <StepTitle
+            n={2}
+            title={`${homeTeam.name} starting six`}
+            sub="Tap to place. P1 serves first. Libero optional."
+          />
+          <SixPicker roster={homeRoster} six={home} setSix={setHome} />
           <WizardNext
-            label={sixReady ? `Next · ${match.opponent} line-up` : `Pick ${6 - Object.keys(slots).length} more`}
-            disabled={!sixReady}
-            onClick={() => setStep("OPP_SIX")}
+            label={
+              homeReady
+                ? `Next · ${awayTeam.shortName} line-up`
+                : `Pick ${6 - Object.keys(home.slots).length} more`
+            }
+            disabled={!homeReady}
+            onClick={() => setStep("AWAY_SIX")}
             onBack={() => setStep("TOSS")}
           />
         </>
       )}
 
-      {step === "OPP_SIX" && (
+      {step === "AWAY_SIX" && (
         <>
           <StepTitle
             n={3}
-            title={`${match.opponent} players`}
-            sub="Enter their six in serving order — P1 serves first. Blank = auto name."
+            title={`${awayTeam.name} starting six`}
+            sub="Tap to place. P1 serves first. Libero optional."
           />
-          <div className="space-y-2">
-            {POSITIONS.map((p, i) => (
-              <label key={p} className="flex items-center gap-3">
-                <span className="stat-display tnum w-9 text-right text-sm font-extrabold text-dim">
-                  P{p}
-                </span>
-                <input
-                  className="min-h-12 w-full rounded-xl border border-line bg-surface2 px-4 text-sm text-ink placeholder:text-dim focus:border-accent focus:outline-none"
-                  placeholder={`Player ${i + 1}${p === 1 ? " · serves first" : ""}`}
-                  value={oppNames[i]}
-                  onChange={(e) =>
-                    setOppNames((ns) => ns.map((n, j) => (j === i ? e.target.value : n)))
-                  }
-                />
-              </label>
-            ))}
-            <label className="flex items-center gap-3 pt-2">
-              <span className="w-9 text-right text-[10px] font-bold uppercase tracking-wider text-violet">
-                Lib
-              </span>
-              <input
-                className="min-h-12 w-full rounded-xl border border-violet/40 bg-surface2 px-4 text-sm text-ink placeholder:text-dim focus:border-violet focus:outline-none"
-                placeholder="Libero (optional)"
-                value={oppLibero}
-                onChange={(e) => setOppLibero(e.target.value)}
-              />
-            </label>
-          </div>
-          <WizardNext label="Next · Court view" onClick={() => setStep("COURT")} onBack={() => setStep("US_SIX")} />
+          <SixPicker roster={awayRoster} six={away} setSix={setAway} />
+          <WizardNext
+            label={
+              awayReady
+                ? "Next · Court view"
+                : `Pick ${6 - Object.keys(away.slots).length} more`
+            }
+            disabled={!awayReady}
+            onClick={() => setStep("COURT")}
+            onBack={() => setStep("HOME_SIX")}
+          />
         </>
       )}
 
-      {step === "COURT" && toss && sixReady && (
+      {step === "COURT" && toss && homeReady && awayReady && (
         <>
           <StepTitle
             n={4}
             title="Court view"
-            sub={`${servingFromToss(toss) === "US" ? "Goa Guardians" : match.opponent} serve — server highlighted.`}
+            sub={`${servingFromToss(toss) === "US" ? homeTeam.name : awayTeam.name} serve. Server highlighted.`}
           />
           <CourtBoard
-            opponent={match.opponent}
-            usLineup={slots as Lineup}
-            oppLineup={
-              Object.fromEntries(POSITIONS.map((p, i) => [p, oppPlayers[i].id])) as unknown as Lineup
-            }
-            players={
-              new Map<string, CourtPlayer>([
-                ...roster.map((p): [string, CourtPlayer] => [
-                  p.id,
-                  { id: p.id, name: p.name.split(" ")[0], jersey: p.jersey, side: "US" },
-                ]),
-                ...oppPlayers.map((p): [string, CourtPlayer] => [
-                  p.id,
-                  { id: p.id, name: p.name, side: "OPP" },
-                ]),
-              ])
-            }
+            homeName={homeTeam.name}
+            awayName={awayTeam.name}
+            usLineup={home.slots as Lineup}
+            oppLineup={away.slots as Lineup}
+            players={allPlayers}
             highlightId={
               servingFromToss(toss) === "US"
-                ? (slots as Lineup)[1]
-                : oppPlayers[0].id
+                ? (home.slots as Lineup)[1]
+                : (away.slots as Lineup)[1]
             }
             serving={servingFromToss(toss)}
           />
-          <WizardNext label="Start match →" onClick={start} onBack={() => setStep("OPP_SIX")} />
+          <WizardNext label="Start match →" onClick={start} onBack={() => setStep("AWAY_SIX")} />
         </>
       )}
     </div>
+  );
+}
+
+/** Tap-to-place starting-six picker — used for both sides. */
+function SixPicker({
+  roster,
+  six,
+  setSix,
+}: {
+  roster: Player[];
+  six: SixState;
+  setSix: (s: SixState) => void;
+}) {
+  const { slots, liberoId } = six;
+  const placed = new Set(Object.values(slots));
+  const nextPos = POSITIONS.find((p) => !slots[p]);
+  const nameOf = (pid?: string) =>
+    roster.find((p) => p.id === pid)?.fullName.split(" ")[0] ?? "";
+
+  const tapPlayer = (playerId: string) => {
+    const existing = POSITIONS.find((p) => slots[p] === playerId);
+    if (existing) {
+      const n = { ...slots };
+      delete n[existing];
+      setSix({ ...six, slots: n });
+      return;
+    }
+    if (liberoId === playerId || !nextPos) return;
+    setSix({ ...six, slots: { ...slots, [nextPos]: playerId } });
+  };
+
+  return (
+    <>
+      <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-dim">
+        On court <span className="text-accent">{Object.keys(slots).length}/6</span> · position 1 serves
+      </p>
+      <div className="card-premium mb-5 rounded-2xl p-4">
+        <p className="mb-2 text-center text-[10px] uppercase tracking-widest text-dim">← net →</p>
+        <div className="grid grid-cols-3 gap-2">
+          {[...FRONT_ROW, ...BACK_ROW].map((p) => (
+            <MiniSlot key={p} pos={p} name={nameOf(slots[p])} active={p === nextPos} />
+          ))}
+        </div>
+      </div>
+      <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-dim">
+        Tap to place · tap again to remove
+      </p>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {roster.map((p) => {
+          const pos = POSITIONS.find((x) => slots[x] === p.id);
+          const isLibero = liberoId === p.id;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => tapPlayer(p.id)}
+              className={`card-premium flex min-h-16 items-center justify-between rounded-2xl px-3 py-2.5 text-left active:scale-[0.98] ${
+                pos ? "ring-2 ring-accent" : isLibero ? "opacity-40" : ""
+              }`}
+            >
+              <span>
+                <span className="block text-sm font-bold leading-tight">
+                  {p.fullName.split(" ")[0]}
+                </span>
+                <span className="tnum text-[11px] text-dim">#{p.jerseyNo}</span>
+              </span>
+              {pos ? (
+                <span className="stat-display tnum text-lg font-extrabold text-accent">P{pos}</span>
+              ) : (
+                <PositionTag position={p.position} short />
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <p className="mb-2 mt-5 text-[11px] font-bold uppercase tracking-[0.2em] text-dim">
+        Libero <span className="text-dim/60">(optional · defensive specialist)</span>
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {roster.map((p) => {
+          const disabled = placed.has(p.id);
+          const active = liberoId === p.id;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => setSix({ ...six, liberoId: active ? null : p.id })}
+              className={`min-h-10 rounded-full px-3 text-xs font-bold uppercase tracking-wider transition-colors ${
+                active
+                  ? "bg-violet text-white"
+                  : disabled
+                    ? "border border-line text-dim/40"
+                    : "border border-line text-dim"
+              }`}
+            >
+              {p.fullName.split(" ")[0]}
+            </button>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -437,7 +478,7 @@ function MiniSlot({ pos, name, active }: { pos: Position; name: string; active: 
       }`}
     >
       <span className="tnum text-[10px] text-dim">P{pos}</span>
-      <span className="text-sm font-bold leading-tight">{name || "—"}</span>
+      <span className="text-sm font-bold leading-tight">{name || "Open"}</span>
     </div>
   );
 }
@@ -481,12 +522,12 @@ function WizardNext({
 // =====================================================================
 
 /**
- * Screen layout mirrors a real court seen from our bench:
- *   opponent back row  (their P1 = server, top-left)
- *   opponent front row
+ * Screen layout mirrors a real court seen from the home bench:
+ *   away back row  (their P1 = server, top-left)
+ *   away front row
  *   ───── net ─────
- *   our front row      (P4 P3 P2)
- *   our back row       (P5 P6 P1 — P1 = server, bottom-right)
+ *   home front row (P4 P3 P2)
+ *   home back row  (P5 P6 P1 — P1 = server, bottom-right)
  */
 const OPP_ROWS: Position[][] = [
   [1, 6, 5],
@@ -495,7 +536,8 @@ const OPP_ROWS: Position[][] = [
 const US_ROWS: Position[][] = [FRONT_ROW, BACK_ROW];
 
 function CourtBoard({
-  opponent,
+  homeName,
+  awayName,
   usLineup,
   oppLineup,
   players,
@@ -506,7 +548,8 @@ function CourtBoard({
   onTap,
   liberos,
 }: {
-  opponent: string;
+  homeName: string;
+  awayName: string;
   usLineup: Lineup;
   oppLineup: Lineup;
   players: Map<string, CourtPlayer>;
@@ -549,7 +592,7 @@ function CourtBoard({
           {isServer ? " · serve" : ""}
         </span>
         <span className="max-w-full truncate text-[13px] font-bold leading-tight">
-          {p?.name ?? "—"}
+          {p?.name ?? "Open"}
         </span>
         {p?.jersey !== undefined && <span className="tnum text-[9px] text-dim">#{p.jersey}</span>}
         {isServer && (
@@ -589,7 +632,7 @@ function CourtBoard({
   return (
     <div className="card-premium rounded-2xl p-3">
       <p className="mb-1.5 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.2em] text-dim">
-        <span>{opponent}</span>
+        <span>{awayName}</span>
         {serving === "OPP" && <span className="text-accent">serving</span>}
       </p>
       {liberoChip("OPP")}
@@ -617,7 +660,7 @@ function CourtBoard({
       </div>
       <div className="mt-1.5">{liberoChip("US")}</div>
       <p className="mt-1.5 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.2em] text-dim">
-        <span>Goa Guardians</span>
+        <span>{homeName}</span>
         {serving === "US" && <span className="text-accent">serving</span>}
       </p>
     </div>
@@ -654,51 +697,63 @@ const TRIO_META: { trio: Trio; glyph: string; label: string; cls: string }[] = [
 
 function LiveScreen({
   match,
-  roster,
+  homeTeam,
+  awayTeam,
+  homeRoster,
+  awayRoster,
   state,
   setState,
   store,
 }: {
   match: Match;
-  roster: Player[];
+  homeTeam: Team;
+  awayTeam: Team;
+  homeRoster: Player[];
+  awayRoster: Player[];
   state: MatchState;
   setState: (m: MatchState | null) => void;
   store: ReturnType<typeof useStore>;
 }) {
   const router = useRouter();
   const matchId = match.id;
-  const opponent = match.opponent;
+  const allRoster = useMemo(
+    () => [...homeRoster, ...awayRoster],
+    [homeRoster, awayRoster],
+  );
 
-  // One lookup for everyone on court — Guardians + opponent.
+  // One lookup for everyone on court.
   const players = useMemo(() => {
     const m = new Map<string, CourtPlayer>();
-    for (const p of roster)
-      m.set(p.id, { id: p.id, name: p.name.split(" ")[0], jersey: p.jersey, side: "US" });
-    for (const p of match.oppPlayers ?? [])
-      m.set(p.id, { id: p.id, name: p.name, side: "OPP" });
+    for (const p of homeRoster)
+      m.set(p.id, { id: p.id, name: p.fullName.split(" ")[0], jersey: p.jerseyNo, side: "US" });
+    for (const p of awayRoster)
+      m.set(p.id, { id: p.id, name: p.fullName.split(" ")[0], jersey: p.jerseyNo, side: "OPP" });
     return m;
-  }, [roster, match.oppPlayers]);
+  }, [homeRoster, awayRoster]);
 
   const { rally, usLineup, oppLineup } = state;
   const phase = rally.phase;
   const side = rally.side; // team performing the current phase
   const lineupOf = (s: Side) => (s === "US" ? usLineup : oppLineup);
   const liberoOf = (s: Side) => state.setup[s === "US" ? "us" : "opp"].liberoId;
-  const teamName = (s: Side) => (s === "US" ? "Guardians" : opponent);
+  const teamName = (s: Side) => (s === "US" ? homeTeam.name : awayTeam.name);
+  const teamIdOf = (s: Side) => (s === "US" ? match.homeTeamId : match.awayTeamId);
+  const rosterOf = (s: Side) => (s === "US" ? homeRoster : awayRoster);
 
   const [armed, setArmed] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ text: string; big?: boolean } | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auto-arm the unambiguous actor so the common case is a single tap:
-  // the server on SERVE, and our lone setter on our SET.
+  // the server on SERVE, and a side's lone on-court setter on SET.
   useEffect(() => {
     if (phase === "OVER") return;
     if (phase === "SERVE") {
       setArmed(serverId(lineupOf(side)));
-    } else if (phase === "SET" && side === "US") {
-      const setters = POSITIONS.map((p) => usLineup[p]).filter(
-        (pid) => roster.find((r) => r.id === pid)?.role === "SETTER",
+    } else if (phase === "SET") {
+      const roster = rosterOf(side);
+      const setters = POSITIONS.map((p) => lineupOf(side)[p]).filter(
+        (pid) => roster.find((r) => r.id === pid)?.position === "S",
       );
       setArmed(setters.length === 1 ? setters[0] : null);
     } else {
@@ -720,7 +775,7 @@ function LiveScreen({
     flashTimer.current = setTimeout(() => setFlash(null), big ? 6000 : 2800);
   };
 
-  // Season-record + milestone detection (Guardians only).
+  // Season-record + milestone detection (both teams — everyone is real).
   const perMatchCount = (pid: string, ev: "SERVE_ACE" | "DIG_SUPER") =>
     store.db.events.filter((e) => e.matchId === matchId && e.playerId === pid && e.type === ev)
       .length;
@@ -738,13 +793,13 @@ function LiveScreen({
   const commit = (trio: Trio) => {
     if (phase === "OVER" || !armed || !armedAction) return;
     const res = resolveTrio(armedAction, side, trio);
-    const isOpp = side === "OPP";
+    const teamId = teamIdOf(side);
 
     let eventId: string | null = null;
     let assistUpgradeEventId: string | null = null;
 
     if (res.event) {
-      const e = store.addEvent(matchId, armed, state.set, res.event, isOpp);
+      const e = store.addEvent(matchId, teamId, armed, state.set, res.event);
       eventId = e.id;
 
       // Assist attribution: a kill upgrades that side's preceding set.
@@ -754,14 +809,14 @@ function LiveScreen({
           .find((a) => a.action === "SET" && a.side === side && a.eventId);
         if (priorSet?.eventId && priorSet.playerId) {
           store.removeEvent(priorSet.eventId);
-          const up = store.addEvent(matchId, priorSet.playerId, state.set, "SET_ASSIST", isOpp);
+          const up = store.addEvent(matchId, teamId, priorSet.playerId, state.set, "SET_ASSIST");
           assistUpgradeEventId = up.id;
           priorSet.eventId = up.id; // keep current-rally log consistent for undo
         }
       }
 
-      // Milestone flashes — Guardians only (spec: flag at 3/5/7).
-      if (!isOpp && (res.event === "SERVE_ACE" || res.event === "DIG_SUPER")) {
+      // Milestone flashes — flag at 3/5/7, record breaks league-wide.
+      if (res.event === "SERVE_ACE" || res.event === "DIG_SUPER") {
         const isAce = res.event === "SERVE_ACE";
         const n = perMatchCount(armed, res.event); // includes the one just added
         const broke = breaksRecord(
@@ -771,8 +826,8 @@ function LiveScreen({
           armed,
         );
         const first = players.get(armed)?.name ?? "Player";
-        if (broke) showFlash(`🏆 SEASON RECORD — ${first}: ${n} ${isAce ? "aces" : "super digs"}!`, true);
-        else if ([3, 5, 7].includes(n)) showFlash(`🔥 ${first} — ${n} ${isAce ? "aces" : "super digs"} this match`, true);
+        if (broke) showFlash(`🏆 SEASON RECORD · ${first}: ${n} ${isAce ? "aces" : "super digs"}!`, true);
+        else if ([3, 5, 7].includes(n)) showFlash(`🔥 ${first}: ${n} ${isAce ? "aces" : "super digs"} this match`, true);
       }
     }
 
@@ -879,6 +934,12 @@ function LiveScreen({
 
   const bankSet = () => {
     if (!setWinner) return;
+    // Persist the finished set's score — the match_sets row standings use.
+    store.recordSetScore(matchId, {
+      setNo: state.set,
+      homePoints: state.usScore,
+      awayPoints: state.oppScore,
+    });
     const nextSet = Math.min(state.set + 1, match.totalSets);
     const serving = servingForSet(state.toss, nextSet); // first serve alternates
     setState({
@@ -895,22 +956,28 @@ function LiveScreen({
       rally: openingRally(serving),
       history: [],
     });
-    showFlash(`Set ${state.set} — ${teamName(setWinner)}`, true);
+    showFlash(`Set ${state.set}: ${teamName(setWinner)}`, true);
   };
 
   const endMatch = () => {
-    store.completeMatch(matchId);
+    const winnerTeamId =
+      state.usSets === state.oppSets
+        ? null
+        : state.usSets > state.oppSets
+          ? match.homeTeamId
+          : match.awayTeamId;
+    store.completeMatch(matchId, winnerTeamId);
     setState(null); // clear the resumable rally session
     router.push(`/console/matches/${matchId}/review`);
   };
 
-  // ---- Live top performers (this match, our roster) ----
+  // ---- Live top performers (this match, both rosters) ----
   const matchEvents = store.db.events.filter((e) => e.matchId === matchId);
-  const ls = lines(roster, matchEvents);
+  const ls = lines(allRoster, matchEvents);
   const topScorer = [...ls].sort((a, b) => b.points - a.points)[0];
   const topServer = [...ls].sort((a, b) => b.aces - a.aces)[0];
   const topDef = [...ls].sort((a, b) => b.superDigs + b.blocks - (a.superDigs + a.blocks))[0];
-  const nm = (pid?: string) => players.get(pid ?? "")?.name ?? "—";
+  const nm = (pid?: string) => players.get(pid ?? "")?.name ?? "TBD";
 
   // Libero taps mean dig/receive — never serve, attack or (front-row) block.
   const liberoEnabled = phase === "RECEIVE" || phase === "DEFEND" || phase === "DIG" || phase === "SET";
@@ -941,13 +1008,17 @@ function LiveScreen({
           </span>
         </div>
         <div className="card-premium grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-2xl px-4 py-2.5">
-          <p className="stat-display text-left text-sm font-bold uppercase leading-tight">Guardians</p>
+          <p className="stat-display text-left text-sm font-bold uppercase leading-tight">
+            {homeTeam.shortName}
+          </p>
           <p className="stat-display tnum text-3xl font-extrabold">
             <span className={rally.serving === "US" ? "text-accent" : ""}>{state.usScore}</span>
             <span className="mx-2 text-dim">–</span>
             <span className={rally.serving === "OPP" ? "text-accent" : ""}>{state.oppScore}</span>
           </p>
-          <p className="stat-display text-right text-sm font-bold uppercase leading-tight">{opponent}</p>
+          <p className="stat-display text-right text-sm font-bold uppercase leading-tight">
+            {awayTeam.shortName}
+          </p>
         </div>
       </header>
 
@@ -958,7 +1029,7 @@ function LiveScreen({
           onClick={bankSet}
           className="btn-glow mb-3 flex min-h-12 w-full items-center justify-center rounded-2xl bg-accent text-sm font-extrabold uppercase tracking-wide text-accent-ink"
         >
-          Set point — bank set for {teamName(setWinner)} →
+          Set point: bank set for {teamName(setWinner)} →
         </button>
       )}
 
@@ -976,7 +1047,8 @@ function LiveScreen({
 
       {/* THE COURT — always on screen */}
       <CourtBoard
-        opponent={opponent}
+        homeName={homeTeam.name}
+        awayName={awayTeam.name}
         usLineup={usLineup}
         oppLineup={oppLineup}
         players={players}

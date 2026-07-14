@@ -1,8 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { CLUB } from "@/lib/club";
-import { LiveCourt, useLiveMatch, useNameOf } from "@/components/live-match";
+import {
+  LiveCourt,
+  useLiveMatch,
+  useMatchContext,
+  useNameOf,
+} from "@/components/live-match";
 
 /**
  * LIVE NOW — the fan-facing broadcast strip on the showcase home.
@@ -11,11 +15,14 @@ import { LiveCourt, useLiveMatch, useNameOf } from "@/components/live-match";
  */
 export function LiveNow() {
   const { ready, match, state } = useLiveMatch();
-  const nameOf = useNameOf(match);
+  const { homeTeam, awayTeam, venue } = useMatchContext(match);
+  const nameOf = useNameOf();
 
   if (!ready || !match || !state) return null;
 
-  const servingName = state.rally.serving === "US" ? CLUB.nameShort : match.opponent;
+  const homeName = homeTeam?.name ?? "Home";
+  const awayName = awayTeam?.name ?? "Away";
+  const servingName = state.rally.serving === "US" ? homeName : awayName;
 
   return (
     <section className="relative overflow-hidden border-b border-line bg-raise">
@@ -28,7 +35,8 @@ export function LiveNow() {
             Live now
           </p>
           <p className="data-type text-[11px] uppercase tracking-[0.25em] text-dim">
-            Set {state.set} · sets {state.usSets}–{state.oppSets} · {match.venue}
+            Set {state.set} · sets {state.usSets}–{state.oppSets}
+            {venue ? ` · ${venue.name}` : ""}
           </p>
         </div>
 
@@ -36,9 +44,9 @@ export function LiveNow() {
           {/* score */}
           <div>
             <h2 className="hero-type text-4xl leading-[0.9] sm:text-6xl">
-              {CLUB.nameShort}
+              {homeName}
               <span className="mx-3 align-middle text-2xl text-dim sm:text-3xl">vs</span>
-              <span className="block text-accent sm:inline">{match.opponent}</span>
+              <span className="block text-accent sm:inline">{awayName}</span>
             </h2>
             <p className="led mt-6 text-7xl font-semibold sm:text-8xl">
               <span className={state.rally.serving === "US" ? "text-accent" : ""}>

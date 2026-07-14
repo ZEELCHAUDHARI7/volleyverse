@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import type { Role } from "@/lib/types";
-import { ROLE_LABEL } from "@/lib/types";
+import type { PlayerPosition } from "@/lib/types";
+import { POSITION_LABEL } from "@/lib/types";
 
 /** Shared Console UI primitives — token-driven, no hardcoded brand values. */
 
@@ -66,18 +66,27 @@ export function BigStat({
   );
 }
 
-const ROLE_COLOR: Record<Role, string> = {
-  SPIKER: "bg-accent/15 text-accent ring-1 ring-accent/25",
-  SETTER: "bg-azure/15 text-azure ring-1 ring-azure/25",
-  CENTRE: "bg-ok/15 text-ok ring-1 ring-ok/25",
+const POSITION_COLOR: Record<PlayerPosition, string> = {
+  OH: "bg-accent/15 text-accent ring-1 ring-accent/25",
+  OPP: "bg-accent/15 text-accent ring-1 ring-accent/25",
+  S: "bg-azure/15 text-azure ring-1 ring-azure/25",
+  MB: "bg-ok/15 text-ok ring-1 ring-ok/25",
+  L: "bg-violet/15 text-violet ring-1 ring-violet/25",
+  DS: "bg-violet/15 text-violet ring-1 ring-violet/25",
 };
 
-export function RoleTag({ role }: { role: Role }) {
+export function PositionTag({
+  position,
+  short = false,
+}: {
+  position: PlayerPosition;
+  short?: boolean;
+}) {
   return (
     <span
-      className={`rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${ROLE_COLOR[role]}`}
+      className={`rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${POSITION_COLOR[position]}`}
     >
-      {ROLE_LABEL[role]}
+      {short ? position : POSITION_LABEL[position]}
     </span>
   );
 }
@@ -220,6 +229,70 @@ export function PageSkeleton() {
         <Skeleton className="h-28" />
       </div>
       <Skeleton className="h-64" />
+    </div>
+  );
+}
+
+/** Status badge — tones used console-wide (Success, Live, Pending, …). */
+const CHIP_TONES = {
+  accent: "bg-accent/15 text-accent ring-1 ring-accent/25",
+  azure: "bg-azure/15 text-azure ring-1 ring-azure/25",
+  ok: "bg-ok/15 text-ok ring-1 ring-ok/25",
+  err: "bg-err/15 text-err ring-1 ring-err/25",
+  dim: "bg-line/60 text-dim",
+} as const;
+
+export function StatusChip({
+  tone = "dim",
+  pulse = false,
+  children,
+}: {
+  tone?: keyof typeof CHIP_TONES;
+  pulse?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${CHIP_TONES[tone]}`}
+    >
+      {pulse && (
+        <span
+          className="h-1.5 w-1.5 animate-pulse rounded-full bg-current"
+          aria-hidden
+        />
+      )}
+      {children}
+    </span>
+  );
+}
+
+/** Console section heading — icon tile, title, optional hint and trailing chip. */
+export function SectionHeading({
+  icon,
+  title,
+  hint,
+  trailing,
+}: {
+  icon: string;
+  title: string;
+  hint?: string;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <span
+        aria-hidden
+        className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-surface2 text-lg ring-1 ring-line"
+      >
+        {icon}
+      </span>
+      <div className="min-w-0 flex-1">
+        <h2 className="stat-display text-lg font-bold uppercase leading-none tracking-wide">
+          {title}
+        </h2>
+        {hint && <p className="mt-1 text-xs text-dim">{hint}</p>}
+      </div>
+      {trailing}
     </div>
   );
 }

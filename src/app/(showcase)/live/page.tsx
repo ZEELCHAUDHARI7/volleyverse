@@ -1,14 +1,12 @@
 "use client";
 
-import Link from "next/link";
-import { CLUB } from "@/lib/club";
 import { lines, sideTotals, topBy } from "@/lib/metrics";
-import type { SideTotals } from "@/lib/metrics";
 import { useStore } from "@/lib/store";
 import {
   LiveCourt,
   useElapsedMinutes,
   useLiveMatch,
+  useMatchContext,
   useNameOf,
 } from "@/components/live-match";
 import { ShowcaseSkeleton, Reveal, usePublished } from "@/components/showcase";
@@ -20,7 +18,7 @@ import { LinkButton } from "@/components/ui";
  *
  * Three states:
  *   LIVE      — full broadcast scoreboard: score, sets, serving, court,
- *               match timer, head-to-head team stats, Guardians leaders.
+ *               match timer, head-to-head team stats, match leaders.
  *   WARM-UP   — match created, line-ups still being set in the console.
  *   NO MATCH  — next fixture countdown + latest published result.
  *
@@ -32,16 +30,23 @@ import { LinkButton } from "@/components/ui";
 
 export default function LiveMatchCentre() {
   const { ready, match, state, events, degraded } = useLiveMatch();
-  const nameOf = useNameOf(match);
+  const nameOf = useNameOf();
+  const { homeTeam, awayTeam, venue } = useMatchContext(match);
   const { db } = useStore();
   const published = usePublished();
   const elapsed = useElapsedMinutes(events);
 
   if (!ready) return <ShowcaseSkeleton />;
 
+  const nameFor = (teamId: string) =>
+    db.teams.find((t) => t.id === teamId)?.name ?? "TBD";
+
   // ---------------- NO LIVE MATCH ----------------
   if (!match) {
     const latest = published.matches[0];
+    const nextFixture = db.matches
+      .filter((m) => m.status === "scheduled")
+      .sort((a, b) => a.dateISO.localeCompare(b.dateISO))[0];
     return (
       <div className="mx-auto max-w-7xl px-4 pb-24 pt-32 md:px-8">
         <Reveal>
@@ -52,18 +57,20 @@ export default function LiveMatchCentre() {
             No match <span className="text-accent">right now</span>
           </h1>
         </Reveal>
-        {CLUB.nextFixture && (
+        {nextFixture && (
           <Reveal delay={180}>
             <div className="card-premium mt-10 max-w-xl rounded-3xl p-8">
               <p className="data-type text-[10px] uppercase tracking-[0.3em] text-dim">
-                Next up · {CLUB.nextFixture.competition}
+                Next up
               </p>
               <p className="stat-display mt-2 text-2xl font-extrabold uppercase">
-                {CLUB.nameShort} <span className="text-dim">vs</span>{" "}
-                <span className="text-accent">{CLUB.nextFixture.opponent}</span>
+                {nameFor(nextFixture.homeTeamId)} <span className="text-dim">vs</span>{" "}
+                <span className="text-accent">{nameFor(nextFixture.awayTeamId)}</span>
               </p>
               <div className="mt-6">
-                <LedCountdown toISO={CLUB.nextFixture.dateISO} />
+                <LedCountdown
+                  toISO={`${nextFixture.dateISO}T${nextFixture.time ?? "18:00"}:00`}
+                />
               </div>
             </div>
           </Reveal>
@@ -72,7 +79,8 @@ export default function LiveMatchCentre() {
           <Reveal delay={260}>
             <div className="mt-10 flex flex-wrap items-center gap-4">
               <p className="text-sm text-dim">
-                Latest result — {CLUB.nameShort} vs {latest.opponent}, {latest.dateISO}.
+                Latest result: {nameFor(latest.homeTeamId)} vs{" "}
+                {nameFor(latest.awayTeamId)}, {latest.dateISO}.
               </p>
               <Magnetic>
                 <LinkButton href={`/matches/${latest.id}`} variant="ghost">
@@ -86,6 +94,9 @@ export default function LiveMatchCentre() {
     );
   }
 
+  const homeName = homeTeam?.name ?? "Home";
+  const awayName = awayTeam?.name ?? "Away";
+
   // ---------------- WARM-UP ----------------
   if (!state) {
     return (
@@ -97,15 +108,15 @@ export default function LiveMatchCentre() {
           </p>
         </div>
         <h1 className="hero-type mt-4 text-5xl sm:text-7xl">
-          {CLUB.nameShort}
+          {homeName}
           <span className="mx-3 text-3xl text-dim">vs</span>
-          <span className="text-accent">{match.opponent}</span>
+          <span className="text-accent">{awayName}</span>
         </h1>
         <div className="card-premium mt-10 max-w-xl rounded-3xl p-8 text-center">
           <p className="stat-display text-lg font-bold uppercase">Warming up</p>
           <p className="mt-2 text-sm text-dim">
-            Line-ups are being set courtside. The scoreboard goes live with the first serve —
-            keep this page open, it updates by itself.
+            Line-ups are being set courtside. The scoreboard goes live with the first serve.
+            Keep this page open, it updates by itself.
           </p>
         </div>
       </div>
@@ -113,8 +124,8 @@ export default function LiveMatchCentre() {
   }
 
   // ---------------- LIVE ----------------
-  const us = sideTotals(events, false);
-  const opp = sideTotals(events, true);
+  const us = sideTotals(events, match.homeTeamId);
+  const opp = sideTotals(events, match.awayTeamId);
   const mvp = topBy(lines(db.players, events), "contribution");
   const mvpPlayer = mvp && mvp.contribution > 0 ? db.players.find((p) => p.id === mvp.playerId) : undefined;
   const setScores = state.setScores ?? [];
@@ -127,7 +138,8 @@ export default function LiveMatchCentre() {
         <span className="live-ring inline-block h-2 w-2 rounded-full bg-err" />
         <p className="data-type text-[11px] font-bold uppercase tracking-[0.4em] text-err">Live</p>
         <p className="data-type text-[11px] uppercase tracking-[0.25em] text-dim">
-          Set {state.set} · {deciding ? "to 15" : "to 25"} · {match.venue}
+          Set {state.set} · {deciding ? "to 15" : "to 25"}
+          {venue ? ` · ${venue.name}` : ""}
           {elapsed !== null ? ` · ${elapsed}′` : ""}
         </p>
         {degraded && (
@@ -141,9 +153,9 @@ export default function LiveMatchCentre() {
       <div className="mt-8 grid items-start gap-10 lg:grid-cols-[1.2fr_1fr]">
         <div>
           <h1 className="hero-type text-4xl leading-[0.9] sm:text-6xl">
-            {CLUB.nameShort}
+            {homeName}
             <span className="mx-3 align-middle text-2xl text-dim sm:text-3xl">vs</span>
-            <span className="block text-accent sm:inline">{match.opponent}</span>
+            <span className="block text-accent sm:inline">{awayName}</span>
           </h1>
           <p className="led mt-6 text-7xl font-semibold sm:text-8xl">
             <span className={state.rally.serving === "US" ? "text-accent" : ""}>
@@ -166,7 +178,7 @@ export default function LiveMatchCentre() {
             <div className="lower-third px-5 py-3 pr-8">
               <p className="data-type text-[9px] uppercase tracking-[0.3em] text-dim">Serving</p>
               <p className="stat-display text-lg font-bold uppercase">
-                {state.rally.serving === "US" ? CLUB.nameShort : match.opponent}
+                {state.rally.serving === "US" ? homeName : awayName}
               </p>
             </div>
             {setScores.length > 0 && (
@@ -184,16 +196,16 @@ export default function LiveMatchCentre() {
           {/* MVP so far */}
           <div className="mt-8">
             <p className="data-type text-[10px] uppercase tracking-[0.3em] text-dim">
-              Player of the match — so far
+              Player of the match, so far
             </p>
             {mvpPlayer && mvp ? (
               <p className="stat-display mt-1 text-2xl font-extrabold uppercase">
-                {mvpPlayer.name}
+                {mvpPlayer.fullName}
                 <span className="led ml-3 text-xl">{mvp.points} pts</span>
               </p>
             ) : (
               <p className="stat-display mt-1 text-2xl font-extrabold uppercase text-dim">
-                — first points coming up
+                First points coming up
               </p>
             )}
           </div>
@@ -210,8 +222,8 @@ export default function LiveMatchCentre() {
         </Reveal>
         <div className="card-premium mt-6 rounded-3xl p-6 sm:p-8">
           <div className="data-type mb-4 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.3em]">
-            <span className="text-accent">{CLUB.nameShort}</span>
-            <span className="text-dim">{match.opponent}</span>
+            <span className="text-accent">{homeName}</span>
+            <span className="text-dim">{awayName}</span>
           </div>
           <div className="space-y-5">
             <VsBar label="Attack %" us={us.attackPct} opp={opp.attackPct} unit="%" />
@@ -230,7 +242,7 @@ export default function LiveMatchCentre() {
           )}
         </div>
         <p className="data-type mt-4 text-[10px] uppercase tracking-[0.25em] text-dim">
-          Derived live from courtside events — no hand-typed numbers.
+          Derived live from courtside events. No hand-typed numbers.
         </p>
       </div>
     </div>
@@ -259,7 +271,7 @@ function VsBar({
   invert?: boolean;
 }) {
   const fmt = (v: number | null) =>
-    v === null && !zeroIsValue ? "—" : `${v ?? 0}${unit}`;
+    v === null && !zeroIsValue ? "n/a" : `${v ?? 0}${unit}`;
   const uv = us ?? 0;
   const ov = opp ?? 0;
   const total = uv + ov;

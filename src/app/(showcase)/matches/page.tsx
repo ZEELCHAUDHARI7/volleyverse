@@ -49,6 +49,15 @@ export default function MatchesPage() {
             );
             const top = topBy(ls, "points");
             const topPlayer = top && db.players.find((p) => p.id === top.playerId);
+            const teamName = (id: string) =>
+              db.teams.find((t) => t.id === id)?.name ?? "TBD";
+            const venue = db.venues.find((v) => v.id === m.venueId);
+            let homeSets = 0;
+            let awaySets = 0;
+            for (const s of m.setScores) {
+              if (s.homePoints > s.awayPoints) homeSets++;
+              else if (s.awayPoints > s.homePoints) awaySets++;
+            }
             return (
               <Reveal key={m.id} delay={i * 90}>
                 <Link
@@ -64,10 +73,15 @@ export default function MatchesPage() {
                     </span>
                     <div>
                       <p className="stat-display text-xl font-extrabold uppercase sm:text-2xl">
-                        Guardians <span className="text-dim">vs</span> {m.opponent}
+                        {teamName(m.homeTeamId)}{" "}
+                        <span className="tnum text-accent">
+                          {homeSets}–{awaySets}
+                        </span>{" "}
+                        {teamName(m.awayTeamId)}
                       </p>
                       <p className="mt-0.5 text-xs uppercase tracking-wider text-dim">
-                        {m.dateISO} · {m.venue}
+                        {m.dateISO}
+                        {venue ? ` · ${venue.name}` : ""}
                       </p>
                     </div>
                   </div>
@@ -75,7 +89,7 @@ export default function MatchesPage() {
                     {topPlayer && top && (
                       <p className="text-sm text-dim">
                         Top scorer{" "}
-                        <span className="font-semibold text-ink">{topPlayer.name}</span>
+                        <span className="font-semibold text-ink">{topPlayer.fullName}</span>
                         <span className="stat-display tnum ml-2 font-extrabold text-accent">
                           {top.points} pts
                         </span>

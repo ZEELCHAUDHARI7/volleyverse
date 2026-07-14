@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 /* ============================================================
-   VolleyVerse design tokens — WHITE-LABEL LAYER
-   Club #2 = change these variables. Nothing else.
-   Current theme: Goa Guardians (deep navy / championship gold).
+   VolleyVerse design tokens — THEME LAYER
+   Rebrand the platform = change these variables. Nothing else.
+   Current theme: deep navy / championship gold.
    ============================================================ */
 :root {
   /* Match Night: the canvas is a stadium at night — near-black, cold. */

@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
-import { CLUB } from "@/lib/club";
-import type { Match, StatEvent } from "@/lib/types";
+import type { Match, StatEvent, Team, Venue } from "@/lib/types";
 import type { Lineup, MatchState, Position, Side } from "@/lib/rally";
 
 /**
@@ -18,7 +17,10 @@ import type { Lineup, MatchState, Position, Side } from "@/lib/rally";
  * same-tab / missed-event fallback. Swapping to Supabase realtime later
  * replaces the body of useLiveMatch only — every consumer is unchanged.
  *
- * Publish boundary (FR4): fan components render the scoreboard, the
+ * Side mapping: the pure rally engine models sides as "US"/"OPP";
+ * on the platform, US = the HOME team and OPP = the AWAY team.
+ *
+ * Publish boundary: fan components render the scoreboard, the
  * on-court six and TEAM-level aggregates — broadcast content, public the
  * way the gym scoreboard is. Full per-player stat tables stay gated
  * behind `match.published` elsewhere in the showcase.
@@ -84,15 +86,28 @@ export function useLiveMatch(): LiveMatchData {
   return { ready, match, state, events, degraded };
 }
 
-/** Resolve any on-court id — Guardians roster or opponent entry — to a name. */
-export function useNameOf(match: Match | null): (pid: string) => string {
+/** Resolve any on-court player id to a display name. */
+export function useNameOf(): (pid: string) => string {
   const { db } = useStore();
   return useMemo(() => {
     const m = new Map<string, string>();
-    for (const p of db.players) m.set(p.id, p.name.split(" ")[0]);
-    for (const p of match?.oppPlayers ?? []) m.set(p.id, p.name);
-    return (pid: string) => m.get(pid) ?? "—";
-  }, [db.players, match?.oppPlayers]);
+    for (const p of db.players) m.set(p.id, p.fullName.split(" ")[0]);
+    return (pid: string) => m.get(pid) ?? "TBD";
+  }, [db.players]);
+}
+
+/** Home/away teams and venue of a match — the display context. */
+export function useMatchContext(match: Match | null): {
+  homeTeam: Team | undefined;
+  awayTeam: Team | undefined;
+  venue: Venue | undefined;
+} {
+  const { db } = useStore();
+  return {
+    homeTeam: db.teams.find((t) => t.id === match?.homeTeamId),
+    awayTeam: db.teams.find((t) => t.id === match?.awayTeamId),
+    venue: db.venues.find((v) => v.id === match?.venueId),
+  };
 }
 
 /** Minutes since the first logged event of the match (the "match timer"). */
@@ -110,7 +125,7 @@ export function useElapsedMinutes(events: StatEvent[]): number | null {
 // The court — both teams, net in the middle (read-only, fan styling)
 // ---------------------------------------------------------------------
 
-/** Screen rows mirror a real court seen from the Guardians bench. */
+/** Screen rows mirror a real court seen from the home bench. */
 const OPP_ROWS: Position[][] = [
   [1, 6, 5],
   [2, 3, 4],
@@ -129,6 +144,7 @@ export function LiveCourt({
   state: MatchState;
   nameOf: (pid: string) => string;
 }) {
+  const { homeTeam, awayTeam } = useMatchContext(match);
   const rows = (lineup: Lineup, rowDefs: Position[][], side: Side) =>
     rowDefs.map((row, i) => (
       <div key={`${side}${i}`} className="grid grid-cols-3 gap-1.5">
@@ -158,7 +174,7 @@ export function LiveCourt({
   return (
     <div className="card-premium rounded-3xl p-4">
       <p className="data-type mb-2 flex items-center justify-between text-[9px] font-bold uppercase tracking-[0.3em] text-dim">
-        <span>{match.opponent}</span>
+        <span>{awayTeam?.name ?? "Away"}</span>
         {state.rally.serving === "OPP" && <span className="text-accent">serving</span>}
       </p>
       <div className="space-y-1.5">{rows(state.oppLineup, OPP_ROWS, "OPP")}</div>
@@ -171,7 +187,7 @@ export function LiveCourt({
       </div>
       <div className="space-y-1.5">{rows(state.usLineup, US_ROWS, "US")}</div>
       <p className="data-type mt-2 flex items-center justify-between text-[9px] font-bold uppercase tracking-[0.3em] text-dim">
-        <span>{CLUB.nameShort}</span>
+        <span>{homeTeam?.name ?? "Home"}</span>
         {state.rally.serving === "US" && <span className="text-accent">serving</span>}
       </p>
     </div>
