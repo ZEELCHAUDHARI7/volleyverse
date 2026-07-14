@@ -71,6 +71,9 @@ export default function ConsoleDashboard() {
             <LinkButton href="/console/league" variant="ghost">
               ⚙️ League Setup
             </LinkButton>
+            {db.teams.length >= 2 && (
+              <LinkButton href="/console/matches/new">🏐 Start a Match</LinkButton>
+            )}
           </div>
         </div>
       </header>

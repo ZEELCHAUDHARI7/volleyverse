@@ -9,6 +9,7 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/console", label: "Dashboard", exact: true },
   { href: "/console/league", label: "League Setup", exact: false },
+  { href: "/console/matches/new", label: "Start Match", exact: false },
 ];
 
 export function ConsoleNav() {

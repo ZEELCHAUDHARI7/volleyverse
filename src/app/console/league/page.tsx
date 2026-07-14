@@ -541,6 +541,18 @@ function TeamsSection() {
             Load roster
           </Button>
         </div>
+
+        {db.teams.length >= 2 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-accent/30 bg-accent/5 px-4 py-3">
+            <p className="text-sm text-dim">
+              Ready to play? Pick two teams and run the toss.
+            </p>
+            <LinkButton href="/console/matches/new" className="shrink-0">
+              🏐 Start a Match
+            </LinkButton>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <label className="block">
             <span className={labelCls}>Team name</span>
@@ -569,7 +581,7 @@ function TeamsSection() {
               onChange={(e) => setCity(e.target.value)}
             />
           </label>
-          <div className="flex items-end">
+          <div className="flex flex-col justify-end">
             <Button
               className="w-full"
               disabled={name.trim().length < 2}
@@ -590,6 +602,11 @@ function TeamsSection() {
             >
               Add team
             </Button>
+            {name.trim().length < 2 && (
+              <p className="mt-1 text-[11px] text-dim">
+                Enter a team name (2+ characters) to enable.
+              </p>
+            )}
           </div>
         </div>
       </Card>
