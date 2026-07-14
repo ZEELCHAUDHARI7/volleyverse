@@ -192,11 +192,11 @@ function SetupWizard({
       new Map<string, CourtPlayer>([
         ...homeRoster.map((p): [string, CourtPlayer] => [
           p.id,
-          { id: p.id, name: p.fullName.split(" ")[0], jersey: p.jerseyNo, side: "US" },
+          { id: p.id, name: p.fullName.split(" ")[0], jersey: p.jerseyNo ?? undefined, side: "US" },
         ]),
         ...awayRoster.map((p): [string, CourtPlayer] => [
           p.id,
-          { id: p.id, name: p.fullName.split(" ")[0], jersey: p.jerseyNo, side: "OPP" },
+          { id: p.id, name: p.fullName.split(" ")[0], jersey: p.jerseyNo ?? undefined, side: "OPP" },
         ]),
       ]),
     [homeRoster, awayRoster],
@@ -414,7 +414,7 @@ function SixPicker({
                 <span className="block text-sm font-bold leading-tight">
                   {p.fullName.split(" ")[0]}
                 </span>
-                <span className="tnum text-[11px] text-dim">#{p.jerseyNo}</span>
+                <span className="tnum text-[11px] text-dim">#{p.jerseyNo ?? "—"}</span>
               </span>
               {pos ? (
                 <span className="stat-display tnum text-lg font-extrabold text-accent">P{pos}</span>
@@ -725,9 +725,9 @@ function LiveScreen({
   const players = useMemo(() => {
     const m = new Map<string, CourtPlayer>();
     for (const p of homeRoster)
-      m.set(p.id, { id: p.id, name: p.fullName.split(" ")[0], jersey: p.jerseyNo, side: "US" });
+      m.set(p.id, { id: p.id, name: p.fullName.split(" ")[0], jersey: p.jerseyNo ?? undefined, side: "US" });
     for (const p of awayRoster)
-      m.set(p.id, { id: p.id, name: p.fullName.split(" ")[0], jersey: p.jerseyNo, side: "OPP" });
+      m.set(p.id, { id: p.id, name: p.fullName.split(" ")[0], jersey: p.jerseyNo ?? undefined, side: "OPP" });
     return m;
   }, [homeRoster, awayRoster]);
 

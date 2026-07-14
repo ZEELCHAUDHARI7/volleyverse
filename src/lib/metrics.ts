@@ -153,7 +153,8 @@ const COUNTERS: Record<EventType, (l: PlayerLine) => void> = {
 };
 
 /** The headline rate depends on what the position is on court to do. */
-function positionRate(line: PlayerLine, position: PlayerPosition): number | null {
+function positionRate(line: PlayerLine, position: PlayerPosition | null): number | null {
+  if (position === null) return null; // no listed position → no headline rate
   const pct = (num: number, den: number) => (den > 0 ? (num / den) * 100 : null);
   switch (position) {
     case "OH":
@@ -173,7 +174,7 @@ function positionRate(line: PlayerLine, position: PlayerPosition): number | null
   }
 }
 
-function finalize(line: PlayerLine, position: PlayerPosition): PlayerLine {
+function finalize(line: PlayerLine, position: PlayerPosition | null): PlayerLine {
   const rate = positionRate(line, position);
 
   // Contribution Index: direct points weighted highest; creation and

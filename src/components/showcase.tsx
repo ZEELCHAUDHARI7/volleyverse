@@ -378,7 +378,7 @@ export function PlayerCard({
           aria-hidden
           className="stat-display text-outline pointer-events-none absolute -right-2 -top-8 text-[110px] font-extrabold leading-none transition-all duration-500 group-hover:-translate-y-1 group-hover:text-accent/20 group-hover:[-webkit-text-stroke-color:transparent]"
         >
-          {player.jerseyNo}
+          {player.jerseyNo ?? "—"}
         </span>
         <div className="relative">
           <PositionTag position={player.position} />

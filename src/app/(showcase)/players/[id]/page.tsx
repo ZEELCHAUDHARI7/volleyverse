@@ -80,7 +80,7 @@ export default function PublicPlayerProfile() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <SectionLabel>
-                  {team?.name ?? "Unattached"} #{player.jerseyNo}
+                  {team?.name ?? "Unattached"} #{player.jerseyNo ?? "—"}
                 </SectionLabel>
                 <h1 className="stat-display text-6xl font-extrabold uppercase leading-[0.9] sm:text-8xl">
                   {player.fullName.split(" ")[0]}
@@ -96,6 +96,11 @@ export default function PublicPlayerProfile() {
                       Captain
                     </span>
                   )}
+                  {player.isReserve && (
+                    <span className="rounded-md bg-line/40 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-dim ring-1 ring-line">
+                      Reserve
+                    </span>
+                  )}
                   <span className="tnum text-xs uppercase tracking-wider text-dim">
                     {player.heightCm ? `${player.heightCm} cm` : ""}
                     {player.heightCm && player.nationality ? " · " : ""}
@@ -107,7 +112,7 @@ export default function PublicPlayerProfile() {
                 aria-hidden
                 className="stat-display text-outline float-slow hidden select-none text-[180px] font-extrabold leading-none sm:block"
               >
-                {player.jerseyNo}
+                {player.jerseyNo ?? "—"}
               </span>
             </div>
           </Reveal>

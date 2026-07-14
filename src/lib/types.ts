@@ -38,13 +38,17 @@ export const POSITIONS_ALL: PlayerPosition[] = ["OH", "OPP", "MB", "S", "L", "DS
 export interface Player {
   id: string;
   fullName: string;
-  jerseyNo: number;
-  position: PlayerPosition;
+  /** Squad number. `null` when the source doesn't list one ("Not listed"). */
+  jerseyNo: number | null;
+  /** On-court role. `null` when unknown — shown as "Not listed", never guessed. */
+  position: PlayerPosition | null;
   heightCm: number | null;
   nationality: string | null;
   photoUrl: string | null;
   teamId: string;
   isCaptain: boolean;
+  /** Registered as a reserve/standby rather than a main-squad player. */
+  isReserve: boolean;
 }
 
 export type StaffRole = "HEAD_COACH" | "ASSISTANT_COACH" | "MANAGER" | "PHYSIO" | "ANALYST";

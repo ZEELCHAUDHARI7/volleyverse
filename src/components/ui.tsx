@@ -79,9 +79,16 @@ export function PositionTag({
   position,
   short = false,
 }: {
-  position: PlayerPosition;
+  position: PlayerPosition | null;
   short?: boolean;
 }) {
+  if (position === null) {
+    return (
+      <span className="rounded-md bg-line/40 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-dim ring-1 ring-line">
+        {short ? "—" : "Not listed"}
+      </span>
+    );
+  }
   return (
     <span
       className={`rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${POSITION_COLOR[position]}`}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useStore } from "@/lib/store";
+import { loadPvl2025 } from "@/lib/seed/pvl-2025";
 import {
   Button,
   Card,
@@ -491,11 +492,13 @@ function VenuesSection() {
 // ---------------------------------------------------------------------
 
 function TeamsSection() {
-  const { db, insert, remove, update } = useStore();
+  const store = useStore();
+  const { db, insert, remove, update } = store;
   const [name, setName] = useState("");
   const [shortName, setShortName] = useState("");
   const [city, setCity] = useState("");
   const [openTeam, setOpenTeam] = useState<string | null>(null);
+  const [seedMsg, setSeedMsg] = useState<string | null>(null);
 
   return (
     <div className="space-y-4">
@@ -510,6 +513,34 @@ function TeamsSection() {
             </StatusChip>
           }
         />
+
+        {/* Quick-start: load the real Prime Volleyball League 2025 squads. */}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-line bg-surface2/50 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-ink">Load PVL 2025 roster</p>
+            <p className="mt-0.5 text-xs text-dim">
+              Adds all 10 Prime Volleyball League clubs and their squads. Positions and
+              jersey numbers aren&apos;t publicly listed, so they show as &ldquo;Not
+              listed&rdquo;. Reserves are tagged. Safe to re-run — existing teams are skipped.
+            </p>
+            {seedMsg && <p className="mt-1 text-xs font-semibold text-accent">{seedMsg}</p>}
+          </div>
+          <Button
+            variant="ghost"
+            className="shrink-0"
+            onClick={() => {
+              const r = loadPvl2025(store);
+              setSeedMsg(
+                r.teamsAdded === 0
+                  ? "All PVL teams are already loaded — nothing to add."
+                  : `Added ${r.teamsAdded} teams and ${r.playersAdded} players.` +
+                      (r.skipped.length ? ` Skipped ${r.skipped.length} existing.` : ""),
+              );
+            }}
+          >
+            Load roster
+          </Button>
+        </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <label className="block">
             <span className={labelCls}>Team name</span>
@@ -602,7 +633,7 @@ function TeamCard({
   // player form
   const [pName, setPName] = useState("");
   const [pJersey, setPJersey] = useState("");
-  const [pPosition, setPPosition] = useState<PlayerPosition>("OH");
+  const [pPosition, setPPosition] = useState<PlayerPosition | "">("");
   const [pHeight, setPHeight] = useState("");
   const [pNationality, setPNationality] = useState("");
 
@@ -716,7 +747,7 @@ function TeamCard({
                       aria-hidden
                       className="data-type grid h-7 w-9 shrink-0 place-items-center rounded-lg bg-line/40 text-[11px] font-bold text-dim"
                     >
-                      #{p.jerseyNo}
+                      #{p.jerseyNo ?? "—"}
                     </span>
                     <span className="truncate font-semibold text-ink">{p.fullName}</span>
                     <PositionTag position={p.position} short />
@@ -726,6 +757,14 @@ function TeamCard({
                         title="Captain"
                       >
                         C
+                      </span>
+                    )}
+                    {p.isReserve && (
+                      <span
+                        className="shrink-0 rounded-md bg-line/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-dim ring-1 ring-line"
+                        title="Reserve player"
+                      >
+                        Res
                       </span>
                     )}
                   </span>
@@ -764,8 +803,9 @@ function TeamCard({
               <select
                 className={inputCls}
                 value={pPosition}
-                onChange={(e) => setPPosition(e.target.value as PlayerPosition)}
+                onChange={(e) => setPPosition(e.target.value as PlayerPosition | "")}
               >
+                <option value="">Not listed</option>
                 {POSITIONS_ALL.map((pos) => (
                   <option key={pos} value={pos}>
                     {POSITION_LABEL[pos]}
@@ -790,20 +830,22 @@ function TeamCard({
             <Button
               variant="ghost"
               className="mt-2"
-              disabled={pName.trim().length < 2 || pJersey === ""}
+              disabled={pName.trim().length < 2}
               onClick={() => {
                 insert("players", {
                   fullName: pName.trim(),
-                  jerseyNo: Number(pJersey),
-                  position: pPosition,
+                  jerseyNo: pJersey === "" ? null : Number(pJersey),
+                  position: pPosition === "" ? null : pPosition,
                   heightCm: pHeight ? Number(pHeight) : null,
                   nationality: pNationality.trim() || null,
                   photoUrl: null,
                   teamId: team.id,
                   isCaptain: false,
+                  isReserve: false,
                 });
                 setPName("");
                 setPJersey("");
+                setPPosition("");
                 setPHeight("");
                 setPNationality("");
               }}

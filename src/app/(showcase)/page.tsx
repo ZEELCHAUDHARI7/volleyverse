@@ -302,7 +302,7 @@ export default function ShowcaseHome() {
             className="pointer-events-none absolute -right-6 top-1/2 -translate-y-1/2 select-none"
           >
             <span aria-hidden className="hero-type hero-outline text-[38vw] leading-none lg:text-[28rem]">
-              {starPlayer.jerseyNo}
+              {starPlayer.jerseyNo ?? "—"}
             </span>
           </Parallax>
 
@@ -320,7 +320,8 @@ export default function ShowcaseHome() {
             </Reveal>
             <Reveal delay={170}>
               <p className="data-type mt-4 text-[11px] uppercase tracking-[0.25em] text-dim">
-                #{starPlayer.jerseyNo} · {POSITION_LABEL[starPlayer.position]} ·{" "}
+                #{starPlayer.jerseyNo ?? "—"} ·{" "}
+                {starPlayer.position ? POSITION_LABEL[starPlayer.position] : "Not listed"} ·{" "}
                 {teamName(starPlayer.teamId)}
                 {starPlayer.heightCm ? ` · ${starPlayer.heightCm} cm` : ""}
               </p>
