@@ -12,6 +12,8 @@ import {
   other,
   servingFromToss,
   servingForSet,
+  isDecidingSet,
+  firstServerForSet,
   inferAction,
   resolveTrio,
   resolvePoint,
@@ -66,11 +68,48 @@ t("toss: winner chooses serve → they serve; chooses receive → other serves",
   assert.equal(servingFromToss({ winner: "OPP", choice: "RECEIVE" }), "US");
 });
 
-t("first serve alternates each set from the toss", () => {
+t("non-deciding sets: first serve alternates from the set-1 toss (convention)", () => {
   const toss = { winner: "OPP", choice: "RECEIVE" }; // US serves set 1
   assert.equal(servingForSet(toss, 1), "US");
   assert.equal(servingForSet(toss, 2), "OPP");
   assert.equal(servingForSet(toss, 3), "US");
+});
+
+qa.suite("Deciding Set - FIVB 6.3.2 / 7.1");
+
+t("isDecidingSet: the last set of the match is the deciding set", () => {
+  assert.equal(isDecidingSet(5, 5), true); // best-of-5
+  assert.equal(isDecidingSet(3, 5), false);
+  assert.equal(isDecidingSet(3, 3), true); // best-of-3
+  assert.equal(isDecidingSet(2, 3), false);
+});
+
+t("firstServerForSet: set 1 from toss, non-deciding sets alternate", () => {
+  const toss = { winner: "OPP", choice: "RECEIVE" }; // US serves set 1
+  assert.equal(firstServerForSet(1, 5, toss, null), "US");
+  assert.equal(firstServerForSet(2, 5, toss, null), "OPP");
+  assert.equal(firstServerForSet(4, 5, toss, null), "OPP");
+});
+
+t("firstServerForSet: deciding set returns null until a NEW toss is taken", () => {
+  const toss = { winner: "US", choice: "SERVE" };
+  // No fresh toss yet -> caller MUST run one; engine never alternates in.
+  assert.equal(firstServerForSet(5, 5, toss, null), null);
+  assert.equal(firstServerForSet(3, 3, toss, null), null);
+});
+
+t("firstServerForSet: deciding set uses the fresh toss, not alternation", () => {
+  const toss = { winner: "OPP", choice: "RECEIVE" }; // set-1 alternation would give US for set 5
+  const decidingToss = { winner: "OPP", choice: "SERVE" }; // fresh toss -> OPP serve
+  assert.equal(servingForSet(toss, 5), "US"); // what the old (buggy) logic did
+  assert.equal(firstServerForSet(5, 5, toss, decidingToss), "OPP"); // correct per fresh toss
+});
+
+t("initial state carries a null decidingToss (no deciding toss taken yet)", () => {
+  const us = { lineup: L, liberoId: null };
+  const opp = { lineup: { 1: "o1", 2: "o2", 3: "o3", 4: "o4", 5: "o5", 6: "o6" }, liberoId: null };
+  const st = initialMatchState(us, opp, { winner: "US", choice: "SERVE" });
+  assert.equal(st.decidingToss, null);
 });
 
 qa.suite("Side-Out & Rotation Trigger");

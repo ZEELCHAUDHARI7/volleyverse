@@ -21,15 +21,16 @@ import {
   type TeamSetup,
   type Toss,
   type Trio,
+  firstServerForSet,
   inferAction,
   initialMatchState,
+  isDecidingSet,
   isFrontRow,
   openingRally,
   resolvePoint,
   resolveTrio,
   rotate,
   serverId,
-  servingForSet,
   servingFromToss,
   setPointReached,
   skipPhase,
@@ -742,6 +743,11 @@ function LiveScreen({
 
   const [armed, setArmed] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ text: string; big?: boolean } | null>(null);
+  // Deciding-set toss (FIVB 6.3.2/7.1) - selections for the fresh toss prompt.
+  const [dToss, setDToss] = useState<{ winner: Side | null; choice: Toss["choice"] | null }>({
+    winner: null,
+    choice: null,
+  });
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auto-arm the unambiguous actor so the common case is a single tap:
@@ -932,6 +938,29 @@ function LiveScreen({
   const setDone = setPointReached(state.usScore, state.oppScore, target);
   const setWinner: Side | null = setDone ? (state.usScore > state.oppScore ? "US" : "OPP") : null;
 
+  // FIVB 6.3.2/7.1 - the deciding set requires a NEW toss. It is only reached
+  // at a genuine set tie (2-2 in best-of-5, 1-1 in best-of-3). Until that toss
+  // is entered, scoring is blocked and a toss prompt is shown.
+  const setsToWin = Math.ceil(match.totalSets / 2);
+  const decidingTie = state.usSets === setsToWin - 1 && state.oppSets === setsToWin - 1;
+  const needsDecidingToss = deciding && decidingTie && !state.decidingToss;
+
+  /** Record the fresh deciding-set toss and open the set with its result. */
+  const confirmDecidingToss = () => {
+    if (!dToss.winner || !dToss.choice) return;
+    const toss: Toss = { winner: dToss.winner, choice: dToss.choice };
+    setState({
+      ...state,
+      decidingToss: toss,
+      usLineup: state.setup.us.lineup,
+      oppLineup: state.setup.opp.lineup,
+      rally: openingRally(servingFromToss(toss)),
+      history: [],
+    });
+    setDToss({ winner: null, choice: null });
+    showFlash(`Deciding set - ${teamName(servingFromToss(toss))} serve`, true);
+  };
+
   const bankSet = () => {
     if (!setWinner) return;
     // Persist the finished set's score — the match_sets row standings use.
@@ -941,12 +970,21 @@ function LiveScreen({
       awayPoints: state.oppScore,
     });
     const nextSet = Math.min(state.set + 1, match.totalSets);
-    const serving = servingForSet(state.toss, nextSet); // first serve alternates
+    // FIVB 6.3.2/7.1: the deciding set needs a NEW toss. Entering it, we clear
+    // any prior deciding toss so the UI prompts for a fresh one; firstServer
+    // returns null until it is taken, so we hold the previous server as a
+    // harmless placeholder - scoring is blocked until the toss is entered.
+    const enteringDeciding = isDecidingSet(nextSet, match.totalSets);
+    const nextDecidingToss = enteringDeciding ? null : state.decidingToss;
+    const serving =
+      firstServerForSet(nextSet, match.totalSets, state.toss, nextDecidingToss) ??
+      state.rally.serving;
     setState({
       ...state,
       usSets: state.usSets + (setWinner === "US" ? 1 : 0),
       oppSets: state.oppSets + (setWinner === "OPP" ? 1 : 0),
       set: nextSet,
+      decidingToss: nextDecidingToss,
       setScores: [...(state.setScores ?? []), { us: state.usScore, opp: state.oppScore }],
       usScore: 0,
       oppScore: 0,
@@ -987,8 +1025,61 @@ function LiveScreen({
 
   const armedName = armed ? players.get(armed)?.name : null;
 
+  const dTossReady = Boolean(dToss.winner && dToss.choice);
+
   return (
     <div className="mx-auto flex min-h-dvh max-w-3xl flex-col px-3 pb-4 pt-3">
+      {/* Deciding-set toss (FIVB 6.3.2/7.1) - blocks scoring until taken. */}
+      {needsDecidingToss && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg/90 px-4 backdrop-blur">
+          <div className="card-premium w-full max-w-md rounded-3xl p-6">
+            <p className="mb-1 text-center text-[11px] font-bold uppercase tracking-[0.2em] text-accent">
+              Deciding set &middot; new toss required
+            </p>
+            <p className="mb-5 text-center text-xs text-dim">
+              FIVB Rule 6.3.2 / 7.1: a fresh toss is taken before the deciding set.
+            </p>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-dim">Who won the toss?</p>
+            <div className="mb-5 flex gap-2">
+              {(["US", "OPP"] as Side[]).map((sd) => (
+                <button
+                  key={sd}
+                  type="button"
+                  onClick={() => setDToss((d) => ({ ...d, winner: sd }))}
+                  className={`flex min-h-14 flex-1 items-center justify-center rounded-2xl border px-3 text-sm font-bold uppercase tracking-wide transition-all active:scale-[0.98] ${
+                    dToss.winner === sd ? "border-accent bg-accent/10 text-accent" : "border-line text-ink"
+                  }`}
+                >
+                  {teamName(sd)}
+                </button>
+              ))}
+            </div>
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-dim">What did they choose?</p>
+            <div className="mb-6 flex gap-2">
+              {(["SERVE", "RECEIVE"] as Toss["choice"][]).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setDToss((d) => ({ ...d, choice: c }))}
+                  className={`flex min-h-14 flex-1 items-center justify-center rounded-2xl border px-3 text-sm font-bold uppercase tracking-wide transition-all active:scale-[0.98] ${
+                    dToss.choice === c ? "border-accent bg-accent/10 text-accent" : "border-line text-ink"
+                  }`}
+                >
+                  {c === "SERVE" ? "Serve" : "Receive"}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              disabled={!dTossReady}
+              onClick={confirmDecidingToss}
+              className="btn-glow flex min-h-12 w-full items-center justify-center rounded-2xl bg-accent text-sm font-extrabold uppercase tracking-wide text-accent-ink disabled:opacity-30"
+            >
+              Start deciding set
+            </button>
+          </div>
+        </div>
+      )}
       {/* Scoreboard */}
       <header className="mb-3">
         <div className="mb-2 flex items-center justify-between gap-2">

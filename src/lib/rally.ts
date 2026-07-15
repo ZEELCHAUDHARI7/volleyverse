@@ -86,12 +86,48 @@ export function servingFromToss(toss: Toss): Side {
 }
 
 /**
- * First server of a given set. Sets alternate first serve, starting from
- * the toss result in set 1 (standard FIVB alternation).
+ * Is this set the deciding set? FIVB Rule 6.3.1/6.3.2: the match is best of
+ * `totalSets` (5 or 3); the deciding set is the last one - played to 15.
+ */
+export function isDecidingSet(set: number, totalSets: number): boolean {
+  return set === totalSets;
+}
+
+/**
+ * First server of a NON-deciding set.
+ *
+ * FIVB Rule 7.1 only fixes the first service of SET 1 (from the pre-match
+ * toss) and of the DECIDING SET (from a NEW toss - see `firstServerForSet`).
+ * The Rules are SILENT on sets 2..(totalSets-1). VolleyVerse follows the
+ * near-universal competition convention that first service alternates from
+ * the set-1 server. This is a STATED ASSUMPTION, not a rule in the uploaded
+ * FIVB document - surfaced here rather than hidden.
+ *
+ * Do NOT use this for the deciding set: Rule 6.3.2/7.1 require a fresh toss.
  */
 export function servingForSet(toss: Toss, set: number): Side {
   const first = servingFromToss(toss);
   return set % 2 === 1 ? first : other(first);
+}
+
+/**
+ * FIVB Rule 7.1 - who serves first in `set`, resolved correctly:
+ *  - Set 1: the pre-match `toss`.
+ *  - Deciding set: a NEW toss (`decidingToss`). Returns `null` when that toss
+ *    has not been taken yet, so the caller MUST run it before play - the app
+ *    can never silently alternate into the deciding set.
+ *  - Other sets: the alternation convention (see `servingForSet`).
+ */
+export function firstServerForSet(
+  set: number,
+  totalSets: number,
+  toss: Toss,
+  decidingToss: Toss | null,
+): Side | null {
+  if (isDecidingSet(set, totalSets)) {
+    return decidingToss ? servingFromToss(decidingToss) : null;
+  }
+  return servingForSet(toss, set);
 }
 
 // ---------------------------------------------------------------------
@@ -259,7 +295,15 @@ export interface RallySnapshot {
 
 export interface MatchState {
   setup: { us: TeamSetup; opp: TeamSetup };
+  /** Pre-match toss (FIVB 7.1) - decides set-1 first service. */
   toss: Toss;
+  /**
+   * FIVB 6.3.2/7.1: a NEW toss taken before the deciding set. `null` until it
+   * is run (or when no deciding set is in play). While the match sits in the
+   * deciding set with this still `null`, scoring is blocked until the toss is
+   * entered - the engine never alternates into the deciding set.
+   */
+  decidingToss: Toss | null;
   set: number;
   usScore: number;
   oppScore: number;
@@ -283,6 +327,7 @@ export function initialMatchState(
   return {
     setup: { us, opp },
     toss,
+    decidingToss: null,
     set: 1,
     usScore: 0,
     oppScore: 0,
