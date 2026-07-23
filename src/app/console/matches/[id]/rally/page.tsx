@@ -106,6 +106,32 @@ export default function RallyTracker() {
     [match],
   );
 
+  // Shared, live resume (the "Google-Docs" behaviour): the in-progress session
+  // is saved to a per-match key that EVERY console tab reads. localStorage fires
+  // `storage` in all OTHER tabs of this browser, so if a second collector opens
+  // the same match they follow along and can continue from the exact last tap.
+  // We apply remote updates with the raw setter (no re-persist) to avoid loops.
+  // NOTE: this syncs across tabs on one machine — the app's existing free
+  // stand-in for realtime. True cross-device sync plugs into SupabaseProvider.
+  useEffect(() => {
+    if (!match) return;
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== RALLY_KEY(match.id)) return;
+      if (e.newValue == null) {
+        setState(null);
+        return;
+      }
+      try {
+        const parsed = JSON.parse(e.newValue) as MatchState;
+        if (parsed.oppLineup && parsed.usLineup) setState(parsed);
+      } catch {
+        // partial write / corrupt payload — keep current state
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [match]);
+
   if (!ready || !loaded) return null;
   if (!match || !homeTeam || !awayTeam) {
     return (
@@ -545,7 +571,7 @@ function CourtBoard({
   serving,
   highlightId = null,
   armedId = null,
-  tappableSide = null,
+  tappableIds = undefined,
   onTap,
   liberos,
 }: {
@@ -559,20 +585,34 @@ function CourtBoard({
   highlightId?: string | null;
   /** Armed player (live): everyone else fades. */
   armedId?: string | null;
-  /** Which side may be tapped right now (null = read-only board). */
-  tappableSide?: Side | null;
+  /**
+   * Which players may be tapped right now:
+   *   · undefined  → read-only board (wizard preview)
+   *   · null       → EVERY on-court player is tappable (open rally)
+   *   · Set<id>    → only these ids are tappable, the rest fade (serve lock)
+   */
+  tappableIds?: Set<string> | null;
   onTap?: (playerId: string, side: Side) => void;
   /** Optional libero chips: [side, playerId, enabled][] rendered per side. */
   liberos?: { side: Side; playerId: string; enabled: boolean }[];
 }) {
+  const canTap = (pid: string) =>
+    !!onTap && !!pid && (tappableIds === null || (!!tappableIds && tappableIds.has(pid)));
+
   const tile = (pos: Position, side: Side) => {
     const lineup = side === "US" ? usLineup : oppLineup;
     const pid = lineup[pos];
     const p = players.get(pid);
     const isServer = pos === 1 && side === serving;
     const isArmed = armedId === pid;
-    const tappable = !!onTap && tappableSide === side;
-    const faded = armedId ? !isArmed : tappableSide ? !tappable : false;
+    const tappable = canTap(pid);
+    // Fade rule: once a player is armed, everyone else dims; before that, only
+    // a restricted set (e.g. serve lock) dims the non-tappable players.
+    const faded = armedId
+      ? !isArmed
+      : tappableIds !== undefined && tappableIds !== null
+        ? !tappable
+        : false;
 
     return (
       <button
@@ -740,9 +780,14 @@ function LiveScreen({
   const teamName = (s: Side) => (s === "US" ? homeTeam.name : awayTeam.name);
   const teamIdOf = (s: Side) => (s === "US" ? match.homeTeamId : match.awayTeamId);
   const rosterOf = (s: Side) => (s === "US" ? homeRoster : awayRoster);
+  // Which side a tapped player belongs to. With the whole court open, the actor
+  // is decided by WHO was tapped — not by the phase's expected side. The ball
+  // can cross the net at any moment, so we trust the collector's tap.
+  const sideOf = (pid: string | null): Side => players.get(pid ?? "")?.side ?? side;
 
   const [armed, setArmed] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ text: string; big?: boolean } | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
   // Deciding-set toss (FIVB 6.3.2/7.1) - selections for the fresh toss prompt.
   const [dToss, setDToss] = useState<{ winner: Side | null; choice: Toss["choice"] | null }>({
     winner: null,
@@ -786,11 +831,14 @@ function LiveScreen({
     store.db.events.filter((e) => e.matchId === matchId && e.playerId === pid && e.type === ev)
       .length;
 
-  // What would the armed tap mean right now?
+  // What would the armed tap mean right now? The action type comes from the
+  // current phase; block-vs-dig is resolved by the tapped player's own row on
+  // THEIR side — so a surprise touch by either team is logged correctly.
   const armedAction: ActionKind | null = useMemo(() => {
     if (!armed || phase === "OVER") return null;
-    const lib = liberoOf(side);
-    const front = armed !== lib && isFrontRow(lineupOf(side), armed);
+    const aSide = sideOf(armed);
+    const lib = liberoOf(aSide);
+    const front = armed !== lib && isFrontRow(lineupOf(aSide), armed);
     return inferAction(phase, front);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [armed, phase, side, usLineup, oppLineup]);
@@ -798,8 +846,11 @@ function LiveScreen({
   // ---- Core: one of the three buttons for the armed player ----
   const commit = (trio: Trio) => {
     if (phase === "OVER" || !armed || !armedAction) return;
-    const res = resolveTrio(armedAction, side, trio);
-    const teamId = teamIdOf(side);
+    // The acting side is whoever was tapped — the court is fully open, so this
+    // may differ from the phase's expected side (an unexpected touch or tip).
+    const aSide = sideOf(armed);
+    const res = resolveTrio(armedAction, aSide, trio);
+    const teamId = teamIdOf(aSide);
 
     let eventId: string | null = null;
     let assistUpgradeEventId: string | null = null;
@@ -812,7 +863,7 @@ function LiveScreen({
       if (res.event === "SPIKE_POINT") {
         const priorSet = [...rally.current]
           .reverse()
-          .find((a) => a.action === "SET" && a.side === side && a.eventId);
+          .find((a) => a.action === "SET" && a.side === aSide && a.eventId);
         if (priorSet?.eventId && priorSet.playerId) {
           store.removeEvent(priorSet.eventId);
           const up = store.addEvent(matchId, teamId, priorSet.playerId, state.set, "SET_ASSIST");
@@ -840,7 +891,7 @@ function LiveScreen({
     const logged: LoggedAction = {
       eventId,
       playerId: armed,
-      side,
+      side: aSide,
       action: armedAction,
       phase,
     };
@@ -932,6 +983,20 @@ function LiveScreen({
     showFlash("Undone");
   };
 
+  // ---- Back: undo exactly one step (a mis-tap) without losing the match ----
+  // Same engine as Undo, surfaced as an always-present, unmissable control so a
+  // wrong tap is one press away from being fixed.
+  const canGoBack = rally.current.length > 0 || state.history.length > 0;
+
+  // ---- Save: force-write the shared session so a second collector can pick up
+  // exactly here. Data already auto-saves on every tap; this is the explicit,
+  // reassuring checkpoint for "pause the video, hand off, resume later".
+  const save = () => {
+    setState({ ...state }); // re-persist to the per-match shared key
+    setSavedAt(Date.now());
+    showFlash("✓ Saved — anyone who opens this match can resume from here", true);
+  };
+
   // ---- Set / match banking ----
   const deciding = state.set === match.totalSets;
   const target = deciding ? 15 : 25;
@@ -1017,10 +1082,21 @@ function LiveScreen({
   const topDef = [...ls].sort((a, b) => b.superDigs + b.blocks - (a.superDigs + a.blocks))[0];
   const nm = (pid?: string) => players.get(pid ?? "")?.name ?? "TBD";
 
-  // Libero taps mean dig/receive — never serve, attack or (front-row) block.
-  const liberoEnabled = phase === "RECEIVE" || phase === "DEFEND" || phase === "DIG" || phase === "SET";
+  // Serve locks the court to the server alone (Fix 1). Once the ball is live
+  // the whole court is open — all 12 players tappable on both sides (Fix 2):
+  // in volleyball the ball can go anywhere, so the collector must never be
+  // restricted to a single side.
+  const serveLock = phase === "SERVE" ? new Set([serverId(lineupOf(rally.serving))]) : null;
+  const tappableIds: Set<string> | null = phase === "OVER" ? new Set() : serveLock;
+
+  // Liberos are tappable on either side during any live (non-serve) phase — a
+  // libero can dig or receive a surprise ball regardless of whose "turn" it is.
   const liberos = (["US", "OPP"] as Side[])
-    .map((s) => ({ side: s, playerId: liberoOf(s) ?? "", enabled: s === side && liberoEnabled }))
+    .map((s) => ({
+      side: s,
+      playerId: liberoOf(s) ?? "",
+      enabled: phase !== "SERVE" && phase !== "OVER",
+    }))
     .filter((l) => l.playerId);
 
   const armedName = armed ? players.get(armed)?.name : null;
@@ -1145,7 +1221,7 @@ function LiveScreen({
         players={players}
         serving={rally.serving}
         armedId={armed}
-        tappableSide={phase === "OVER" ? null : side}
+        tappableIds={tappableIds}
         onTap={(pid) => setArmed((a) => (a === pid ? null : pid))}
         liberos={liberos}
       />
@@ -1155,9 +1231,11 @@ function LiveScreen({
         <p className="mb-1.5 min-h-4 text-center text-xs text-dim">
           {armed && armedAction
             ? `${armedName} · ${ACTION_LABEL[armedAction]}`
-            : phase !== "OVER"
-              ? `Tap the ${teamName(side)} player who acted`
-              : ""}
+            : phase === "SERVE"
+              ? `Tap the server to start`
+              : phase !== "OVER"
+                ? `Tap whoever touched the ball — any player, either side`
+                : ""}
         </p>
         <div className="grid grid-cols-3 gap-2">
           {TRIO_META.map((m) => (
@@ -1182,17 +1260,30 @@ function LiveScreen({
         <MiniStat label="Defence" name={nm(topDef?.playerId)} value={`${(topDef?.blocks ?? 0) + (topDef?.superDigs ?? 0)}`} />
       </div>
 
-      {/* Undo — always visible */}
-      <div className="mt-3 flex justify-center">
+      {/* Back + Save — always visible. Back fixes a mis-tap one step at a time;
+          Save checkpoints the shared session for hand-off / video analysis. */}
+      <div className="mt-3 grid grid-cols-2 gap-2">
         <button
           type="button"
           onClick={undo}
-          disabled={rally.current.length === 0 && state.history.length === 0}
-          className="flex min-h-12 w-full max-w-md items-center justify-center gap-2 rounded-2xl border border-line bg-surface2 text-sm font-bold text-ink disabled:opacity-30"
+          disabled={!canGoBack}
+          className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-line bg-surface2 text-sm font-bold text-ink disabled:opacity-30"
         >
-          ↺ Undo last {rally.current.length > 0 ? "action" : "point"}
+          ← Back {rally.current.length > 0 ? "(action)" : state.history.length > 0 ? "(point)" : ""}
+        </button>
+        <button
+          type="button"
+          onClick={save}
+          className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-accent/40 bg-accent/10 text-sm font-bold text-accent"
+        >
+          💾 Save
         </button>
       </div>
+      <p className="mt-1.5 text-center text-[11px] text-dim">
+        {savedAt
+          ? `Saved ${new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · shared with anyone on this console`
+          : "Auto-saving every tap · Save to checkpoint for hand-off"}
+      </p>
 
       {/* Flash toast */}
       {flash && (
