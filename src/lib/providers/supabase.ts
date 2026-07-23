@@ -1,30 +1,25 @@
-import type { DataProvider } from "../repository";
-
 /**
- * SUPABASE PROVIDER — stub.
+ * SUPABASE PROVIDER — implemented (was a stub; see git history).
  *
- * Implements DataProvider against PostgreSQL via Supabase
- * (schema: supabase/schema.sql). Swap-in plan:
+ * The DataProvider implementation against PostgreSQL via Supabase now lives
+ * in `supabase-store.ts` as the `useSupabaseBackend()` hook. It is a hook
+ * rather than a plain factory because it needs React state for the live
+ * snapshot, the realtime subscription and the offline write queue.
+ * `StoreProvider` (src/lib/store.tsx) selects it automatically when Supabase
+ * is configured, so swapping providers requires no screen changes — the
+ * contract of the repository boundary (src/lib/repository.ts).
  *
- *  1. `npm install @supabase/supabase-js` and create the client from
- *     NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY.
- *  2. Reads: scoped queries replace the whole-Db snapshot —
- *     e.g. getMatch joins matches + match_sets + match_rosters +
- *     match_officials; rosters read from roster_view.
- *  3. Writes: each DataProvider mutation maps to one insert/update;
- *     stat events stay append-only for undo integrity.
- *  4. Realtime: subscribe to `stat_events` and `matches` channels —
- *     this replaces the localStorage cross-tab `storage` event and the
- *     2s poll in useLiveMatch.
- *  5. Auth/RLS: the publish boundary is enforced server-side by the
- *     policies in schema.sql; the anon client simply cannot read
- *     unpublished data.
+ * The original swap-in plan is now realised:
+ *   1. @supabase/supabase-js installed; client from NEXT_PUBLIC_SUPABASE_URL
+ *      / NEXT_PUBLIC_SUPABASE_ANON_KEY  → supabase-client.ts
+ *   2. Reads assemble the snapshot (matches ⋈ sets/rosters/officials;
+ *      players from roster_view)         → supabase-store.ts, mappers.ts
+ *   3. Writes map to keyed upserts; stat events stay append-only.
+ *   4. Realtime channels replace the cross-tab storage event and the 2s
+ *      poll                              → supabase-store.ts, live-state.ts
+ *   5. RLS publish boundary enforced server-side  → supabase/schema.sql
  *
- * The UI must not change when this replaces the LocalProvider — that is
- * the contract of the repository boundary (src/lib/repository.ts).
+ * See REALTIME_SYNC.md for the full design.
  */
-export function createSupabaseProvider(): DataProvider {
-  throw new Error(
-    "SupabaseProvider is not implemented yet. Configure Supabase and implement per the notes above.",
-  );
-}
+export { useSupabaseBackend } from "./supabase-store";
+export { isSupabaseConfigured, getSupabase } from "./supabase-client";

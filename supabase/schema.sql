@@ -107,16 +107,26 @@ create table team_players (
   team_id uuid not null references teams (id) on delete cascade,
   season_id uuid references seasons (id) on delete cascade,
   player_id uuid not null references players (id) on delete cascade,
-  jersey_no integer not null,
-  position text not null check (position in ('OH', 'OPP', 'MB', 'S', 'L', 'DS')),
+  -- jersey_no / position are nullable: some rosters list neither
+  -- ("Not listed"). The frontend renders null as "Not listed", never a guess
+  -- (src/lib/types.ts Player).
+  jersey_no integer,
+  position text check (position in ('OH', 'OPP', 'MB', 'S', 'L', 'DS')),
   is_captain boolean not null default false,
+  -- Registered as a reserve/standby rather than a main-squad player.
+  is_reserve boolean not null default false,
   unique (team_id, season_id, jersey_no)
 );
 
 -- Frontend consumes this flattened shape (src/lib/types.ts Player).
+-- `id` is the team_players (registration) id — the identifier the app
+-- carries as Player.id. The person row id (players.id) is exposed as
+-- person_id so the provider can update person vs registration fields
+-- in the correct table on a write.
 create view roster_view as
 select
   tp.id,
+  tp.player_id as person_id,
   p.full_name,
   tp.jersey_no,
   tp.position,
@@ -124,7 +134,8 @@ select
   p.nationality,
   p.photo_url,
   tp.team_id,
-  tp.is_captain
+  tp.is_captain,
+  tp.is_reserve
 from team_players tp
 join players p on p.id = tp.player_id;
 
@@ -314,3 +325,84 @@ create policy "staff writes sets"
   on match_sets for all
   using (auth.role() = 'authenticated')
   with check (auth.role() = 'authenticated');
+
+-- =====================================================================
+-- REAL-TIME SYNCHRONISATION (Issue #3)
+-- =====================================================================
+-- Everything below turns the schema above into a collaborative,
+-- multi-user, multi-device platform: any change by one client is pushed
+-- to every other connected client over Supabase Realtime, with no manual
+-- refresh. The web client (src/lib/providers/*) is the reference
+-- implementation; native Android/iOS clients converge by subscribing to
+-- the same publication and obeying the same contract (see REALTIME_SYNC.md).
+
+-- ---------- Live courtside state: the broadcast channel for live scores ----------
+-- The Rally Tracker owns a rich, ephemeral MatchState (lineups, current
+-- rally, running score) that is NOT normalised into the tables above —
+-- it is working state, not the historical record. To let fans on other
+-- devices watch the score move in real time we mirror that state as one
+-- JSONB row per match. The provider writes it on every scoring tap; every
+-- viewer subscribes. `stat_events` remains the durable source of truth;
+-- this row is a live projection that can always be rebuilt from events.
+create table if not exists match_live_state (
+  match_id uuid primary key references matches (id) on delete cascade,
+  state jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table match_live_state enable row level security;
+
+-- A live match's scoreboard is broadcast content (public the way the gym
+-- scoreboard is), but only once the match is published. Staff see all.
+create policy "public reads live state of published matches"
+  on match_live_state for select
+  using (
+    exists (select 1 from matches m where m.id = match_id
+      and (m.published = true or auth.role() = 'authenticated'))
+  );
+
+create policy "staff writes live state"
+  on match_live_state for all
+  using (auth.role() = 'authenticated')
+  with check (auth.role() = 'authenticated');
+
+-- Keep updated_at fresh so late joiners can tell how stale the projection is.
+create or replace function touch_live_state() returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists match_live_state_touch on match_live_state;
+create trigger match_live_state_touch
+  before update on match_live_state
+  for each row execute function touch_live_state();
+
+-- ---------- Realtime publication ----------
+-- Supabase streams row changes (INSERT/UPDATE/DELETE) for tables added to
+-- the `supabase_realtime` publication. We add every shared entity so that
+-- new matches, edits, live scores, events, teams, players, tournaments,
+-- analytics inputs, status changes AND deletes all propagate live.
+--
+-- REPLICA IDENTITY FULL makes DELETE / UPDATE events carry the full old
+-- row, so clients can react to deletions (e.g. remove a match) using the
+-- old primary key rather than only the changed columns.
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'leagues','seasons','divisions','tournaments','tournament_groups',
+    'venues','courts','teams','team_honours','staff',
+    'players','team_players',
+    'matches','match_officials','match_sets','match_rosters',
+    'stat_events','match_live_state'
+  ] loop
+    execute format('alter table %I replica identity full', t);
+    -- add_to_publication is idempotent-guarded: ignore "already member"
+    begin
+      execute format('alter publication supabase_realtime add table %I', t);
+    exception when duplicate_object then null;
+    end;
+  end loop;
+end $$;

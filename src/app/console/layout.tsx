@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { StoreProvider } from "@/lib/store";
+import { SyncIndicator } from "@/components/sync-indicator";
 import { ConsoleNav } from "./console-nav";
 
 export const metadata: Metadata = {
@@ -35,6 +36,7 @@ export default function ConsoleLayout({
         <main className="relative mx-auto w-full max-w-6xl px-4 pb-20 pt-8 sm:px-6">
           {children}
         </main>
+        <SyncIndicator />
       </div>
     </StoreProvider>
   );

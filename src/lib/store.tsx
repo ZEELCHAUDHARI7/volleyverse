@@ -17,6 +17,8 @@ import type {
 } from "./types";
 import { EMPTY_DB } from "./types";
 import type { Collection, DataProvider } from "./repository";
+import { isSupabaseConfigured } from "./providers/supabase-client";
+import { useSupabaseBackend } from "./providers/supabase-store";
 
 /**
  * LocalProvider — localStorage-backed implementation of DataProvider.
@@ -55,7 +57,33 @@ function persist(db: Db) {
 
 const StoreContext = createContext<DataProvider | null>(null);
 
+/**
+ * StoreProvider — chooses the backend once, at module scope, from the
+ * environment:
+ *
+ *   - Supabase configured  → cloud, multi-user realtime (SupabaseBackend).
+ *   - otherwise            → offline-first localStorage (LocalStoreProvider).
+ *
+ * The branch is stable across renders (env vars don't change at runtime),
+ * so each subtree calls a consistent set of hooks. Consumers use the
+ * identical `useStore()` surface either way — that's the repository
+ * contract (src/lib/repository.ts): swapping providers needs no screen
+ * changes.
+ */
 export function StoreProvider({ children }: { children: React.ReactNode }) {
+  if (isSupabaseConfigured()) {
+    return <SupabaseStoreProvider>{children}</SupabaseStoreProvider>;
+  }
+  return <LocalStoreProvider>{children}</LocalStoreProvider>;
+}
+
+/** Cloud backend: Postgres source of truth + realtime across all users. */
+function SupabaseStoreProvider({ children }: { children: React.ReactNode }) {
+  const api = useSupabaseBackend();
+  return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>;
+}
+
+function LocalStoreProvider({ children }: { children: React.ReactNode }) {
   const [db, setDb] = useState<Db>(EMPTY_DB);
   const [ready, setReady] = useState(false);
   const idCounter = useRef(0);
@@ -101,6 +129,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const api: DataProvider = {
     ready,
     db,
+    // No server to reconcile with: cross-tab sync is instant and local.
+    syncStatus: "local",
 
     insert: (collection, row) => {
       const withId = { ...row, id: newId(String(collection).slice(0, 2)) } as Db[typeof collection][number];
@@ -149,6 +179,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         ...m,
         status: "completed" as const,
         winnerTeamId,
+      })),
+    deleteMatch: (matchId) =>
+      // Event-sourced cascade: drop the match row AND every stat_event that
+      // belongs to it. Set scores, rosters and officials live on the match
+      // row, so they go with it; nothing derived survives.
+      updateDb((prev) => ({
+        ...prev,
+        matches: prev.matches.filter((m) => m.id !== matchId),
+        events: prev.events.filter((e) => e.matchId !== matchId),
       })),
     setPublished: (matchId, published) =>
       patchMatch(matchId, (m) => ({ ...m, published })),

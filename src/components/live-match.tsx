@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
+import { subscribeLiveState } from "@/lib/providers/live-state";
 import type { Match, StatEvent, Team, Venue } from "@/lib/types";
 import type { Lineup, MatchState, Position, Side } from "@/lib/rally";
 
@@ -72,9 +73,26 @@ export function useLiveMatch(): LiveMatchData {
       if (e.key === key) read();
     };
     window.addEventListener("storage", onStorage);
+    // Cross-user realtime: when Supabase is configured, remote score
+    // updates arrive here and also refresh the local cache so the poll and
+    // other tabs stay consistent. No-op in local-only mode.
+    const unsubscribe = subscribeLiveState(match.id, (remote) => {
+      if (remote && remote.usLineup && remote.oppLineup) {
+        setState(remote);
+        setDegraded(false);
+        try {
+          window.localStorage.setItem(key, JSON.stringify(remote));
+        } catch {
+          /* cache write failed — remote state is still shown */
+        }
+      } else if (remote === null) {
+        setState(null);
+      }
+    });
     return () => {
       clearInterval(iv);
       window.removeEventListener("storage", onStorage);
+      unsubscribe();
     };
   }, [match]);
 

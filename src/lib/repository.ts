@@ -30,11 +30,25 @@ export type Row = { id: string };
 /** Collections of Db that support generic CRUD. */
 export type Collection = keyof Db;
 
+/**
+ * Live connection/sync state, surfaced to the UI so it can show a
+ * loading/sync indicator (Issue #3 requirement).
+ *
+ *  - `local`      — offline-first LocalProvider; no server to sync with.
+ *  - `connecting` — initial load / opening the realtime socket.
+ *  - `synced`     — connected, all local writes acknowledged by the server.
+ *  - `syncing`    — connected, writes in flight (optimistic UI already updated).
+ *  - `offline`    — no connection; writes are queued and will flush on reconnect.
+ */
+export type SyncStatus = "local" | "connecting" | "synced" | "syncing" | "offline";
+
 export interface DataProvider {
   /** Snapshot of all data in scope. Supabase: replaced by scoped queries. */
   db: Db;
   /** False until the initial load completes (avoids hydration flicker). */
   ready: boolean;
+  /** Live sync state for the sync indicator. `local` when server-less. */
+  syncStatus: SyncStatus;
 
   // ---- Generic entity CRUD (leagues, seasons, tournaments, venues,
   //      courts, teams, staff, players, divisions, groups) ----
@@ -50,6 +64,15 @@ export interface DataProvider {
   /** Persist a finished set's score (match_sets row). */
   recordSetScore: (matchId: string, set: MatchSet) => void;
   completeMatch: (matchId: string, winnerTeamId: string | null) => void;
+  /**
+   * Permanently delete a match and everything derived from it. Because all
+   * statistics are event-sourced, removing the match row plus its stat_events
+   * erases scores, events, statistics and analytics in one operation — there
+   * is no hand-stored aggregate left behind. In PostgreSQL this is a single
+   * DELETE on `matches` with `ON DELETE CASCADE` fanning out to match_sets,
+   * match_rosters, match_officials and stat_events.
+   */
+  deleteMatch: (matchId: string) => void;
   setPublished: (matchId: string, published: boolean) => void;
   setRosters: (matchId: string, rosters: MatchRosterEntry[]) => void;
   setOfficials: (matchId: string, officials: MatchOfficial[]) => void;

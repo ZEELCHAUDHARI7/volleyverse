@@ -6,6 +6,7 @@ import { useActiveLeague, useStore } from "@/lib/store";
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   LinkButton,
   PageSkeleton,
@@ -478,7 +479,8 @@ function MatchGroup({
 }
 
 function MatchRow({ match }: { match: Match }) {
-  const { db, setPublished } = useStore();
+  const { db, setPublished, deleteMatch } = useStore();
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const team = (id: string | null): Team | undefined =>
     db.teams.find((t) => t.id === id);
@@ -553,6 +555,12 @@ function MatchRow({ match }: { match: Match }) {
         ) : (
           <>
             <PublishBadge published={match.published} />
+            <LinkButton
+              href={`/console/matches/${match.id}/analytics`}
+              variant="ghost"
+            >
+              📊 Analytics
+            </LinkButton>
             <Button
               variant="ghost"
               onClick={() => setPublished(match.id, !match.published)}
@@ -565,9 +573,35 @@ function MatchRow({ match }: { match: Match }) {
             >
               Details
             </Link>
+            <Button variant="danger" onClick={() => setConfirmDelete(true)}>
+              Delete
+            </Button>
           </>
         )}
       </div>
+
+      {match.status === "completed" && (
+        <ConfirmDialog
+          open={confirmDelete}
+          title="Delete match?"
+          message={
+            <>
+              This permanently removes{" "}
+              <span className="font-semibold text-ink">
+                {home?.name ?? "TBD"} vs {away?.name ?? "TBD"}
+              </span>{" "}
+              — its scores, every recorded event, all statistics and analytics.
+              This cannot be undone.
+            </>
+          }
+          confirmLabel="Delete match"
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => {
+            deleteMatch(match.id);
+            setConfirmDelete(false);
+          }}
+        />
+      )}
     </Card>
   );
 }

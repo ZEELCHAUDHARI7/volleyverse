@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMatch, useStore } from "@/lib/store";
+import { pushLiveState } from "@/lib/providers/live-state";
 import { breaksRecord, lines } from "@/lib/metrics";
 import type { Match, Player, Team } from "@/lib/types";
 import {
@@ -102,6 +103,9 @@ export default function RallyTracker() {
       } catch {
         // storage unavailable — state stays in memory for the session
       }
+      // Broadcast to every other user/device watching this match (no-op
+      // when Supabase isn't configured — localStorage above still syncs tabs).
+      pushLiveState(match.id, next);
     },
     [match],
   );

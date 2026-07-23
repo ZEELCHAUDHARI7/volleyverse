@@ -751,3 +751,31 @@ a.card-premium:hover,
     transform: none !important;
   }
 }
+
+/* ---------- Print — clean PDF export of the analytics dashboard ---------- */
+@media print {
+  /* Chrome we don't want in the exported document. */
+  nav,
+  .no-print {
+    display: none !important;
+  }
+  html,
+  body {
+    background: #ffffff !important;
+    color: #0a0a0a !important;
+  }
+  /* Flatten glass/glow so cards print crisply on white. */
+  .card-premium,
+  .card-spot {
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: 1px solid #d5d9e2 !important;
+  }
+  .analytics-doc section,
+  .analytics-doc .card-premium {
+    break-inside: avoid;
+  }
+  .court-lines {
+    display: none !important;
+  }
+}

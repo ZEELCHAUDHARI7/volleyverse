@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import type { PlayerPosition } from "@/lib/types";
 import { POSITION_LABEL } from "@/lib/types";
 
@@ -246,6 +247,7 @@ const CHIP_TONES = {
   azure: "bg-azure/15 text-azure ring-1 ring-azure/25",
   ok: "bg-ok/15 text-ok ring-1 ring-ok/25",
   err: "bg-err/15 text-err ring-1 ring-err/25",
+  violet: "bg-violet/15 text-violet ring-1 ring-violet/25",
   dim: "bg-line/60 text-dim",
 } as const;
 
@@ -270,6 +272,116 @@ export function StatusChip({
       )}
       {children}
     </span>
+  );
+}
+
+/**
+ * Modal — centred glass dialog over a dimmed backdrop. Closes on Escape and
+ * backdrop click. Body scroll is locked while open. Pure presentation; the
+ * caller owns open/close state.
+ */
+export function Modal({
+  open,
+  onClose,
+  labelledBy,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  labelledBy?: string;
+  children: React.ReactNode;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] grid place-items-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={labelledBy}
+    >
+      <div
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        aria-hidden
+        onClick={onClose}
+      />
+      <div className="card-premium relative z-10 w-full max-w-md rounded-3xl p-6 shadow-2xl">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ConfirmDialog — a Modal specialised for destructive confirmations. Renders
+ * a title, message, cancel and confirm buttons. The confirm button defaults
+ * to the danger tone. Used by "Delete Match" and any other irreversible action.
+ */
+export function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  tone = "danger",
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  message: React.ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  tone?: "danger" | "primary";
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal open={open} onClose={onCancel} labelledBy="confirm-title">
+      <div className="flex items-start gap-4">
+        <span
+          aria-hidden
+          className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-xl ${
+            tone === "danger"
+              ? "bg-err/15 text-err ring-1 ring-err/25"
+              : "bg-accent/15 text-accent ring-1 ring-accent/25"
+          }`}
+        >
+          {tone === "danger" ? "⚠️" : "❓"}
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2
+            id="confirm-title"
+            className="stat-display text-lg font-bold uppercase tracking-wide"
+          >
+            {title}
+          </h2>
+          <div className="mt-1 text-sm text-dim">{message}</div>
+        </div>
+      </div>
+      <div className="mt-6 flex justify-end gap-2">
+        <Button variant="ghost" onClick={onCancel}>
+          {cancelLabel}
+        </Button>
+        <Button variant={tone} onClick={onConfirm}>
+          {confirmLabel}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 

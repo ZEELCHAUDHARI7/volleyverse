@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/console", label: "Dashboard", exact: true },
   { href: "/console/league", label: "League Setup", exact: false },
   { href: "/console/matches/new", label: "Start Match", exact: false },
+  { href: "/console/analytics", label: "Analytics", exact: false },
 ];
 
 export function ConsoleNav() {
