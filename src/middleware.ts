@@ -1,19 +1,43 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { LOGIN_PATH, requiresAuth } from "@/lib/auth-routes";
+import {
+  LOGIN_PATH,
+  gatesWhenUnconfigured,
+  requiresAuth,
+} from "@/lib/auth-routes";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+function redirectToLogin(request: NextRequest) {
+  const redirectUrl = request.nextUrl.clone();
+  redirectUrl.pathname = LOGIN_PATH;
+  redirectUrl.search = "";
+  redirectUrl.searchParams.set(
+    "next",
+    request.nextUrl.pathname + request.nextUrl.search,
+  );
+  return NextResponse.redirect(redirectUrl);
+}
 
 /**
  * Refreshes the Supabase auth cookie on every matched request and gates
  * /console/* behind a verified session.
  *
- * When Supabase is unconfigured the middleware is a pass-through, so local
- * development against the offline LocalStoreProvider is never locked out.
+ * When Supabase is unconfigured, local development stays a pass-through so
+ * the offline LocalStoreProvider is never locked out — but production fails
+ * closed, because a build missing NEXT_PUBLIC_SUPABASE_* would otherwise
+ * serve the console to anyone.
  */
 export async function middleware(request: NextRequest) {
-  if (!url || !anonKey) return NextResponse.next();
+  if (!url || !anonKey) {
+    return gatesWhenUnconfigured(
+      request.nextUrl.pathname,
+      process.env.NODE_ENV === "production",
+    )
+      ? redirectToLogin(request)
+      : NextResponse.next();
+  }
 
   let response = NextResponse.next({ request });
 
@@ -39,14 +63,7 @@ export async function middleware(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
 
   if (!data?.claims && requiresAuth(request.nextUrl.pathname)) {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = LOGIN_PATH;
-    redirectUrl.search = "";
-    redirectUrl.searchParams.set(
-      "next",
-      request.nextUrl.pathname + request.nextUrl.search,
-    );
-    return NextResponse.redirect(redirectUrl);
+    return redirectToLogin(request);
   }
 
   return response;

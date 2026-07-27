@@ -4,7 +4,12 @@
  * No test framework — tiny asserts, zero deps, same style as rally.test.mjs.
  */
 import assert from "node:assert/strict";
-import { requiresAuth, LOGIN_PATH, CALLBACK_PATH } from "./auth-routes.ts";
+import {
+  requiresAuth,
+  gatesWhenUnconfigured,
+  LOGIN_PATH,
+  CALLBACK_PATH,
+} from "./auth-routes.ts";
 
 let passed = 0;
 function check(label, actual, expected) {
@@ -38,5 +43,25 @@ check("console-lookalike deep", requiresAuth("/console-x/y"), false);
 
 // Nor is a path that merely starts with the login path's letters.
 check("login-lookalike is guarded", requiresAuth("/console/loginx"), true);
+
+// --- Missing Supabase env vars must not silently unguard the console. ---
+// A Vercel deploy shipped without NEXT_PUBLIC_SUPABASE_* once, and the
+// middleware's pass-through left /console open to the public internet.
+
+// In production a misconfiguration gates the console instead of opening it.
+check("unconfigured prod: console root", gatesWhenUnconfigured("/console", true), true);
+check("unconfigured prod: console nested", gatesWhenUnconfigured("/console/matches/new", true), true);
+
+// ...but never the sign-in plumbing, or the redirect loops forever.
+check("unconfigured prod: login page", gatesWhenUnconfigured(LOGIN_PATH, true), false);
+check("unconfigured prod: callback", gatesWhenUnconfigured(CALLBACK_PATH, true), false);
+
+// The public showcase stays reachable even when misconfigured.
+check("unconfigured prod: home", gatesWhenUnconfigured("/", true), false);
+check("unconfigured prod: live", gatesWhenUnconfigured("/live", true), false);
+
+// Offline local dev against LocalStoreProvider keeps its escape hatch.
+check("unconfigured dev: console root", gatesWhenUnconfigured("/console", false), false);
+check("unconfigured dev: console nested", gatesWhenUnconfigured("/console/matches/new", false), false);
 
 console.log(`auth-routes: ${passed} checks passed`);

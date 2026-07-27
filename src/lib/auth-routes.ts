@@ -25,3 +25,19 @@ export function requiresAuth(pathname: string): boolean {
     (route) => pathname === route || pathname.startsWith(`${route}/`),
   );
 }
+
+/**
+ * True when a path must stay gated even though Supabase is unconfigured.
+ *
+ * The middleware used to pass every request through on a missing
+ * NEXT_PUBLIC_SUPABASE_* pair. A production deploy built without those vars
+ * therefore served /console to anyone. Production now fails closed; outside
+ * production the pass-through remains so the offline LocalStoreProvider is
+ * still reachable without a .env.local.
+ */
+export function gatesWhenUnconfigured(
+  pathname: string,
+  isProduction: boolean,
+): boolean {
+  return isProduction && requiresAuth(pathname);
+}
