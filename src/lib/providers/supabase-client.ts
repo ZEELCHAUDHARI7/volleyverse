@@ -1,8 +1,9 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * Browser Supabase client — the single connection the realtime provider
- * and the live-state channel share.
+ * Browser Supabase client — the single connection the realtime provider,
+ * the live-state channel and Auth all share.
  *
  * Configuration is env-driven so the app degrades gracefully:
  *   - Both NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY set
@@ -10,7 +11,9 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
  *   - Either missing → the app falls back to the offline-first
  *     LocalProvider (localStorage + cross-tab sync). Nothing throws.
  *
- * See .env.local.example and REALTIME_SYNC.md.
+ * createBrowserClient stores the session in a cookie rather than
+ * localStorage, which is what lets middleware and server components read
+ * it. See src/middleware.ts and REALTIME_SYNC.md.
  */
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -25,16 +28,15 @@ let client: SupabaseClient | null = null;
 
 /**
  * The shared browser client, or `null` when Supabase is not configured.
- * Lazily created and memoised so every hook shares one websocket.
+ * Memoised so every hook shares one websocket.
  */
 export function getSupabase(): SupabaseClient | null {
   if (!isSupabaseConfigured()) return null;
   if (client) return client;
-  client = createClient(url!, anonKey!, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-    },
+  // No `auth` options block here on purpose: createBrowserClient installs
+  // its own cookie storage adapter, and passing persistSession /
+  // autoRefreshToken would override it and put us back on localStorage.
+  client = createBrowserClient(url!, anonKey!, {
     realtime: {
       // Cap event rate so a fast courtside tapper can't flood subscribers.
       params: { eventsPerSecond: 20 },
