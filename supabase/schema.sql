@@ -406,3 +406,56 @@ begin
     end;
   end loop;
 end $$;
+
+-- =====================================================================
+-- RLS HARDENING — the remaining reference tables
+-- =====================================================================
+-- matches / stat_events / match_sets / match_live_state are already
+-- policied above (the publish boundary). Everything else is league
+-- reference data: publicly readable (the showcase site renders it
+-- anonymously) and writable only by authenticated staff. This is what
+-- makes the console lock real — without it the public anon key can write
+-- straight past the UI.
+
+alter table leagues            enable row level security;
+alter table seasons            enable row level security;
+alter table divisions          enable row level security;
+alter table venues             enable row level security;
+alter table courts             enable row level security;
+alter table tournaments        enable row level security;
+alter table tournament_groups  enable row level security;
+alter table teams              enable row level security;
+alter table team_honours       enable row level security;
+alter table staff              enable row level security;
+alter table players            enable row level security;
+alter table team_players       enable row level security;
+alter table match_officials    enable row level security;
+alter table match_rosters      enable row level security;
+
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'leagues','seasons','divisions','venues','courts','tournaments',
+    'tournament_groups','teams','team_honours','staff','players',
+    'team_players','match_officials','match_rosters'
+  ] loop
+    execute format(
+      'drop policy if exists "public reads %1$s" on %1$I', t);
+    execute format(
+      'drop policy if exists "staff writes %1$s" on %1$I', t);
+    execute format(
+      'create policy "public reads %1$s" on %1$I for select using (true)', t);
+    execute format(
+      'create policy "staff writes %1$s" on %1$I for all '
+      'using (auth.role() = ''authenticated'') '
+      'with check (auth.role() = ''authenticated'')', t);
+  end loop;
+end $$;
+
+-- Views bypass RLS unless they run as the caller. Without this, the
+-- publish boundary on matches/stat_events leaks straight through
+-- match_statistics and standings.
+alter view roster_view       set (security_invoker = true);
+alter view match_statistics  set (security_invoker = true);
+alter view standings         set (security_invoker = true);
