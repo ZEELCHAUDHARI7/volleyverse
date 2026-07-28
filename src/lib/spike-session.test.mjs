@@ -56,6 +56,21 @@ t("undo of a point lowers that side's score", () => {
   assert.deepEqual(session.undoStack, []);
 });
 
+t("undo decrements rather than zeroing — 2 points becomes 1, not 0", () => {
+  const s = addPoint(addPoint(newSession(), "home"), "home");
+  const { session } = undo(s);
+  assert.equal(session.homePoints, 1);
+});
+
+t("undo does not mutate the session or stack it was given", () => {
+  const s = addPoint(recordEvent(newSession(), "e1"), "away");
+  const stackRef = s.undoStack;
+  undo(s);
+  assert.equal(s.awayPoints, 1);
+  assert.equal(s.undoStack.length, 2);
+  assert.equal(s.undoStack, stackRef); // .pop() would empty this array in place
+});
+
 t("undo of a spike returns the event id and leaves the score alone", () => {
   const s = recordEvent(addPoint(newSession(), "home"), "e42");
   const { session, undone } = undo(s);
@@ -97,6 +112,19 @@ t("endSet advances the set, resets the score and clears undo", () => {
   assert.equal(next.homePoints, 0);
   assert.equal(next.awayPoints, 0);
   assert.deepEqual(next.undoStack, []);
+});
+
+t("endSet advances relative to the current set, not to a fixed 2", () => {
+  const third = endSet(endSet(newSession()));
+  assert.equal(third.setNo, 3);
+});
+
+t("endSet does not mutate the session it was given", () => {
+  const s = addPoint(newSession(), "home");
+  endSet(s);
+  assert.equal(s.setNo, 1);
+  assert.equal(s.homePoints, 1);
+  assert.equal(s.undoStack.length, 1);
 });
 
 t("undo cannot reach back across a banked set", () => {
