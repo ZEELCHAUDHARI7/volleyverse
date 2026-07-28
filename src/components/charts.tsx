@@ -45,7 +45,7 @@ const css = (name: string, fallback: string) =>
       fallback
     : fallback;
 
-const theme = () => ({
+export const theme = () => ({
   accent: css("--brand-accent", "#ffc400"),
   azure: css("--brand-azure", "#4fc3f7"),
   ok: css("--brand-success", "#2ee6a8"),
@@ -56,7 +56,7 @@ const theme = () => ({
   ink: css("--brand-ink", "#f2f6fc"),
 });
 
-const tooltipStyle = () => ({
+export const tooltipStyle = () => ({
   contentStyle: {
     background: theme().surface,
     border: `1px solid ${theme().line}`,
@@ -68,18 +68,18 @@ const tooltipStyle = () => ({
   cursor: { fill: "rgba(255,255,255,0.04)" },
 });
 
-const axisProps = () => ({
+export const axisProps = () => ({
   stroke: theme().dim,
   tick: { fill: theme().dim, fontSize: 12 },
   tickLine: false,
   axisLine: { stroke: theme().line },
 });
 
-function firstName(name: string) {
+export function firstName(name: string) {
   return name.split(" ")[0];
 }
 
-function ChartShell({
+export function ChartShell({
   title,
   insight,
   children,
