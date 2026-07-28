@@ -85,6 +85,15 @@ t("rates round to whole percent", () => {
   assert.equal(line.successRate, 33);
 });
 
+t("2 of 3 attempts won is 67%, not 66% — disambiguates round from floor/truncate", () => {
+  const line = spikeLine("A", [
+    ev("A", "SPIKE_POINT"),
+    ev("A", "SPIKE_POINT"),
+    ev("A", "SPIKE_IN"),
+  ]);
+  assert.equal(line.successRate, 67);
+});
+
 qa.suite("Multiple Players");
 
 t("spikeLines returns one line per id, in the order given", () => {

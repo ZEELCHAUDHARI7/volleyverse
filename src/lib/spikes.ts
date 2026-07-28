@@ -5,9 +5,12 @@ import type { StatEvent } from "./types";
  *
  * Deliberately separate from metrics.ts. PlayerLine.spikeSuccesses counts
  * SPIKE_IN as a success, so PlayerLine.successRate reads 100% for the
- * one-O-then-one-✓ case the product defines as 50%. Three existing charts
- * depend on that field, so it is left untouched and the definitions the
- * spiker screen needs live here.
+ * one-O-then-one-✓ case the product defines as 50%. Several existing
+ * charts read that field, so it is left untouched and the definitions
+ * the spiker screen needs live here.
+ *
+ * Callers must pass events already scoped to a single match — spikeLine
+ * and spikeLines filter by playerId only, never by matchId.
  *
  * Pure: no React, no storage, no DOM. Type-only import so the Node
  * type-stripping test runner can load this file directly.
