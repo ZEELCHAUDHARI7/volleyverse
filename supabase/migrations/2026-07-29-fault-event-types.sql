@@ -5,15 +5,28 @@
 -- CHECK constraint rejects fails inside the queue: the screen shows the point
 -- landing while the database refuses it. There is no visible error.
 --
--- The constraint is unnamed in schema.sql, so PostgreSQL generated the name.
--- Confirm it first:
+-- Safe to run before the deploy: widening a constraint cannot reject rows that
+-- already exist, and the current build never writes the new types.
 --
---   select conname from pg_constraint
---   where conrelid = 'stat_events'::regclass and contype = 'c';
---
--- Substitute the name below if it differs.
+-- The constraint is unnamed in schema.sql, so PostgreSQL generated its name.
+-- The block below finds it by its definition rather than assuming the name.
 
-alter table stat_events drop constraint stat_events_type_check;
+do $$
+declare c text;
+begin
+  select conname into c
+  from pg_constraint
+  where conrelid = 'stat_events'::regclass
+    and contype = 'c'
+    and pg_get_constraintdef(oid) like '%SPIKE_POINT%';
+
+  if c is null then
+    raise notice 'No type CHECK found on stat_events — nothing to drop.';
+  else
+    execute format('alter table stat_events drop constraint %I', c);
+    raise notice 'Dropped constraint %', c;
+  end if;
+end $$;
 
 alter table stat_events add constraint stat_events_type_check
   check (type in (
