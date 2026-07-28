@@ -129,6 +129,7 @@ export default function FreeRallyTracker() {
   const [loaded, setLoaded] = useState(false);
   const [armed, setArmed] = useState<{ player: Player; side: Side } | null>(null);
   const [faulting, setFaulting] = useState(false);
+  const [ending, setEnding] = useState(false);
 
   // Resume mid-match after a reload. Keyed on the route id, not the match
   // object — useMatch returns a fresh object on every db change, so keying on
@@ -343,6 +344,96 @@ export default function FreeRallyTracker() {
   const setOver = setPointReached(state.usScore, state.oppScore, target);
   const allPlayers = [...homeRoster, ...awayRoster];
 
+  // Total points across banked sets plus the set in progress.
+  const usTotal = state.setScores.reduce((n, s) => n + s.us, 0) + state.usScore;
+  const oppTotal = state.setScores.reduce((n, s) => n + s.opp, 0) + state.oppScore;
+
+  /**
+   * Sets decide a volleyball match; points are the tie-break. With no set
+   * banked yet — a short demo, or a match stopped mid-set — sets are 0-0 and
+   * the points decide it on their own.
+   */
+  const leader: Side | null =
+    state.usSets !== state.oppSets
+      ? state.usSets > state.oppSets
+        ? "US"
+        : "OPP"
+      : usTotal !== oppTotal
+        ? usTotal > oppTotal
+          ? "US"
+          : "OPP"
+        : null;
+
+  const onEndMatch = () => {
+    // Bank the set in progress so its points are not lost from the record.
+    if (state.usScore > 0 || state.oppScore > 0) {
+      store.recordSetScore(match.id, {
+        setNo: state.set,
+        homePoints: state.usScore,
+        awayPoints: state.oppScore,
+      });
+    }
+    store.completeMatch(
+      match.id,
+      leader === null ? null : leader === "US" ? homeTeam.id : awayTeam.id,
+    );
+    setEnding(false);
+    setArmed(null);
+  };
+
+  // Finished match: the winner, the set scores, and the four charts in full.
+  if (match.status === "completed") {
+    const winner = match.winnerTeamId
+      ? match.winnerTeamId === homeTeam.id
+        ? homeTeam.name
+        : awayTeam.name
+      : null;
+    return (
+      <div className="mx-auto max-w-3xl space-y-5 px-4 pb-24 pt-6">
+        <header className="card-premium rounded-2xl p-6 text-center">
+          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-accent">
+            Match complete
+          </p>
+          <p className="stat-display mt-2 text-3xl font-extrabold uppercase text-ink">
+            {winner ? `🏆 ${winner}` : "Drawn"}
+          </p>
+          <p className="stat-display tnum mt-3 text-2xl font-extrabold">
+            <span className="text-accent">{homeTeam.shortName} {usTotal}</span>
+            <span className="mx-3 text-dim">–</span>
+            <span className="text-azure">{oppTotal} {awayTeam.shortName}</span>
+          </p>
+          <p className="mt-1 text-xs text-dim">total points</p>
+          {match.setScores.length > 0 && (
+            <div className="mt-4 flex flex-wrap justify-center gap-1.5">
+              {match.setScores.map((s) => (
+                <span
+                  key={s.setNo}
+                  className="tnum rounded-lg border border-line bg-surface2/50 px-2.5 py-1 text-xs"
+                >
+                  {s.homePoints}–{s.awayPoints}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="mt-5">
+            <LinkButton href="/console">Back to console</LinkButton>
+          </div>
+        </header>
+
+        <h2 className="stat-display text-lg font-bold uppercase tracking-wide text-ink">
+          Spiker performance
+        </h2>
+        <SpikeChartGrid
+          players={allPlayers}
+          events={events}
+          homeTeamId={homeTeam.id}
+          homeLabel={homeTeam.name}
+          awayLabel={awayTeam.name}
+        />
+      </div>
+    );
+  }
+
   // FIVB 6.3.2/7.1: the deciding set needs its own toss. Play is blocked until
   // it is entered rather than silently carrying the previous set's server over.
   if (isDecidingSet(state.set, match.totalSets) && state.decidingToss === null) {
@@ -421,10 +512,37 @@ export default function FreeRallyTracker() {
             ↶ Undo
           </Button>
           {setOver && <Button onClick={onBankSet}>Bank set {state.set}</Button>}
+          <Button variant="ghost" onClick={() => setEnding(true)}>
+            End match
+          </Button>
           <LinkButton href="/console" variant="ghost">
             Console
           </LinkButton>
         </div>
+
+        {ending && (
+          <div className="mt-3 rounded-xl border border-accent/30 bg-accent/5 p-3 text-center">
+            <p className="text-sm text-ink">
+              End the match now?{" "}
+              {leader === null ? (
+                <span className="font-semibold">It is level — no winner recorded.</span>
+              ) : (
+                <>
+                  <span className="font-semibold">
+                    {leader === "US" ? homeTeam.name : awayTeam.name}
+                  </span>{" "}
+                  wins {state.usSets !== state.oppSets ? "on sets" : "on points"}.
+                </>
+              )}
+            </p>
+            <div className="mt-2 flex justify-center gap-2">
+              <Button onClick={onEndMatch}>Confirm</Button>
+              <Button variant="ghost" onClick={() => setEnding(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
       </header>
 
       <CourtBoard
@@ -521,6 +639,12 @@ export default function FreeRallyTracker() {
         </div>
       )}
 
+      <h2 className="stat-display pt-2 text-lg font-bold uppercase tracking-wide text-ink">
+        Spiker performance
+        <span className="ml-2 text-xs font-semibold normal-case tracking-normal text-dim">
+          updates on every tap
+        </span>
+      </h2>
       <SpikeChartGrid
         players={allPlayers}
         events={events}
