@@ -1,100 +1,157 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useMatch, useStore } from "@/lib/store";
+import { CourtBoard, type CourtPlayer } from "@/components/court-board";
+import { SetupWizard } from "@/components/court-setup";
 import { SpikeChartGrid } from "@/components/spike-charts";
 import { Button, EmptyState, LinkButton, PageSkeleton } from "@/components/ui";
 import {
-  addPoint,
-  endSet,
-  newSession,
-  recordEvent,
-  undo,
-  type ScoreSide,
-  type SpikeSession,
-} from "@/lib/spike-session";
-import type { EventType, Player } from "@/lib/types";
+  type Lineup,
+  type Side,
+  type TeamSetup,
+  type Toss,
+  firstServerForSet,
+  isDecidingSet,
+  resolvePoint,
+  rotate,
+  serverId,
+  servingFromToss,
+  setPointReached,
+} from "@/lib/rally";
+import {
+  type FaultKind,
+  type FreeRallyState,
+  type Outcome,
+  closeServe,
+  openRally,
+  resolveFault,
+  resolveTap,
+} from "@/lib/free-rally";
+import type { Player } from "@/lib/types";
 
 /**
- * SPIKE TRACKER — the whole demo on one screen.
+ * FREE-RALLY TRACKER — the court, without the fixed touch sequence.
  *
- * Tap a player, tap one of three outcomes, done. No receiver, no setter,
- * no phase model: real rallies do not follow a fixed touch sequence, and
- * the same attacker can spike twice in one rally. Every tap is exactly one
- * attempt.
+ * Tap whoever touched the ball, in any order, as many times as it happened.
+ * The only thing the app infers is the serve, and it does that from rotation:
+ * the serving side's P1 tapped before anything else in a rally is a serve.
  *
- * The scoreboard is manual and independent of the taps, because only
- * spikes are logged — points from aces, blocks and opponent errors would
- * otherwise never appear.
+ * Score, serve order and rotation all follow from ✓ and ✗ — there is no
+ * manual scoreboard, because every rally-ending event has a tap behind it.
  */
 
-const SESSION_KEY = (matchId: string) => `volleyverse:spikes:${matchId}`;
+const STATE_KEY = (matchId: string) => `volleyverse:free:${matchId}`;
 
-const OUTCOMES: {
-  type: EventType;
-  glyph: string;
-  label: string;
-  sub: string;
-  cls: string;
-}[] = [
+interface Snapshot {
+  usScore: number;
+  oppScore: number;
+  serving: Side;
+  usLineup: Lineup;
+  oppLineup: Lineup;
+  eventIds: string[];
+}
+
+interface FreeMatchState {
+  setup: { us: TeamSetup; opp: TeamSetup };
+  toss: Toss;
+  /** FIVB 6.3.2/7.1 — the deciding set takes a fresh toss. null until taken. */
+  decidingToss: Toss | null;
+  set: number;
+  usScore: number;
+  oppScore: number;
+  usSets: number;
+  oppSets: number;
+  usLineup: Lineup;
+  oppLineup: Lineup;
+  setScores: { us: number; opp: number }[];
+  rally: FreeRallyState;
+  /** Event ids logged in the rally in progress — tap-level undo. */
+  current: string[];
+  /** Completed rallies this set, newest last — rally-level undo. */
+  history: Snapshot[];
+}
+
+function initialState(us: TeamSetup, opp: TeamSetup, toss: Toss): FreeMatchState {
+  return {
+    setup: { us, opp },
+    toss,
+    decidingToss: null,
+    set: 1,
+    usScore: 0,
+    oppScore: 0,
+    usSets: 0,
+    oppSets: 0,
+    usLineup: us.lineup,
+    oppLineup: opp.lineup,
+    setScores: [],
+    rally: openRally(servingFromToss(toss)),
+    current: [],
+    history: [],
+  };
+}
+
+const OUTCOMES: { outcome: Outcome; glyph: string; label: string; cls: string }[] = [
   {
-    type: "SPIKE_POINT",
+    outcome: "WIN",
     glyph: "✓",
     label: "Point won",
-    sub: "The spike landed",
     cls: "border-ok/40 bg-ok/10 text-ok hover:border-ok",
   },
   {
-    type: "SPIKE_IN",
+    outcome: "CONT",
     glyph: "O",
     label: "Rally continues",
-    sub: "They defended it",
     cls: "border-azure/40 bg-azure/10 text-azure hover:border-azure",
   },
   {
-    type: "SPIKE_ERR",
+    outcome: "LOSE",
     glyph: "✗",
     label: "Failed",
-    sub: "Net or out",
     cls: "border-err/40 bg-err/10 text-err hover:border-err",
   },
 ];
 
-export default function SpikeTracker() {
+const FAULTS: { kind: FaultKind; label: string }[] = [
+  { kind: "NET", label: "Net touch" },
+  { kind: "FOUR_HITS", label: "Four hits" },
+  { kind: "DOUBLE", label: "Double" },
+  { kind: "ROTATION", label: "Rotation" },
+];
+
+export default function FreeRallyTracker() {
   const { id } = useParams<{ id: string }>();
   const { match, homeTeam, awayTeam, homeRoster, awayRoster, events } = useMatch(id);
   const store = useStore();
 
-  const [session, setSession] = useState<SpikeSession>(newSession);
+  const [state, setState] = useState<FreeMatchState | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [armed, setArmed] = useState<Player | null>(null);
+  const [armed, setArmed] = useState<{ player: Player; side: Side } | null>(null);
+  const [faulting, setFaulting] = useState(false);
 
-  // Resume mid-match after a reload: score, set number and undo stack.
-  // Keyed on the route id, not the match object — `useMatch` hands back a
-  // fresh object every time the db changes, and re-reading storage on every
-  // logged event would fight the writes below.
+  // Resume mid-match after a reload. Keyed on the route id, not the match
+  // object — useMatch returns a fresh object on every db change, so keying on
+  // it would re-read storage after each logged event and fight its own writes.
   useEffect(() => {
     if (!store.ready) return;
     try {
-      const raw = window.localStorage.getItem(SESSION_KEY(id));
+      const raw = window.localStorage.getItem(STATE_KEY(id));
       if (raw) {
-        const parsed = JSON.parse(raw) as SpikeSession;
-        if (typeof parsed.setNo === "number" && Array.isArray(parsed.undoStack)) {
-          setSession(parsed);
-        }
+        const parsed = JSON.parse(raw) as FreeMatchState;
+        if (parsed.usLineup && parsed.oppLineup && parsed.rally) setState(parsed);
       }
     } catch {
-      // corrupted payload — start a fresh session
+      // corrupted payload — fall back to the setup wizard
     }
     setLoaded(true); // unconditional, so a missing match reaches its empty state
   }, [store.ready, id]);
 
   const persist = useCallback(
-    (next: SpikeSession) => {
-      setSession(next);
+    (next: FreeMatchState) => {
+      setState(next);
       try {
-        window.localStorage.setItem(SESSION_KEY(id), JSON.stringify(next));
+        window.localStorage.setItem(STATE_KEY(id), JSON.stringify(next));
       } catch {
         // storage unavailable — state stays in memory for this session
       }
@@ -102,42 +159,29 @@ export default function SpikeTracker() {
     [id],
   );
 
-  /** A match becomes live on its first recorded action, not on a setup wizard. */
-  const ensureStarted = useCallback(() => {
-    if (match && match.status === "scheduled") store.startMatch(match.id);
-  }, [match, store]);
+  const players = useMemo(() => {
+    const map = new Map<string, CourtPlayer>();
+    for (const p of homeRoster)
+      map.set(p.id, {
+        id: p.id,
+        name: p.fullName.split(" ")[0],
+        jersey: p.jerseyNo ?? undefined,
+        side: "US",
+      });
+    for (const p of awayRoster)
+      map.set(p.id, {
+        id: p.id,
+        name: p.fullName.split(" ")[0],
+        jersey: p.jerseyNo ?? undefined,
+        side: "OPP",
+      });
+    return map;
+  }, [homeRoster, awayRoster]);
 
-  const onOutcome = (player: Player, type: EventType) => {
-    if (!match) return;
-    ensureStarted();
-    const e = store.addEvent(match.id, player.teamId, player.id, session.setNo, type);
-    persist(recordEvent(session, e.id));
-    setArmed(null);
-  };
-
-  const onPoint = (side: ScoreSide) => {
-    ensureStarted();
-    persist(addPoint(session, side));
-  };
-
-  const onUndo = () => {
-    const { session: next, undone } = undo(session);
-    if (!undone) return;
-    if (undone.kind === "EVENT") store.removeEvent(undone.eventId);
-    persist(next);
-    setArmed(null);
-  };
-
-  const onEndSet = () => {
-    if (!match) return;
-    store.recordSetScore(match.id, {
-      setNo: session.setNo,
-      homePoints: session.homePoints,
-      awayPoints: session.awayPoints,
-    });
-    persist(endSet(session));
-    setArmed(null);
-  };
+  const byId = useMemo(
+    () => new Map([...homeRoster, ...awayRoster].map((p) => [p.id, p])),
+    [homeRoster, awayRoster],
+  );
 
   if (!store.ready || !loaded) return <PageSkeleton />;
 
@@ -153,11 +197,194 @@ export default function SpikeTracker() {
     );
   }
 
+  if (!state) {
+    return (
+      <SetupWizard
+        match={match}
+        homeTeam={homeTeam}
+        awayTeam={awayTeam}
+        homeRoster={homeRoster}
+        awayRoster={awayRoster}
+        store={store}
+        onReady={({ us, opp, toss }) => persist(initialState(us, opp, toss))}
+      />
+    );
+  }
+
+  const teamIdFor = (side: Side) => (side === "US" ? homeTeam.id : awayTeam.id);
+  const currentServerId = serverId(
+    state.rally.serving === "US" ? state.usLineup : state.oppLineup,
+  );
+
+  /** Apply a point: score, serve, rotation — all from resolvePoint. */
+  const applyPoint = (
+    s: FreeMatchState,
+    winner: Side,
+    eventIds: string[],
+  ): FreeMatchState => {
+    const snapshot: Snapshot = {
+      usScore: s.usScore,
+      oppScore: s.oppScore,
+      serving: s.rally.serving,
+      usLineup: s.usLineup,
+      oppLineup: s.oppLineup,
+      eventIds,
+    };
+    const { nextServing, rotateWinner } = resolvePoint(s.rally.serving, winner);
+    const usLineup = rotateWinner && winner === "US" ? rotate(s.usLineup) : s.usLineup;
+    const oppLineup = rotateWinner && winner === "OPP" ? rotate(s.oppLineup) : s.oppLineup;
+    return {
+      ...s,
+      usScore: winner === "US" ? s.usScore + 1 : s.usScore,
+      oppScore: winner === "OPP" ? s.oppScore + 1 : s.oppScore,
+      usLineup,
+      oppLineup,
+      rally: openRally(nextServing),
+      current: [],
+      history: [...s.history, snapshot],
+    };
+  };
+
+  const onOutcome = (outcome: Outcome) => {
+    if (!armed) return;
+    const { player, side } = armed;
+    const isServer = player.id === currentServerId;
+    const res = resolveTap(state.rally, side, isServer, outcome);
+    const e = store.addEvent(match.id, teamIdFor(side), player.id, state.set, res.event);
+    const ids = [...state.current, e.id];
+
+    persist(
+      res.pointTo
+        ? applyPoint(state, res.pointTo, ids)
+        : { ...state, rally: closeServe(state.rally), current: ids },
+    );
+    setArmed(null);
+    setFaulting(false);
+  };
+
+  const onFault = (kind: FaultKind) => {
+    if (!armed) return;
+    const { player, side } = armed;
+    const res = resolveFault(side, kind);
+    const e = store.addEvent(match.id, teamIdFor(side), player.id, state.set, res.event);
+    persist(applyPoint(state, res.pointTo, [...state.current, e.id]));
+    setArmed(null);
+    setFaulting(false);
+  };
+
+  /** Undo the last tap in the rally in progress, else the last whole rally. */
+  const onUndo = () => {
+    if (state.current.length > 0) {
+      const ids = [...state.current];
+      const last = ids.pop()!;
+      store.removeEvent(last);
+      persist({
+        ...state,
+        current: ids,
+        rally: ids.length === 0 ? openRally(state.rally.serving) : state.rally,
+      });
+      setArmed(null);
+      return;
+    }
+    const prev = state.history[state.history.length - 1];
+    if (!prev) return;
+    for (const eid of prev.eventIds) store.removeEvent(eid);
+    persist({
+      ...state,
+      usScore: prev.usScore,
+      oppScore: prev.oppScore,
+      usLineup: prev.usLineup,
+      oppLineup: prev.oppLineup,
+      // Back to the START of that rally, so the serve slot reopens — its taps
+      // were just deleted, and the first of them may have been the serve.
+      rally: openRally(prev.serving),
+      current: [],
+      history: state.history.slice(0, -1),
+    });
+    setArmed(null);
+  };
+
+  /** Bank the set once it is won and move to the next. */
+  const onBankSet = () => {
+    store.recordSetScore(match.id, {
+      setNo: state.set,
+      homePoints: state.usScore,
+      awayPoints: state.oppScore,
+    });
+    const usSets = state.usScore > state.oppScore ? state.usSets + 1 : state.usSets;
+    const oppSets = state.oppScore > state.usScore ? state.oppSets + 1 : state.oppSets;
+    const nextSet = state.set + 1;
+    // First service alternates by set, and the deciding set takes a fresh toss.
+    // firstServerForSet returns null in that case rather than guessing; the
+    // render below then blocks play until the toss is entered.
+    const nextServer = firstServerForSet(
+      nextSet,
+      match.totalSets,
+      state.toss,
+      state.decidingToss,
+    );
+    persist({
+      ...state,
+      set: nextSet,
+      usScore: 0,
+      oppScore: 0,
+      usSets,
+      oppSets,
+      setScores: [...state.setScores, { us: state.usScore, opp: state.oppScore }],
+      usLineup: state.setup.us.lineup,
+      oppLineup: state.setup.opp.lineup,
+      rally: openRally(nextServer ?? state.rally.serving),
+      current: [],
+      history: [],
+    });
+  };
+
+  const target = isDecidingSet(state.set, match.totalSets) ? 15 : 25;
+  const setOver = setPointReached(state.usScore, state.oppScore, target);
   const allPlayers = [...homeRoster, ...awayRoster];
 
+  // FIVB 6.3.2/7.1: the deciding set needs its own toss. Play is blocked until
+  // it is entered rather than silently carrying the previous set's server over.
+  if (isDecidingSet(state.set, match.totalSets) && state.decidingToss === null) {
+    const choose = (winner: Side, choice: Toss["choice"]) => {
+      const toss: Toss = { winner, choice };
+      persist({
+        ...state,
+        decidingToss: toss,
+        rally: openRally(servingFromToss(toss)),
+      });
+    };
+    return (
+      <div className="mx-auto max-w-md space-y-4 px-4 py-16">
+        <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-accent">
+          Set {state.set} · deciding set
+        </p>
+        <h1 className="stat-display text-2xl font-extrabold uppercase tracking-wide text-ink">
+          New toss
+        </h1>
+        <p className="text-sm text-dim">
+          The deciding set takes a fresh toss. Who won it, and what did they take?
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <Button onClick={() => choose("US", "SERVE")}>
+            {homeTeam.shortName} · serve
+          </Button>
+          <Button onClick={() => choose("US", "RECEIVE")}>
+            {homeTeam.shortName} · receive
+          </Button>
+          <Button onClick={() => choose("OPP", "SERVE")}>
+            {awayTeam.shortName} · serve
+          </Button>
+          <Button onClick={() => choose("OPP", "RECEIVE")}>
+            {awayTeam.shortName} · receive
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-5">
-      {/* Scoreboard — manual, independent of the spike taps */}
+    <div className="mx-auto max-w-3xl space-y-4 px-4 pb-24 pt-4">
       <header className="card-premium rounded-2xl p-4">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
           <div className="text-right">
@@ -165,89 +392,134 @@ export default function SpikeTracker() {
               {homeTeam.name}
             </p>
             <p className="stat-display tnum text-4xl font-extrabold text-accent">
-              {session.homePoints}
+              {state.usScore}
             </p>
           </div>
-          <p className="text-[11px] uppercase tracking-[0.25em] text-dim">
-            Set {session.setNo}
-          </p>
+          <div className="text-center">
+            <p className="text-[11px] uppercase tracking-[0.25em] text-dim">
+              Set {state.set}
+            </p>
+            <p className="tnum text-xs text-dim">
+              {state.usSets}–{state.oppSets}
+            </p>
+          </div>
           <div>
             <p className="stat-display text-sm font-extrabold uppercase text-ink">
               {awayTeam.name}
             </p>
             <p className="stat-display tnum text-4xl font-extrabold text-azure">
-              {session.awayPoints}
+              {state.oppScore}
             </p>
           </div>
         </div>
-
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2 border-t border-line/60 pt-3">
-          <Button onClick={() => onPoint("home")}>+1 {homeTeam.shortName}</Button>
-          <Button onClick={() => onPoint("away")}>+1 {awayTeam.shortName}</Button>
-          <Button variant="ghost" onClick={onEndSet}>
-            End set
-          </Button>
           <Button
             variant="ghost"
             onClick={onUndo}
-            disabled={session.undoStack.length === 0}
+            disabled={state.current.length === 0 && state.history.length === 0}
           >
             ↶ Undo
           </Button>
+          {setOver && <Button onClick={onBankSet}>Bank set {state.set}</Button>}
           <LinkButton href="/console" variant="ghost">
             Console
           </LinkButton>
         </div>
       </header>
 
-      {/* Outcome buttons for the armed player */}
+      <CourtBoard
+        homeName={homeTeam.name}
+        awayName={awayTeam.name}
+        usLineup={state.usLineup}
+        oppLineup={state.oppLineup}
+        players={players}
+        serving={state.rally.serving}
+        armedId={armed?.player.id ?? null}
+        tappableIds={null}
+        onTap={(playerId, side) => {
+          const p = byId.get(playerId);
+          if (!p) return;
+          if (armed?.player.id === playerId) {
+            setArmed(null);
+            setFaulting(false);
+            return;
+          }
+          setArmed({ player: p, side });
+          setFaulting(false);
+        }}
+        liberos={[
+          ...(state.setup.us.liberoId
+            ? [{ side: "US" as Side, playerId: state.setup.us.liberoId, enabled: true }]
+            : []),
+          ...(state.setup.opp.liberoId
+            ? [{ side: "OPP" as Side, playerId: state.setup.opp.liberoId, enabled: true }]
+            : []),
+        ]}
+      />
+
       {armed && (
-        <div className="card-premium sticky top-2 z-10 rounded-2xl border-accent/30 p-4">
+        <div className="card-premium sticky bottom-2 z-10 rounded-2xl border-accent/30 p-4">
           <div className="mb-3 flex items-center justify-between">
             <p className="stat-display text-lg font-extrabold uppercase text-ink">
-              {armed.jerseyNo !== null ? `#${armed.jerseyNo} ` : ""}
-              {armed.fullName}
+              {armed.player.jerseyNo !== null ? `#${armed.player.jerseyNo} ` : ""}
+              {armed.player.fullName}
+              {armed.player.id === currentServerId && state.rally.serveOpen && (
+                <span className="ml-2 text-xs font-bold uppercase tracking-wider text-accent">
+                  serving
+                </span>
+              )}
             </p>
-            <Button variant="ghost" onClick={() => setArmed(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setArmed(null);
+                setFaulting(false);
+              }}
+            >
               Cancel
             </Button>
           </div>
+
           <div className="grid grid-cols-3 gap-2">
             {OUTCOMES.map((o) => (
               <button
-                key={o.type}
+                key={o.outcome}
                 type="button"
-                onClick={() => onOutcome(armed, o.type)}
-                className={`flex min-h-24 flex-col items-center justify-center gap-1 rounded-2xl border transition-all duration-200 ${o.cls}`}
+                onClick={() => onOutcome(o.outcome)}
+                className={`flex min-h-20 flex-col items-center justify-center gap-1 rounded-2xl border transition-all duration-200 ${o.cls}`}
               >
                 <span className="stat-display text-3xl font-extrabold">{o.glyph}</span>
-                <span className="text-xs font-bold uppercase tracking-wider">
+                <span className="text-[11px] font-bold uppercase tracking-wider">
                   {o.label}
                 </span>
-                <span className="text-[10px] text-dim">{o.sub}</span>
               </button>
             ))}
           </div>
+
+          {faulting ? (
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {FAULTS.map((f) => (
+                <button
+                  key={f.kind}
+                  type="button"
+                  onClick={() => onFault(f.kind)}
+                  className="min-h-12 rounded-xl border border-violet/40 bg-violet/10 text-xs font-bold uppercase tracking-wider text-violet"
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setFaulting(true)}
+              className="mt-2 min-h-10 w-full rounded-xl border border-line text-[11px] font-bold uppercase tracking-wider text-dim hover:border-violet/40 hover:text-violet"
+            >
+              ⚠ Fault — point to the other team
+            </button>
+          )}
         </div>
       )}
-
-      {/* Both rosters, always visible */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <RosterPanel
-          label={homeTeam.name}
-          players={homeRoster}
-          armedId={armed?.id ?? null}
-          onPick={setArmed}
-          tone="accent"
-        />
-        <RosterPanel
-          label={awayTeam.name}
-          players={awayRoster}
-          armedId={armed?.id ?? null}
-          onPick={setArmed}
-          tone="azure"
-        />
-      </div>
 
       <SpikeChartGrid
         players={allPlayers}
@@ -256,58 +528,6 @@ export default function SpikeTracker() {
         homeLabel={homeTeam.name}
         awayLabel={awayTeam.name}
       />
-    </div>
-  );
-}
-
-function RosterPanel({
-  label,
-  players,
-  armedId,
-  onPick,
-  tone,
-}: {
-  label: string;
-  players: Player[];
-  armedId: string | null;
-  onPick: (p: Player | null) => void;
-  tone: "accent" | "azure";
-}) {
-  const ring = tone === "accent" ? "border-accent bg-accent/10" : "border-azure bg-azure/10";
-  return (
-    <div className="card-premium rounded-2xl p-4">
-      <h2 className="stat-display mb-3 text-sm font-bold uppercase tracking-wide text-dim">
-        {label}
-      </h2>
-      {players.length === 0 ? (
-        <p className="text-xs text-dim">
-          No players registered for this team. Add them in League Setup.
-        </p>
-      ) : (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {players.map((p) => {
-            const active = p.id === armedId;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                aria-pressed={active}
-                onClick={() => onPick(active ? null : p)}
-                className={`flex min-h-16 flex-col items-center justify-center rounded-xl border px-2 py-2 transition-all duration-200 ${
-                  active ? ring : "border-line bg-surface2 hover:border-accent/40"
-                }`}
-              >
-                <span className="stat-display tnum text-lg font-extrabold text-ink">
-                  {p.jerseyNo ?? "–"}
-                </span>
-                <span className="truncate text-[11px] text-dim">
-                  {p.fullName.split(" ")[0]}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
