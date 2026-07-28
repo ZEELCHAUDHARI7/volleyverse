@@ -217,8 +217,8 @@ Node 22 with `--experimental-strip-types` to match `rally.test.mjs`.
 - The acceptance example above, as a named case
 - Zero attempts → `null` rates, not `0`
 - All errors → 0% success, 100% error
-- Both teams tallied independently from one event list
-- Events from other matches excluded
+- Events belonging to other players are ignored, which is what keeps two
+  teams' players separate in a single event list
 
 `rally.test.mjs` and `auth-routes.test.mjs` must stay green; nothing they cover is
 touched.
