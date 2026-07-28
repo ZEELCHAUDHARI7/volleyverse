@@ -99,6 +99,9 @@ of type. `addEvent` is a plain append and `removeEvent` a plain delete in both p
 (`src/lib/store.tsx:199`, `src/lib/providers/supabase-store.ts:512`), so undo is an exact
 removal rather than a compensating entry.
 
+Undo does not cross a set boundary: `END SET` banks the score and clears the
+stack, so the first action of a new set is the oldest thing undo can reach.
+
 Score, current set number and the undo stack persist together to
 `volleyverse:spikes:<matchId>`, so a reload mid-match loses nothing and undo still works.
 This must **not** reuse `volleyverse:rally:<matchId>` — `src/components/live-match.tsx:30`
