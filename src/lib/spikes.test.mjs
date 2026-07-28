@@ -76,6 +76,19 @@ t("non-spike events never count", () => {
   assert.equal(line.pointsWon, 1);
 });
 
+t("faults are not spike attempts", () => {
+  const line = spikeLine("A", [
+    ev("A", "FAULT_NET"),
+    ev("A", "FAULT_FOUR_HITS"),
+    ev("A", "FAULT_DOUBLE"),
+    ev("A", "FAULT_ROTATION"),
+    ev("A", "SPIKE_ERR"),
+  ]);
+  assert.equal(line.attempts, 1);
+  assert.equal(line.failed, 1);
+  assert.equal(line.errorRate, 100);
+});
+
 t("rates round to whole percent", () => {
   const line = spikeLine("A", [
     ev("A", "SPIKE_POINT"),

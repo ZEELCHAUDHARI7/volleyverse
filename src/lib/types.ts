@@ -250,7 +250,14 @@ export type EventType =
   // Defence
   | "DIG_SUPER" // extraordinary save
   | "DIG_SAVE" // ball kept alive
-  | "DIG_FAIL"; // ball hits the floor
+  | "DIG_FAIL" // ball hits the floor
+  // Faults — points conceded with no serve or spike behind them.
+  // Deliberately NOT SPIKE_ERR: error rate is SPIKE_ERR / spike attempts,
+  // and a net touch is not a spike attempt.
+  | "FAULT_NET" // touched the net
+  | "FAULT_FOUR_HITS" // four contacts on one side
+  | "FAULT_DOUBLE" // double contact / lift
+  | "FAULT_ROTATION"; // out of rotation at service
 
 export interface StatEvent {
   id: string;

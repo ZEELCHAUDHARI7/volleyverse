@@ -150,6 +150,20 @@ const COUNTERS: Record<EventType, (l: PlayerLine) => void> = {
     l.digFails++;
     l.errors++;
   },
+  // Faults cost the team a point but belong to no skill line — they count
+  // as errors and nothing else, so spike and serve percentages stay clean.
+  FAULT_NET: (l) => {
+    l.errors++;
+  },
+  FAULT_FOUR_HITS: (l) => {
+    l.errors++;
+  },
+  FAULT_DOUBLE: (l) => {
+    l.errors++;
+  },
+  FAULT_ROTATION: (l) => {
+    l.errors++;
+  },
 };
 
 /** The headline rate depends on what the position is on court to do. */

@@ -200,7 +200,8 @@ create table stat_events (
     'SET_ASSIST','SET_GOOD','SET_ERR',
     'BLOCK_WIN','BLOCK_MISS',
     'SERVE_ACE','SERVE_IN','SERVE_ERR',
-    'DIG_SUPER','DIG_SAVE','DIG_FAIL'
+    'DIG_SUPER','DIG_SAVE','DIG_FAIL',
+    'FAULT_NET','FAULT_FOUR_HITS','FAULT_DOUBLE','FAULT_ROTATION'
   )),
   ts timestamptz not null default now()
 );
