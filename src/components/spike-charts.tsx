@@ -42,7 +42,15 @@ function rows(
     .sort((a, b) => b.value - a.value);
 }
 
-function TeamBars({
+/**
+ * Returns the chart ELEMENT rather than being a component.
+ *
+ * ResponsiveContainer measures its box and clones its child with the width and
+ * height it computed. A custom component in that slot swallows those props and
+ * renders a BarChart with no dimensions — the card draws, the plot is 0x0 and
+ * no bars appear. Its child has to be the BarChart itself.
+ */
+function teamBars({
   data,
   unit,
   domain,
@@ -123,19 +131,29 @@ export function SpikeChartGrid({
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <ChartShell title="Spike Attempts" insight="Every tap counts as one attempt.">
-          <TeamBars data={attempts} tooltipLabel="Attempts" />
+          {teamBars({ data: attempts, tooltipLabel: "Attempts" })}
         </ChartShell>
 
         <ChartShell title="Points Won" insight="Attacks that ended the rally.">
-          <TeamBars data={points} tooltipLabel="Points" />
+          {teamBars({ data: points, tooltipLabel: "Points" })}
         </ChartShell>
 
         <ChartShell title="Success Rate" insight="Points won ÷ attempts.">
-          <TeamBars data={success} unit="%" domain={[0, 100]} tooltipLabel="Success" />
+          {teamBars({
+            data: success,
+            unit: "%",
+            domain: [0, 100],
+            tooltipLabel: "Success",
+          })}
         </ChartShell>
 
         <ChartShell title="Error Rate" insight="Into the net or out ÷ attempts.">
-          <TeamBars data={errors} unit="%" domain={[0, 100]} tooltipLabel="Errors" />
+          {teamBars({
+            data: errors,
+            unit: "%",
+            domain: [0, 100],
+            tooltipLabel: "Errors",
+          })}
         </ChartShell>
       </div>
     </div>
