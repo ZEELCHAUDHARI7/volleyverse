@@ -17,9 +17,9 @@ import {
  *
  * Step 1 (Teams): pick the two registered clubs that will play.
  * Step 2 (Details): tournament, date, best-of, optional venue/court.
- * On confirm we createMatch() and hand straight off to the Rally Tracker
- * (/console/matches/[id]/rally), whose existing wizard runs Toss → home
- * six → away six → live scoring. We deliberately do NOT duplicate that.
+ * On confirm we createMatch() and hand straight off to the Spike Tracker
+ * (/console/matches/[id]/spikes). There is no toss or lineup step — the
+ * tracker needs neither.
  *
  * If no league/season/tournament exists yet, a sensible default competition
  * is created on the fly so a first-time user is never blocked.
@@ -115,7 +115,7 @@ export default function NewMatchWizard() {
       officials: [],
       rosters: [],
     });
-    router.push(`/console/matches/${match.id}/rally`);
+    router.push(`/console/matches/${match.id}/spikes`);
   };
 
   return (
@@ -130,7 +130,7 @@ export default function NewMatchWizard() {
             </span>
             <h1 className="hero-type mt-4 text-5xl text-ink sm:text-6xl">Start a Match</h1>
             <p className="mt-3 text-sm text-dim">
-              Pick two teams, set the details, then run the toss courtside.
+              Pick two teams, set the details, then start tapping spikes.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -138,7 +138,7 @@ export default function NewMatchWizard() {
             <span className="text-dim" aria-hidden>→</span>
             <StepDot n={2} label="Details" active={step === "details"} done={false} />
             <span className="text-dim" aria-hidden>→</span>
-            <StepDot n={3} label="Toss" active={false} done={false} />
+            <StepDot n={3} label="Track" active={false} done={false} />
           </div>
         </div>
       </header>
@@ -235,7 +235,7 @@ export default function NewMatchWizard() {
           <SectionHeading
             icon="📅"
             title="Match details"
-            hint="Set the fixture, then jump straight into the toss."
+            hint="Set the fixture, then jump straight into tracking."
             trailing={
               <StatusChip tone="azure">
                 {nameOf(homeId)} vs {nameOf(awayId)}
@@ -323,7 +323,7 @@ export default function NewMatchWizard() {
               Back
             </Button>
             <Button disabled={!twoChosen || !dateISO} onClick={start}>
-              Start match → Toss
+              Start match → Track
             </Button>
           </div>
         </Card>

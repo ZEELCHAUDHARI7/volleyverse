@@ -549,7 +549,7 @@ function MatchRow({ match }: { match: Match }) {
 
       <div className="flex items-center gap-2">
         {match.status !== "completed" ? (
-          <LinkButton href={`/console/matches/${match.id}/rally`} variant={match.status === "live" ? "primary" : "ghost"}>
+          <LinkButton href={`/console/matches/${match.id}/spikes`} variant={match.status === "live" ? "primary" : "ghost"}>
             {match.status === "live" ? "Open Tracker" : "Start Match"}
           </LinkButton>
         ) : (
@@ -568,7 +568,7 @@ function MatchRow({ match }: { match: Match }) {
               {match.published ? "Unpublish" : "Publish"}
             </Button>
             <Link
-              href={`/console/matches/${match.id}/rally`}
+              href={`/console/matches/${match.id}/spikes`}
               className="text-xs text-dim underline-offset-2 hover:text-ink hover:underline"
             >
               Details
