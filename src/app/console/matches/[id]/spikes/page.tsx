@@ -349,20 +349,12 @@ export default function FreeRallyTracker() {
   const oppTotal = state.setScores.reduce((n, s) => n + s.opp, 0) + state.oppScore;
 
   /**
-   * Sets decide a volleyball match; points are the tie-break. With no set
-   * banked yet — a short demo, or a match stopped mid-set — sets are 0-0 and
-   * the points decide it on their own.
+   * Whoever has the most points at the moment the match is ended wins it.
+   * Sets are recorded but do not decide the result — a deliberate product
+   * choice so a match can be stopped at any point and still resolve.
    */
   const leader: Side | null =
-    state.usSets !== state.oppSets
-      ? state.usSets > state.oppSets
-        ? "US"
-        : "OPP"
-      : usTotal !== oppTotal
-        ? usTotal > oppTotal
-          ? "US"
-          : "OPP"
-        : null;
+    usTotal === oppTotal ? null : usTotal > oppTotal ? "US" : "OPP";
 
   const onEndMatch = () => {
     // Bank the set in progress so its points are not lost from the record.
@@ -525,13 +517,16 @@ export default function FreeRallyTracker() {
             <p className="text-sm text-ink">
               End the match now?{" "}
               {leader === null ? (
-                <span className="font-semibold">It is level — no winner recorded.</span>
+                <span className="font-semibold">
+                  Level at {usTotal}–{oppTotal} — no winner recorded.
+                </span>
               ) : (
                 <>
                   <span className="font-semibold">
                     {leader === "US" ? homeTeam.name : awayTeam.name}
                   </span>{" "}
-                  wins {state.usSets !== state.oppSets ? "on sets" : "on points"}.
+                  wins {Math.max(usTotal, oppTotal)}–{Math.min(usTotal, oppTotal)} on
+                  points.
                 </>
               )}
             </p>
