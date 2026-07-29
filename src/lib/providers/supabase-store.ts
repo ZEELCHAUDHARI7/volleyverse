@@ -211,36 +211,58 @@ export function useSupabaseBackend(): DataProvider {
   // bandwidth for guaranteed convergence with the server — no fiddly
   // incremental patching to drift out of sync.
 
+  /**
+   * Read a table, refusing to disguise a refusal as an empty result.
+   *
+   * PostgREST answers a rejected read with `{ data: null, error }`. Mapping
+   * that to `[]` makes "the server said no" identical to "there is nothing
+   * here" — and every caller below then writes that emptiness over state the
+   * user is looking at. One failed refresh blanks the screen, silently.
+   *
+   * Throwing pushes the decision up to callers that know what they already
+   * have and can keep it.
+   */
+  const readTable = useCallback(
+    async (table: string): Promise<Row[]> => {
+      const { data, error } = await supabase!.from(table).select("*");
+      if (error) {
+        const code = (error as { code?: string }).code;
+        throw new Error(
+          `Could not read ${table}${code ? ` [${code}]` : ""}: ${error.message}`,
+        );
+      }
+      return (data ?? []) as Row[];
+    },
+    [supabase],
+  );
+
   const loadTeams = useCallback(async (): Promise<Db["teams"]> => {
     if (!supabase) return [];
-    const [{ data: teams }, { data: honours }] = await Promise.all([
-      supabase.from("teams").select("*"),
-      supabase.from("team_honours").select("*"),
+    const [teams, honours] = await Promise.all([
+      readTable("teams"),
+      readTable("team_honours"),
     ]);
-    const byTeam = groupBy((honours ?? []) as Row[], "team_id");
-    return ((teams ?? []) as Row[]).map((t) =>
-      M.teamFromRow(t, byTeam.get(String(t.id)) ?? []),
-    );
-  }, [supabase]);
+    const byTeam = groupBy(honours, "team_id");
+    return teams.map((t) => M.teamFromRow(t, byTeam.get(String(t.id)) ?? []));
+  }, [supabase, readTable]);
 
   const loadPlayers = useCallback(async (): Promise<Player[]> => {
     if (!supabase) return [];
-    const { data } = await supabase.from("roster_view").select("*");
-    return ((data ?? []) as Row[]).map(M.playerFromRow);
-  }, [supabase]);
+    return (await readTable("roster_view")).map(M.playerFromRow);
+  }, [supabase, readTable]);
 
   const loadMatches = useCallback(async (): Promise<Match[]> => {
     if (!supabase) return [];
     const [m, off, sets, rosters] = await Promise.all([
-      supabase.from("matches").select("*"),
-      supabase.from("match_officials").select("*"),
-      supabase.from("match_sets").select("*"),
-      supabase.from("match_rosters").select("*"),
+      readTable("matches"),
+      readTable("match_officials"),
+      readTable("match_sets"),
+      readTable("match_rosters"),
     ]);
-    const offBy = groupBy((off.data ?? []) as Row[], "match_id");
-    const setBy = groupBy((sets.data ?? []) as Row[], "match_id");
-    const rosBy = groupBy((rosters.data ?? []) as Row[], "match_id");
-    return ((m.data ?? []) as Row[]).map((r) =>
+    const offBy = groupBy(off, "match_id");
+    const setBy = groupBy(sets, "match_id");
+    const rosBy = groupBy(rosters, "match_id");
+    return m.map((r) =>
       M.matchFromRow(
         r,
         offBy.get(String(r.id)) ?? [],
@@ -248,7 +270,7 @@ export function useSupabaseBackend(): DataProvider {
         rosBy.get(String(r.id)) ?? [],
       ),
     );
-  }, [supabase]);
+  }, [supabase, readTable]);
 
   const loadSimple = useCallback(
     async <K extends Collection>(
@@ -256,44 +278,59 @@ export function useSupabaseBackend(): DataProvider {
       fromRow: (r: Row) => Db[K][number],
     ): Promise<Db[K][number][]> => {
       if (!supabase) return [];
-      const table = M.TABLE_FOR_COLLECTION[collection];
-      const { data } = await supabase.from(table).select("*");
-      return ((data ?? []) as Row[]).map(fromRow);
+      return (await readTable(M.TABLE_FOR_COLLECTION[collection])).map(fromRow);
     },
-    [supabase],
+    [supabase, readTable],
+  );
+
+  /** Fetch one collection. Throws if the server refused the read. */
+  const fetchCollection = useCallback(
+    async (collection: Collection): Promise<Partial<Db>> => {
+      switch (collection) {
+        case "teams":
+          return { teams: await loadTeams() };
+        case "players":
+          return { players: await loadPlayers() };
+        case "matches":
+          return { matches: await loadMatches() };
+        case "leagues":
+          return { leagues: await loadSimple("leagues", M.leagueFromRow) };
+        case "seasons":
+          return { seasons: await loadSimple("seasons", M.seasonFromRow) };
+        case "divisions":
+          return { divisions: await loadSimple("divisions", M.divisionFromRow) };
+        case "tournaments":
+          return { tournaments: await loadSimple("tournaments", M.tournamentFromRow) };
+        case "groups":
+          return { groups: await loadSimple("groups", M.groupFromRow) };
+        case "venues":
+          return { venues: await loadSimple("venues", M.venueFromRow) };
+        case "courts":
+          return { courts: await loadSimple("courts", M.courtFromRow) };
+        case "staff":
+          return { staff: await loadSimple("staff", M.staffFromRow) };
+        case "events":
+          return { events: await loadSimple("events", M.statEventFromRow) };
+      }
+    },
+    [loadTeams, loadPlayers, loadMatches, loadSimple],
   );
 
   const reload = useCallback(
     async (collection: Collection) => {
-      const set = (patch: Partial<Db>) => setDb((prev) => ({ ...prev, ...patch }));
-      switch (collection) {
-        case "teams":
-          return set({ teams: await loadTeams() });
-        case "players":
-          return set({ players: await loadPlayers() });
-        case "matches":
-          return set({ matches: await loadMatches() });
-        case "leagues":
-          return set({ leagues: await loadSimple("leagues", M.leagueFromRow) });
-        case "seasons":
-          return set({ seasons: await loadSimple("seasons", M.seasonFromRow) });
-        case "divisions":
-          return set({ divisions: await loadSimple("divisions", M.divisionFromRow) });
-        case "tournaments":
-          return set({ tournaments: await loadSimple("tournaments", M.tournamentFromRow) });
-        case "groups":
-          return set({ groups: await loadSimple("groups", M.groupFromRow) });
-        case "venues":
-          return set({ venues: await loadSimple("venues", M.venueFromRow) });
-        case "courts":
-          return set({ courts: await loadSimple("courts", M.courtFromRow) });
-        case "staff":
-          return set({ staff: await loadSimple("staff", M.staffFromRow) });
-        case "events":
-          return set({ events: await loadSimple("events", M.statEventFromRow) });
+      try {
+        const patch = await fetchCollection(collection);
+        setDb((prev) => ({ ...prev, ...patch }));
+      } catch (err) {
+        // A refused refresh must never blank what is already on screen. Keep
+        // the collection as it stands and say so — an empty chart the collector
+        // reads as real data is worse than no refresh at all.
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[volleyverse] refresh failed", collection, err);
+        setLastError(`${message} — still showing the last data that loaded.`);
       }
     },
-    [loadTeams, loadPlayers, loadMatches, loadSimple],
+    [fetchCollection],
   );
 
   // ---- initial load + realtime subscription ----
@@ -326,28 +363,42 @@ export function useSupabaseBackend(): DataProvider {
     }
 
     (async () => {
+      // One refused table must not cost the whole load, but it must be said
+      // out loud. Silence here is what let empty charts pass for real data.
+      const failures: string[] = [];
+      const attempt = async <T,>(what: string, run: () => Promise<T>, empty: T) => {
+        try {
+          return await run();
+        } catch (err) {
+          failures.push(err instanceof Error ? err.message : String(err));
+          console.error(`[volleyverse] initial load failed: ${what}`, err);
+          return empty;
+        }
+      };
+
       const [
         leagues, seasons, divisions, tournaments, groups, venues, courts,
         staff, teams, players, matches, events,
       ] = await Promise.all([
-        loadSimple("leagues", M.leagueFromRow),
-        loadSimple("seasons", M.seasonFromRow),
-        loadSimple("divisions", M.divisionFromRow),
-        loadSimple("tournaments", M.tournamentFromRow),
-        loadSimple("groups", M.groupFromRow),
-        loadSimple("venues", M.venueFromRow),
-        loadSimple("courts", M.courtFromRow),
-        loadSimple("staff", M.staffFromRow),
-        loadTeams(),
-        loadPlayers(),
-        loadMatches(),
-        loadSimple("events", M.statEventFromRow),
+        attempt("leagues", () => loadSimple("leagues", M.leagueFromRow), []),
+        attempt("seasons", () => loadSimple("seasons", M.seasonFromRow), []),
+        attempt("divisions", () => loadSimple("divisions", M.divisionFromRow), []),
+        attempt("tournaments", () => loadSimple("tournaments", M.tournamentFromRow), []),
+        attempt("groups", () => loadSimple("groups", M.groupFromRow), []),
+        attempt("venues", () => loadSimple("venues", M.venueFromRow), []),
+        attempt("courts", () => loadSimple("courts", M.courtFromRow), []),
+        attempt("staff", () => loadSimple("staff", M.staffFromRow), []),
+        attempt("teams", loadTeams, []),
+        attempt("players", loadPlayers, []),
+        attempt("matches", loadMatches, []),
+        attempt("events", () => loadSimple("events", M.statEventFromRow), []),
       ]);
       if (cancelled) return;
       setDb({
         leagues, seasons, divisions, tournaments, groups, venues, courts,
         staff, teams, players, matches, events,
       });
+      if (failures.length > 0) setLastError(failures[0]);
       setReady(true);
       void flush(); // drain anything queued from a prior session
     })();
