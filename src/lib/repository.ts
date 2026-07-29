@@ -39,8 +39,18 @@ export type Collection = keyof Db;
  *  - `synced`     — connected, all local writes acknowledged by the server.
  *  - `syncing`    — connected, writes in flight (optimistic UI already updated).
  *  - `offline`    — no connection; writes are queued and will flush on reconnect.
+ *  - `error`      — the DATABASE refused a write. Retrying cannot fix it; the
+ *                   row is lost unless a human changes the schema or the data.
+ *                   This must be loud: the optimistic UI already showed the tap
+ *                   landing, so a silent failure looks exactly like success.
  */
-export type SyncStatus = "local" | "connecting" | "synced" | "syncing" | "offline";
+export type SyncStatus =
+  | "local"
+  | "connecting"
+  | "synced"
+  | "syncing"
+  | "offline"
+  | "error";
 
 export interface DataProvider {
   /** Snapshot of all data in scope. Supabase: replaced by scoped queries. */
@@ -49,6 +59,14 @@ export interface DataProvider {
   ready: boolean;
   /** Live sync state for the sync indicator. `local` when server-less. */
   syncStatus: SyncStatus;
+  /**
+   * Human-readable description of the last write the database REFUSED, or
+   * null. Never silently swallowed: a rejected write means data the collector
+   * believes they saved does not exist on the server.
+   */
+  lastError: string | null;
+  /** Discard the parked rejected writes and clear `lastError`. */
+  clearErrors: () => void;
 
   // ---- Generic entity CRUD (leagues, seasons, tournaments, venues,
   //      courts, teams, staff, players, divisions, groups) ----

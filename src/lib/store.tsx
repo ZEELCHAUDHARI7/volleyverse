@@ -131,6 +131,9 @@ function LocalStoreProvider({ children }: { children: React.ReactNode }) {
     db,
     // No server to reconcile with: cross-tab sync is instant and local.
     syncStatus: "local",
+    // Nothing can refuse a write here — localStorage takes whatever it is given.
+    lastError: null,
+    clearErrors: () => {},
 
     insert: (collection, row) => {
       const withId = { ...row, id: newId(String(collection).slice(0, 2)) } as Db[typeof collection][number];

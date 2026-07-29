@@ -3,11 +3,11 @@
 import { lines, sideTotals, topBy } from "@/lib/metrics";
 import { useStore } from "@/lib/store";
 import {
-  LiveCourt,
+  LiveLeaders,
+  useAttackLeaders,
   useElapsedMinutes,
   useLiveMatch,
   useMatchContext,
-  useNameOf,
 } from "@/components/live-match";
 import { ShowcaseSkeleton, Reveal, usePublished } from "@/components/showcase";
 import { Kicker, LedCountdown, Magnetic } from "@/components/match-night";
@@ -17,21 +17,21 @@ import { LinkButton } from "@/components/ui";
  * LIVE MATCH CENTRE — the fan's second screen. Strictly read-only.
  *
  * Three states:
- *   LIVE      — full broadcast scoreboard: score, sets, serving, court,
- *               match timer, head-to-head team stats, match leaders.
- *   WARM-UP   — match created, line-ups still being set in the console.
+ *   LIVE      — attack leaders, match timer, head-to-head team stats.
+ *   WARM-UP   — match is on, nothing logged from the court yet.
  *   NO MATCH  — next fixture countdown + latest published result.
  *
- * All data arrives through useLiveMatch (cross-tab storage sync + 2s
- * poll) and the store's own cross-tab listener — values update in place,
- * no refresh. Stats are TEAM-level aggregates (publish boundary note in
- * live-match.tsx); placeholders render until the first attempts exist.
+ * Everything is DERIVED from StatEvents, which arrive through useLiveMatch
+ * and the store's cross-tab listener — values update in place, no refresh.
+ * There is no scoreboard here: the courtside tracker logs attacks and their
+ * outcomes, not the referee's score, so a running total would be invented.
+ * Stats are TEAM-level aggregates (publish boundary note in live-match.tsx).
  */
 
 export default function LiveMatchCentre() {
-  const { ready, match, state, events, degraded } = useLiveMatch();
-  const nameOf = useNameOf();
+  const { ready, match, events, started } = useLiveMatch();
   const { homeTeam, awayTeam, venue } = useMatchContext(match);
+  const leaders = useAttackLeaders(match, events, 8);
   const { db } = useStore();
   const published = usePublished();
   const elapsed = useElapsedMinutes(events);
@@ -98,7 +98,7 @@ export default function LiveMatchCentre() {
   const awayName = awayTeam?.name ?? "Away";
 
   // ---------------- WARM-UP ----------------
-  if (!state) {
+  if (!started) {
     return (
       <div className="mx-auto max-w-7xl px-4 pb-24 pt-32 md:px-8">
         <div className="flex items-center gap-3">
@@ -115,8 +115,8 @@ export default function LiveMatchCentre() {
         <div className="card-premium mt-10 max-w-xl rounded-3xl p-8 text-center">
           <p className="stat-display text-lg font-bold uppercase">Warming up</p>
           <p className="mt-2 text-sm text-dim">
-            Line-ups are being set courtside. The scoreboard goes live with the first serve.
-            Keep this page open, it updates by itself.
+            Nothing logged from the court yet. The board fills in with the first
+            attack. Keep this page open, it updates by itself.
           </p>
         </div>
       </div>
@@ -128,8 +128,8 @@ export default function LiveMatchCentre() {
   const opp = sideTotals(events, match.awayTeamId);
   const mvp = topBy(lines(db.players, events), "contribution");
   const mvpPlayer = mvp && mvp.contribution > 0 ? db.players.find((p) => p.id === mvp.playerId) : undefined;
-  const setScores = state.setScores ?? [];
-  const deciding = state.set === match.totalSets;
+  const attempts = us.spikeAttempts + opp.spikeAttempts;
+  const currentSet = events.reduce((n, e) => Math.max(n, e.setNo), 1);
 
   return (
     <div className="mx-auto max-w-7xl px-4 pb-24 pt-32 md:px-8">
@@ -138,18 +138,13 @@ export default function LiveMatchCentre() {
         <span className="live-ring inline-block h-2 w-2 rounded-full bg-err" />
         <p className="data-type text-[11px] font-bold uppercase tracking-[0.4em] text-err">Live</p>
         <p className="data-type text-[11px] uppercase tracking-[0.25em] text-dim">
-          Set {state.set} · {deciding ? "to 15" : "to 25"}
+          Set {currentSet}
           {venue ? ` · ${venue.name}` : ""}
           {elapsed !== null ? ` · ${elapsed}′` : ""}
         </p>
-        {degraded && (
-          <span className="data-type rounded-full border border-line px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-dim">
-            reconnecting…
-          </span>
-        )}
       </div>
 
-      {/* scoreboard */}
+      {/* attack board */}
       <div className="mt-8 grid items-start gap-10 lg:grid-cols-[1.2fr_1fr]">
         <div>
           <h1 className="hero-type text-4xl leading-[0.9] sm:text-6xl">
@@ -158,39 +153,30 @@ export default function LiveMatchCentre() {
             <span className="block text-accent sm:inline">{awayName}</span>
           </h1>
           <p className="led mt-6 text-7xl font-semibold sm:text-8xl">
-            <span className={state.rally.serving === "US" ? "text-accent" : ""}>
-              {state.usScore}
-            </span>
+            <span className="text-accent">{us.kills}</span>
             <span className="mx-4 text-dim">–</span>
-            <span className={state.rally.serving === "OPP" ? "text-accent" : ""}>
-              {state.oppScore}
-            </span>
+            <span>{opp.kills}</span>
+          </p>
+          <p className="data-type mt-2 text-[10px] uppercase tracking-[0.3em] text-dim">
+            Kills · not the match score
           </p>
 
-          {/* sets */}
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <div className="lower-third px-5 py-3 pr-8">
-              <p className="data-type text-[9px] uppercase tracking-[0.3em] text-dim">Sets</p>
-              <p className="stat-display tnum text-lg font-extrabold">
-                {state.usSets} – {state.oppSets}
+              <p className="data-type text-[9px] uppercase tracking-[0.3em] text-dim">
+                Attacks tracked
               </p>
+              <p className="stat-display tnum text-lg font-extrabold">{attempts}</p>
             </div>
             <div className="lower-third px-5 py-3 pr-8">
-              <p className="data-type text-[9px] uppercase tracking-[0.3em] text-dim">Serving</p>
-              <p className="stat-display text-lg font-bold uppercase">
-                {state.rally.serving === "US" ? homeName : awayName}
+              <p className="data-type text-[9px] uppercase tracking-[0.3em] text-dim">
+                Attack %
+              </p>
+              <p className="stat-display tnum text-lg font-extrabold">
+                {us.attackPct ?? 0}% <span className="text-dim">/</span>{" "}
+                {opp.attackPct ?? 0}%
               </p>
             </div>
-            {setScores.length > 0 && (
-              <div className="lower-third px-5 py-3 pr-8">
-                <p className="data-type text-[9px] uppercase tracking-[0.3em] text-dim">
-                  Previous sets
-                </p>
-                <p className="stat-display tnum text-lg font-extrabold">
-                  {setScores.map((s) => `${s.us}–${s.opp}`).join("  ·  ")}
-                </p>
-              </div>
-            )}
           </div>
 
           {/* MVP so far */}
@@ -211,8 +197,8 @@ export default function LiveMatchCentre() {
           </div>
         </div>
 
-        {/* on-court six */}
-        <LiveCourt match={match} state={state} nameOf={nameOf} />
+        {/* attack leaders — both teams */}
+        <LiveLeaders rows={leaders} homeName={homeName} awayName={awayName} />
       </div>
 
       {/* head-to-head team stats */}
@@ -227,17 +213,18 @@ export default function LiveMatchCentre() {
           </div>
           <div className="space-y-5">
             <VsBar label="Attack %" us={us.attackPct} opp={opp.attackPct} unit="%" />
-            <VsBar label="Serve %" us={us.servePct} opp={opp.servePct} unit="%" />
-            <VsBar label="Reception %" us={us.recvPct} opp={opp.recvPct} unit="%" />
-            <VsBar label="Block %" us={us.blockPct} opp={opp.blockPct} unit="%" />
-            <VsBar label="Aces" us={us.aces} opp={opp.aces} zeroIsValue />
-            <VsBar label="Blocks won" us={us.blocks} opp={opp.blocks} zeroIsValue />
-            <VsBar label="Points earned" us={us.earned} opp={opp.earned} zeroIsValue />
-            <VsBar label="Errors" us={us.errors} opp={opp.errors} zeroIsValue invert />
+            <VsBar
+              label="Attempts"
+              us={us.spikeAttempts}
+              opp={opp.spikeAttempts}
+              zeroIsValue
+            />
+            <VsBar label="Kills" us={us.kills} opp={opp.kills} zeroIsValue />
+            <VsBar label="Attack errors" us={us.errors} opp={opp.errors} zeroIsValue invert />
           </div>
-          {us.spikeAttempts + opp.spikeAttempts + us.serveAttempts + opp.serveAttempts === 0 && (
+          {attempts === 0 && (
             <p className="data-type mt-6 text-center text-[10px] uppercase tracking-[0.25em] text-dim">
-              Statistics build point by point once the rally tracker starts logging.
+              Statistics build swing by swing once the tracker starts logging.
             </p>
           )}
         </div>

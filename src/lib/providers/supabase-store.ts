@@ -24,6 +24,44 @@ type PendingOp =
   | { kind: "delete"; table: string; match: Row };
 
 const QUEUE_KEY = "volleyverse:sync-queue:v1";
+const REJECTED_KEY = "volleyverse:sync-rejected:v1";
+
+/** A write the database refused, parked so it cannot block the queue. */
+type RejectedOp = { op: PendingOp; message: string; at: number };
+
+/**
+ * Did the DATABASE refuse this write, or did the NETWORK drop it?
+ *
+ * The distinction decides everything. A dropped request must be retried —
+ * that is the whole point of the queue. A refused row can never succeed, and
+ * retrying it at the head of a FIFO queue silently blocks every later write:
+ * one rejected stat_event and the rest of the match never reaches Postgres.
+ *
+ * PostgREST surfaces a SQLSTATE-ish `code` on anything Postgres decided
+ * (23514 check violation, 23503 foreign key, 42501 RLS). Fetch failures carry
+ * no code and say so in the message.
+ */
+function isRefusedByDatabase(err: unknown): boolean {
+  const e = err as { code?: unknown; message?: unknown } | null;
+  const msg = typeof e?.message === "string" ? e.message : String(err ?? "");
+  if (/failed to fetch|networkerror|network request|timeout|aborted|econn/i.test(msg))
+    return false;
+  const code = typeof e?.code === "string" ? e.code : "";
+  return code.length > 0;
+}
+
+/** Turn a PostgREST error into something a courtside human can act on. */
+function describe(op: PendingOp, err: unknown): string {
+  const e = err as { code?: string; message?: string; details?: string } | null;
+  const what = op.kind === "upsert" ? `write to ${op.table}` : `delete from ${op.table}`;
+  const code = e?.code ?? "";
+  const base = e?.message ?? String(err ?? "unknown error");
+  if (code === "23514")
+    return `The database rejected a ${what}: a value is outside what the schema allows (${base}). A migration is probably missing — run the SQL in supabase/migrations/.`;
+  if (code === "23503") return `The database rejected a ${what}: it references a row that does not exist (${base}).`;
+  if (code === "42501") return `The database rejected a ${what}: permission denied by row-level security (${base}). Are you still signed in?`;
+  return `The database rejected a ${what}${code ? ` [${code}]` : ""}: ${base}`;
+}
 
 /** Group child rows by a foreign-key column. */
 function groupBy(rows: Row[], key: string): Map<string, Row[]> {
@@ -66,9 +104,12 @@ export function useSupabaseBackend(): DataProvider {
   const dbRef = useRef<Db>(db);
   dbRef.current = db;
 
+  const [lastError, setLastError] = useState<string | null>(null);
+
   // ---- durable offline queue ----
   const queueRef = useRef<PendingOp[]>([]);
   const flushingRef = useRef(false);
+  const rejectedRef = useRef<RejectedOp[]>([]);
 
   const persistQueue = useCallback(() => {
     try {
@@ -77,6 +118,33 @@ export function useSupabaseBackend(): DataProvider {
       /* storage full — queue stays in memory for the session */
     }
     setPending(queueRef.current.length);
+  }, []);
+
+  /**
+   * Park a write Postgres refused. Kept durably so the rows are recoverable
+   * once the schema is fixed, and surfaced immediately so nobody keeps
+   * collecting a match into a database that is throwing it away.
+   */
+  const park = useCallback((op: PendingOp, err: unknown) => {
+    const message = describe(op, err);
+    rejectedRef.current.push({ op, message, at: Date.now() });
+    try {
+      window.localStorage.setItem(REJECTED_KEY, JSON.stringify(rejectedRef.current));
+    } catch {
+      /* storage full — the in-memory list still drives the UI this session */
+    }
+    console.error("[volleyverse] write rejected by the database", { op, err });
+    setLastError(message);
+  }, []);
+
+  const clearErrors = useCallback(() => {
+    rejectedRef.current = [];
+    try {
+      window.localStorage.removeItem(REJECTED_KEY);
+    } catch {
+      /* ignore */
+    }
+    setLastError(null);
   }, []);
 
   const execOp = useCallback(
@@ -104,8 +172,18 @@ export function useSupabaseBackend(): DataProvider {
         const op = queueRef.current[0];
         try {
           await execOp(op);
-        } catch {
-          // Network/permission failure — stop; reconnect handler retries.
+        } catch (err) {
+          if (isRefusedByDatabase(err)) {
+            // Postgres said no. Retrying can never change that, and leaving it
+            // at the head of the queue would block every later write for the
+            // rest of the match — the whole match lost behind one bad row.
+            // Park it, report it, and keep draining.
+            park(op, err);
+            queueRef.current.shift();
+            persistQueue();
+            continue;
+          }
+          // Network failure — stop; the reconnect handler retries in order.
           setOnline(false);
           break;
         }
@@ -116,7 +194,7 @@ export function useSupabaseBackend(): DataProvider {
     } finally {
       flushingRef.current = false;
     }
-  }, [execOp, persistQueue, supabase]);
+  }, [execOp, park, persistQueue, supabase]);
 
   const enqueue = useCallback(
     (...ops: PendingOp[]) => {
@@ -234,6 +312,19 @@ export function useSupabaseBackend(): DataProvider {
       /* ignore */
     }
 
+    // Restore writes a previous session could not land, so the warning
+    // survives a reload instead of the data quietly staying missing.
+    try {
+      const raw = window.localStorage.getItem(REJECTED_KEY);
+      if (raw) {
+        rejectedRef.current = JSON.parse(raw) as RejectedOp[];
+        const last = rejectedRef.current[rejectedRef.current.length - 1];
+        if (last) setLastError(last.message);
+      }
+    } catch {
+      /* ignore */
+    }
+
     (async () => {
       const [
         leagues, seasons, divisions, tournaments, groups, venues, courts,
@@ -322,18 +413,24 @@ export function useSupabaseBackend(): DataProvider {
 
   // ---- DataProvider surface (mirrors LocalProvider exactly) ----
   const api: DataProvider = useMemo(() => {
-    const syncStatus: SyncStatus = !ready
-      ? "connecting"
-      : !online
-        ? "offline"
-        : pending > 0
-          ? "syncing"
-          : "synced";
+    // A refused write outranks every other state: "Synced" next to data the
+    // server never accepted is the failure mode this whole branch exists for.
+    const syncStatus: SyncStatus = lastError
+      ? "error"
+      : !ready
+        ? "connecting"
+        : !online
+          ? "offline"
+          : pending > 0
+            ? "syncing"
+            : "synced";
 
     return {
       db,
       ready,
       syncStatus,
+      lastError,
+      clearErrors,
 
       insert: (collection, row) => {
         const id = uuid();
@@ -557,7 +654,18 @@ export function useSupabaseBackend(): DataProvider {
         .maybeSingle();
       return data ? M.personIdFromRow(data as Row) : null;
     }
-  }, [db, ready, online, pending, enqueue, patchDb, patchMatch, supabase]);
+  }, [
+    db,
+    ready,
+    online,
+    pending,
+    lastError,
+    clearErrors,
+    enqueue,
+    patchDb,
+    patchMatch,
+    supabase,
+  ]);
 
   return api;
 }
