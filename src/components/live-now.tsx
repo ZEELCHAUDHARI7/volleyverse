@@ -2,31 +2,27 @@
 
 import Link from "next/link";
 import {
-  LiveLeaders,
-  useAttackLeaders,
+  LiveCourt,
   useLiveMatch,
   useMatchContext,
+  useNameOf,
 } from "@/components/live-match";
 
 /**
  * LIVE NOW — the fan-facing broadcast strip on the showcase home.
- * A teaser for the full /live Match Centre; all sync and derivation comes
- * from the shared live-match module (no duplicated logic here).
- *
- * There is no scoreboard: the courtside tracker records spike attempts and
- * their outcomes, not the referee's score, so a running total here would be
- * a number nobody entered.
+ * A teaser for the full /live Match Centre; all sync + court rendering
+ * comes from the shared live-match module (no duplicated logic here).
  */
 export function LiveNow() {
-  const { ready, match, events, started } = useLiveMatch();
+  const { ready, match, state } = useLiveMatch();
   const { homeTeam, awayTeam, venue } = useMatchContext(match);
-  const leaders = useAttackLeaders(match, events, 5);
+  const nameOf = useNameOf();
 
-  if (!ready || !match) return null;
+  if (!ready || !match || !state) return null;
 
   const homeName = homeTeam?.name ?? "Home";
   const awayName = awayTeam?.name ?? "Away";
-  const attempts = leaders.reduce((n, r) => n + r.attempts, 0);
+  const servingName = state.rally.serving === "US" ? homeName : awayName;
 
   return (
     <section className="relative overflow-hidden border-b border-line bg-raise">
@@ -39,34 +35,43 @@ export function LiveNow() {
             Live now
           </p>
           <p className="data-type text-[11px] uppercase tracking-[0.25em] text-dim">
-            {started ? `${attempts} attacks tracked` : "warming up"}
+            Set {state.set} · sets {state.usSets}–{state.oppSets}
             {venue ? ` · ${venue.name}` : ""}
           </p>
         </div>
 
         <div className="mt-8 grid items-center gap-10 md:grid-cols-[1.2fr_1fr]">
+          {/* score */}
           <div>
             <h2 className="hero-type text-4xl leading-[0.9] sm:text-6xl">
               {homeName}
               <span className="mx-3 align-middle text-2xl text-dim sm:text-3xl">vs</span>
               <span className="block text-accent sm:inline">{awayName}</span>
             </h2>
+            <p className="led mt-6 text-7xl font-semibold sm:text-8xl">
+              <span className={state.rally.serving === "US" ? "text-accent" : ""}>
+                {state.usScore}
+              </span>
+              <span className="mx-4 text-dim">–</span>
+              <span className={state.rally.serving === "OPP" ? "text-accent" : ""}>
+                {state.oppScore}
+              </span>
+            </p>
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <div className="lower-third px-5 py-3 pr-8">
                 <p className="data-type text-[9px] uppercase tracking-[0.3em] text-dim">
-                  Top attacker
+                  Serving
                 </p>
-                <p className="stat-display text-lg font-bold uppercase">
-                  {leaders[0]?.name ?? "—"}
-                </p>
+                <p className="stat-display text-lg font-bold uppercase">{servingName}</p>
               </div>
               <p className="max-w-xs text-sm text-dim">
-                Every attack logged from the courtside tracker, swing by swing.
+                Followed point by point from the courtside tracker.
               </p>
             </div>
           </div>
 
-          <LiveLeaders rows={leaders} homeName={homeName} awayName={awayName} />
+          {/* on-court six, both sides of the net */}
+          <LiveCourt match={match} state={state} nameOf={nameOf} />
         </div>
 
         <div className="mt-8">
@@ -74,7 +79,7 @@ export function LiveNow() {
             href="/live"
             className="data-type text-[11px] font-semibold uppercase tracking-[0.25em] text-accent"
           >
-            Full live statistics →
+            Full live scoreboard & statistics →
           </Link>
         </div>
       </div>
