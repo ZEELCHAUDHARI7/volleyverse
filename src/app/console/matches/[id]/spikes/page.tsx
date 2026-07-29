@@ -12,8 +12,10 @@ import {
   type Side,
   type TeamSetup,
   type Toss,
+  SET_TARGET,
   firstServerForSet,
   isDecidingSet,
+  matchWinner,
   resolvePoint,
   rotate,
   serverId,
@@ -314,6 +316,19 @@ export default function FreeRallyTracker() {
     });
     const usSets = state.usScore > state.oppScore ? state.usSets + 1 : state.usSets;
     const oppSets = state.oppScore > state.usScore ? state.oppSets + 1 : state.oppSets;
+
+    // The set just banked may have taken the match. Best-of-N ends the moment a
+    // side has the majority, so sets 4 and 5 are never played at 3-0 or 3-1.
+    const decided = matchWinner(usSets, oppSets, match.totalSets);
+    if (decided) {
+      store.completeMatch(
+        match.id,
+        decided === "US" ? homeTeam.id : awayTeam.id,
+      );
+      setArmed(null);
+      return;
+    }
+
     const nextSet = state.set + 1;
     // First service alternates by set, and the deciding set takes a fresh toss.
     // firstServerForSet returns null in that case rather than guessing; the
@@ -340,21 +355,30 @@ export default function FreeRallyTracker() {
     });
   };
 
-  const target = isDecidingSet(state.set, match.totalSets) ? 15 : 25;
-  const setOver = setPointReached(state.usScore, state.oppScore, target);
+  const setOver = setPointReached(state.usScore, state.oppScore, SET_TARGET);
+
+  // Where the set counts land if the set in progress is banked as it stands —
+  // drives both the prompt's tally and whether it offers set N+1 or the match.
+  const setsAfterThis = {
+    us: state.usSets + (state.usScore > state.oppScore ? 1 : 0),
+    opp: state.oppSets + (state.oppScore > state.usScore ? 1 : 0),
+  };
+  const decidesMatch =
+    matchWinner(setsAfterThis.us, setsAfterThis.opp, match.totalSets) !== null;
+
   const allPlayers = [...homeRoster, ...awayRoster];
 
-  // Total points across banked sets plus the set in progress.
-  const usTotal = state.setScores.reduce((n, s) => n + s.us, 0) + state.usScore;
-  const oppTotal = state.setScores.reduce((n, s) => n + s.opp, 0) + state.oppScore;
-
   /**
-   * Whoever has the most points at the moment the match is ended wins it.
-   * Sets are recorded but do not decide the result — a deliberate product
-   * choice so a match can be stopped at any point and still resolve.
+   * Who a match abandoned right now would be awarded to. Sets decide it, so a
+   * side ahead on points but level on sets takes nothing — the set in progress
+   * is unfinished and cannot count.
    */
   const leader: Side | null =
-    usTotal === oppTotal ? null : usTotal > oppTotal ? "US" : "OPP";
+    state.usSets === state.oppSets
+      ? null
+      : state.usSets > state.oppSets
+        ? "US"
+        : "OPP";
 
   const onEndMatch = () => {
     // Bank the set in progress so its points are not lost from the record.
@@ -380,6 +404,15 @@ export default function FreeRallyTracker() {
         ? homeTeam.name
         : awayTeam.name
       : null;
+    // Sets taken, read back off the recorded set scores rather than live state,
+    // so the report is right even when reopened in another browser.
+    const setsWon = match.setScores.reduce(
+      (n, s) => ({
+        us: n.us + (s.homePoints > s.awayPoints ? 1 : 0),
+        opp: n.opp + (s.awayPoints > s.homePoints ? 1 : 0),
+      }),
+      { us: 0, opp: 0 },
+    );
     return (
       <div className="mx-auto max-w-3xl space-y-5 px-4 pb-24 pt-6">
         <header className="card-premium rounded-2xl p-6 text-center">
@@ -390,11 +423,11 @@ export default function FreeRallyTracker() {
             {winner ? `🏆 ${winner}` : "Drawn"}
           </p>
           <p className="stat-display tnum mt-3 text-2xl font-extrabold">
-            <span className="text-accent">{homeTeam.shortName} {usTotal}</span>
+            <span className="text-accent">{homeTeam.shortName} {setsWon.us}</span>
             <span className="mx-3 text-dim">–</span>
-            <span className="text-azure">{oppTotal} {awayTeam.shortName}</span>
+            <span className="text-azure">{setsWon.opp} {awayTeam.shortName}</span>
           </p>
-          <p className="mt-1 text-xs text-dim">total points</p>
+          <p className="mt-1 text-xs text-dim">sets</p>
           {match.setScores.length > 0 && (
             <div className="mt-4 flex flex-wrap justify-center gap-1.5">
               {match.setScores.map((s) => (
@@ -503,7 +536,6 @@ export default function FreeRallyTracker() {
           >
             ↶ Undo
           </Button>
-          {setOver && <Button onClick={onBankSet}>Bank set {state.set}</Button>}
           <Button variant="ghost" onClick={() => setEnding(true)}>
             End match
           </Button>
@@ -512,21 +544,50 @@ export default function FreeRallyTracker() {
           </LinkButton>
         </div>
 
+        {setOver && (
+          <div className="mt-3 rounded-xl border border-accent/40 bg-accent/10 p-3 text-center">
+            <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-accent">
+              Set {state.set} complete
+            </p>
+            <p className="stat-display tnum mt-1 text-lg font-extrabold text-ink">
+              {(state.usScore > state.oppScore ? homeTeam : awayTeam).name} win{" "}
+              {Math.max(state.usScore, state.oppScore)}–
+              {Math.min(state.usScore, state.oppScore)}
+            </p>
+            <p className="tnum mt-0.5 text-xs text-dim">
+              Sets {setsAfterThis.us}–{setsAfterThis.opp}
+            </p>
+            <div className="mt-2 flex justify-center gap-2">
+              <Button onClick={onBankSet}>
+                {decidesMatch ? "Finish match" : `Start set ${state.set + 1}`}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={onUndo}
+                disabled={state.current.length === 0 && state.history.length === 0}
+              >
+                ↶ Undo
+              </Button>
+            </div>
+          </div>
+        )}
+
         {ending && (
           <div className="mt-3 rounded-xl border border-accent/30 bg-accent/5 p-3 text-center">
             <p className="text-sm text-ink">
               End the match now?{" "}
               {leader === null ? (
                 <span className="font-semibold">
-                  Level at {usTotal}–{oppTotal} — no winner recorded.
+                  Level at {state.usSets}–{state.oppSets} on sets — no winner
+                  recorded.
                 </span>
               ) : (
                 <>
                   <span className="font-semibold">
                     {leader === "US" ? homeTeam.name : awayTeam.name}
                   </span>{" "}
-                  wins {Math.max(usTotal, oppTotal)}–{Math.min(usTotal, oppTotal)} on
-                  points.
+                  wins {Math.max(state.usSets, state.oppSets)}–
+                  {Math.min(state.usSets, state.oppSets)} on sets.
                 </>
               )}
             </p>

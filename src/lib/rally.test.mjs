@@ -18,6 +18,9 @@ import {
   resolveTrio,
   resolvePoint,
   setPointReached,
+  SET_TARGET,
+  matchTarget,
+  matchWinner,
   openingRally,
   initialMatchState,
   skipPhase,
@@ -230,6 +233,42 @@ t("25-23 is set; 25-24 is not (win by 2); deciding-set 15 respected", () => {
   assert.equal(setPointReached(26, 24), true);
   assert.equal(setPointReached(15, 10, 15), true);
   assert.equal(setPointReached(14, 10, 15), false);
+});
+
+qa.suite("Set & Match Completion");
+
+t("every set is played to 15, win by two", () => {
+  assert.equal(SET_TARGET, 15);
+  assert.equal(setPointReached(15, 13, SET_TARGET), true);
+  assert.equal(setPointReached(15, 14, SET_TARGET), false);
+  assert.equal(setPointReached(16, 14, SET_TARGET), true);
+});
+
+t("the deciding set is played to 15 like every other set", () => {
+  // isDecidingSet still governs the fresh toss, never the point target.
+  assert.equal(isDecidingSet(5, 5), true);
+  assert.equal(setPointReached(15, 13, SET_TARGET), true);
+});
+
+t("winning the match takes a majority of the sets on offer", () => {
+  assert.equal(matchTarget(5), 3);
+  assert.equal(matchTarget(3), 2);
+});
+
+t("the match is undecided until a side reaches that majority", () => {
+  assert.equal(matchWinner(2, 1, 5), null);
+  assert.equal(matchWinner(2, 2, 5), null);
+  assert.equal(matchWinner(0, 0, 5), null);
+});
+
+t("the third set won decides a best-of-five", () => {
+  assert.equal(matchWinner(3, 0, 5), "US");
+  assert.equal(matchWinner(1, 3, 5), "OPP");
+});
+
+t("a best-of-three is decided by the second set, not the third", () => {
+  assert.equal(matchWinner(2, 0, 3), "US");
+  assert.equal(matchWinner(1, 1, 3), null);
 });
 
 qa.finish();

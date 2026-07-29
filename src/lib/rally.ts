@@ -353,7 +353,37 @@ export function resolvePoint(
   return { nextServing: winner, rotateWinner: winner !== serving };
 }
 
-/** Standard set target: 25, win by 2 (deciding set is 15 — caller decides). */
+/** Has a side reached `target` with a two-point cushion? */
 export function setPointReached(us: number, opp: number, target = 25): boolean {
   return (us >= target || opp >= target) && Math.abs(us - opp) >= 2;
+}
+
+/**
+ * Points that take a set — every set, the deciding one included.
+ *
+ * `isDecidingSet` still matters, but only for the fresh toss FIVB 6.3.2 calls
+ * for. It has no say in the target any more.
+ */
+export const SET_TARGET = 15;
+
+/** Sets a side must take to win a match of `totalSets`. */
+export function matchTarget(totalSets: number): number {
+  return Math.floor(totalSets / 2) + 1;
+}
+
+/**
+ * The side that has won the match, or null while it is still live.
+ *
+ * Derived from `totalSets` rather than a hard 3, so a best-of-three chosen at
+ * match creation ends on its second set instead of running forever.
+ */
+export function matchWinner(
+  usSets: number,
+  oppSets: number,
+  totalSets: number,
+): Side | null {
+  const need = matchTarget(totalSets);
+  if (usSets >= need) return "US";
+  if (oppSets >= need) return "OPP";
+  return null;
 }
