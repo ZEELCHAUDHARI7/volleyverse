@@ -7,6 +7,15 @@ import type { Player, StatEvent, Match, Db } from "@/lib/types";
 import { playerLine } from "@/lib/metrics";
 import { PositionTag, Skeleton } from "@/components/ui";
 import { useActiveLeague, useStore } from "@/lib/store";
+import { isAuthPage } from "@/lib/auth/routes";
+import { isAuthenticated, onAuthChange } from "@/lib/auth/temporary-auth";
+import {
+  fanInitials,
+  fanLogout,
+  getTemporaryFan,
+  onFanAuthChange,
+  type TemporaryFan,
+} from "@/lib/auth/temporary-fan-auth";
 
 /**
  * Showcase building blocks: cinematic backdrop, scroll-aware navigation,
@@ -238,8 +247,87 @@ function Wordmark() {
   );
 }
 
+/**
+ * Fan account controls.
+ *
+ * Signed out: a link to the sign-in page, hidden while already on an
+ * account page. Signed in: an initials avatar and sign-out.
+ */
+function FanControls({ onAccountPage }: { onAccountPage: boolean }) {
+  const [fan, setFan] = useState<TemporaryFan | null>(null);
+
+  useEffect(() => {
+    // Read after mount: the cookie is unavailable during SSR, and reading
+    // it here keeps the server and client markup identical.
+    const sync = () => setFan(getTemporaryFan());
+    sync();
+    return onFanAuthChange(sync);
+  }, []);
+
+  if (!fan) {
+    if (onAccountPage) return null;
+    return (
+      <Link
+        href="/fans/sign-in"
+        className="nav-link rounded-lg px-3 py-2 text-dim transition-colors hover:text-ink"
+      >
+        Sign in
+      </Link>
+    );
+  }
+
+  return (
+    <span className="ml-1 flex items-center gap-2">
+      <span
+        title={fan.name}
+        aria-label={`Signed in as ${fan.name}`}
+        className="stat-display grid h-8 w-8 place-items-center rounded-full bg-accent/15 text-[11px] font-extrabold uppercase tracking-wider text-accent ring-1 ring-accent/25"
+      >
+        {fanInitials(fan.name)}
+      </span>
+      <button
+        type="button"
+        onClick={() => fanLogout()}
+        className="hidden rounded-lg px-2 py-2 text-xs font-semibold uppercase tracking-wider text-dim transition-colors hover:text-ink sm:block"
+      >
+        Sign out
+      </button>
+    </span>
+  );
+}
+
+/**
+ * The console entry point. Labelled for what it does depending on whether
+ * a staff session exists, so fans are not sent to a sign-in wall without
+ * warning and staff are not asked to sign in twice.
+ */
+function StaffLink({ onAccountPage }: { onAccountPage: boolean }) {
+  const [staffed, setStaffed] = useState(false);
+
+  useEffect(() => {
+    const sync = () => setStaffed(isAuthenticated());
+    sync();
+    return onAuthChange(sync);
+  }, []);
+
+  // On the account pages the two sign-in routes already sit side by side
+  // in the page itself, so the nav does not repeat them.
+  if (onAccountPage && !staffed) return null;
+
+  return (
+    <Link
+      href={staffed ? "/console" : "/login"}
+      className="btn-premium ml-2 rounded-xl border border-line px-4 py-2 text-xs uppercase tracking-wider text-dim transition-colors hover:border-accent/60 hover:text-accent"
+    >
+      {staffed ? "Console" : "Staff"}
+      <span className="hidden sm:inline">{staffed ? "" : " sign in"}</span>
+    </Link>
+  );
+}
+
 export function ShowcaseNav() {
   const pathname = usePathname();
+  const onAccountPage = isAuthPage(pathname);
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -262,7 +350,8 @@ export function ShowcaseNav() {
       >
         <Wordmark />
         <nav className="flex items-center gap-1 text-sm font-semibold">
-          {NAV_LINKS.map((l) => (
+          {!onAccountPage &&
+            NAV_LINKS.map((l) => (
             <Link
               key={l.href}
               href={l.href}
@@ -274,12 +363,8 @@ export function ShowcaseNav() {
               {l.label}
             </Link>
           ))}
-          <Link
-            href="/console"
-            className="btn-premium ml-2 rounded-xl border border-line px-4 py-2 text-xs uppercase tracking-wider text-dim transition-colors hover:border-accent/60 hover:text-accent"
-          >
-            Console
-          </Link>
+          <FanControls onAccountPage={onAccountPage} />
+          <StaffLink onAccountPage={onAccountPage} />
         </nav>
       </div>
     </header>
@@ -309,6 +394,15 @@ export function ShowcaseFooter() {
             </Link>
             <Link href="/matches" className="transition-colors hover:text-ink">
               Matches
+            </Link>
+            <Link
+              href="/fans/join"
+              className="transition-colors hover:text-ink"
+            >
+              Join as a fan
+            </Link>
+            <Link href="/login" className="transition-colors hover:text-ink">
+              Staff sign in
             </Link>
           </nav>
           <p className="text-xs text-dim">

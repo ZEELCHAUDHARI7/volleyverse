@@ -1,80 +1,65 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import {
+  FAN_SIGN_IN_PATH,
   LOGIN_PATH,
-  gatesWhenUnconfigured,
+  NEXT_PARAM,
+  isAuthPage,
+  requiresAccount,
   requiresAuth,
-} from "@/lib/auth-routes";
-
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-function redirectToLogin(request: NextRequest) {
-  const redirectUrl = request.nextUrl.clone();
-  redirectUrl.pathname = LOGIN_PATH;
-  redirectUrl.search = "";
-  redirectUrl.searchParams.set(
-    "next",
-    request.nextUrl.pathname + request.nextUrl.search,
-  );
-  return NextResponse.redirect(redirectUrl);
-}
+} from "@/lib/auth/routes";
+import { SESSION_COOKIE } from "@/lib/auth/temporary-auth";
+import { FAN_COOKIE } from "@/lib/auth/temporary-fan-auth";
 
 /**
- * Refreshes the Supabase auth cookie on every matched request and gates
- * /console/* behind a verified session.
+ * Gates the site behind the TEMPORARY session cookies.
  *
- * When Supabase is unconfigured, local development stays a pass-through so
- * the offline LocalStoreProvider is never locked out — but production fails
- * closed, because a build missing NEXT_PUBLIC_SUPABASE_* would otherwise
- * serve the console to anyone.
+ *   /console/*  needs the staff cookie, or bounces to /login
+ *   everything  needs either cookie, or bounces to /fans/sign-in
+ *   else        (a staff session counts, so console users are not asked
+ *               to create a second account)
+ *
+ * The account pages themselves are always reachable.
+ *
+ * There is no real authentication yet (see src/lib/auth/temporary-auth.ts
+ * and temporary-fan-auth.ts). These checks exist so the app routes
+ * correctly, NOT as a security boundary: both cookies are unsigned, and
+ * anything genuinely private must be enforced by RLS on the data.
+ *
+ * When real auth lands, replace the two cookie reads below with verified
+ * session checks. The redirect logic does not change.
  */
-export async function middleware(request: NextRequest) {
-  if (!url || !anonKey) {
-    return gatesWhenUnconfigured(
-      request.nextUrl.pathname,
-      process.env.NODE_ENV === "production",
-    )
-      ? redirectToLogin(request)
-      : NextResponse.next();
+export function middleware(request: NextRequest) {
+  const { pathname, search } = request.nextUrl;
+
+  if (isAuthPage(pathname)) return NextResponse.next();
+
+  const staffed = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
+  const fan = Boolean(request.cookies.get(FAN_COOKIE)?.value);
+
+  if (requiresAuth(pathname)) {
+    return staffed ? NextResponse.next() : redirectTo(request, LOGIN_PATH);
   }
 
-  let response = NextResponse.next({ request });
-
-  const supabase = createServerClient(url, anonKey, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
-      },
-      setAll(cookiesToSet) {
-        for (const { name, value } of cookiesToSet) {
-          request.cookies.set(name, value);
-        }
-        response = NextResponse.next({ request });
-        for (const { name, value, options } of cookiesToSet) {
-          response.cookies.set(name, value, options);
-        }
-      },
-    },
-  });
-
-  // getClaims() verifies the JWT signature against the project's published
-  // keys. Never use getSession() here — its cookie payload is spoofable.
-  const { data } = await supabase.auth.getClaims();
-
-  if (!data?.claims && requiresAuth(request.nextUrl.pathname)) {
-    return redirectToLogin(request);
+  if (requiresAccount(pathname) && !staffed && !fan) {
+    return redirectTo(request, FAN_SIGN_IN_PATH);
   }
 
-  return response;
+  return NextResponse.next();
+
+  function redirectTo(req: NextRequest, destination: string) {
+    const url = req.nextUrl.clone();
+    url.pathname = destination;
+    url.search = "";
+    url.searchParams.set(NEXT_PARAM, pathname + search);
+    return NextResponse.redirect(url);
+  }
 }
 
 export const config = {
   matcher: [
     /*
-     * Everything except static assets. Matching wider than /console is
-     * deliberate: it keeps the session cookie refreshed site-wide, and
-     * requiresAuth() decides what actually gets gated.
+     * Everything except Next internals and static assets. The whole site
+     * is gated now, so matching narrowly would leave holes.
      */
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|woff2?)$).*)",
   ],
