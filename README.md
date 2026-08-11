@@ -48,6 +48,25 @@ teams, side-out, toss alternation, 25/15 set targets). The engine's
 abstract sides `US`/`OPP` map to the **home**/**away** team at the page
 level. Tests: `node src/lib/rally.test.mjs`.
 
+`src/lib/substitution.ts` handles everything that changes the court
+without a rally, on one principle: **a rotation slot is the identity, not
+the player in it.**
+
+- **Substitutions** are the coach's, through an always-visible SUB button on
+  both live trackers. The incoming player takes the outgoing player's exact
+  slot and inherits their place in the rotation completely. Unrestricted,
+  with a per-set counter per team.
+- **The libero swap is automatic**, driven only by who holds the serve:
+  serving → Middle Blocker on court, libero on the bench; receiving → libero
+  on court in the **back-row** Middle Blocker's slot (FIVB 19.3.2.1). When
+  the serve comes back the Middle Blocker returns to the slot the rotation
+  owes them. It never counts as a substitution and never asks the user
+  anything.
+
+Ordering contract: on a side-out, **rotate first, then sync the liberos**.
+Design note: `docs/superpowers/specs/2026-08-11-substitution-libero-design.md`.
+Tests: `node src/lib/substitution.test.mjs`.
+
 ## Development
 
 ```bash
