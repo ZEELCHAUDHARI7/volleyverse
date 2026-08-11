@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { loadPvl2025 } from "@/lib/seed/pvl-2025";
 import {
@@ -8,7 +8,6 @@ import {
   Card,
   LinkButton,
   PageSkeleton,
-  PositionTag,
   SectionHeading,
   StatusChip,
 } from "@/components/ui";
@@ -660,6 +659,22 @@ function TeamCard({
 
   const captain = roster.find((p) => p.isCaptain);
 
+  /**
+   * Two players sharing a shirt makes the court board ambiguous at exactly the
+   * moment a collector cannot afford ambiguity, so clashes are flagged as they
+   * are typed rather than discovered mid-rally.
+   */
+  const dupJerseys = useMemo(() => {
+    const seen = new Map<number, number>();
+    for (const p of roster) {
+      if (p.jerseyNo === null) continue;
+      seen.set(p.jerseyNo, (seen.get(p.jerseyNo) ?? 0) + 1);
+    }
+    return new Set([...seen].filter(([, n]) => n > 1).map(([no]) => no));
+  }, [roster]);
+
+  const missingJerseys = roster.filter((p) => p.jerseyNo === null).length;
+
   return (
     <Card className="space-y-4">
       <button
@@ -687,6 +702,13 @@ function TeamCard({
                 {staff.length} staff
               </StatusChip>
               {captain && <StatusChip tone="accent">© {captain.fullName}</StatusChip>}
+              {roster.length > 0 && (
+                <StatusChip tone={missingJerseys === 0 ? "ok" : "dim"}>
+                  {missingJerseys === 0
+                    ? "shirts complete"
+                    : `${missingJerseys} without a shirt #`}
+                </StatusChip>
+              )}
             </div>
           </div>
         </div>
@@ -753,6 +775,16 @@ function TeamCard({
           {/* Players */}
           <div className="border-t border-line/60 pt-4">
             <p className={labelCls}>Players</p>
+            <p className="-mt-0.5 mb-2 text-[11px] text-dim">
+              Type a shirt number straight into the box — it saves as you type and the match
+              tracker picks it up immediately.
+              {dupJerseys.size > 0 && (
+                <span className="ml-1 font-semibold text-err">
+                  Duplicate number{dupJerseys.size === 1 ? "" : "s"}:{" "}
+                  {[...dupJerseys].map((n) => `#${n}`).join(", ")}.
+                </span>
+              )}
+            </p>
             <div className="space-y-1.5">
               {roster.map((p) => (
                 <div
@@ -760,14 +792,50 @@ function TeamCard({
                   className="flex items-center justify-between gap-3 rounded-xl bg-surface2 px-3 py-2"
                 >
                   <span className="flex min-w-0 items-center gap-2 text-sm">
-                    <span
-                      aria-hidden
-                      className="data-type grid h-7 w-9 shrink-0 place-items-center rounded-lg bg-line/40 text-[11px] font-bold text-dim"
-                    >
-                      #{p.jerseyNo ?? "—"}
-                    </span>
+                    {/* Jersey and position are editable in place: the tracker
+                        reads the same store, so a number typed here shows up on
+                        the court board immediately — no save, no reload. */}
+                    <input
+                      type="number"
+                      min={0}
+                      max={99}
+                      inputMode="numeric"
+                      aria-label={`Jersey number for ${p.fullName}`}
+                      title="Jersey number — shown on the court during collection"
+                      placeholder="—"
+                      value={p.jerseyNo ?? ""}
+                      onChange={(e) =>
+                        update("players", p.id, {
+                          jerseyNo: e.target.value === "" ? null : Number(e.target.value),
+                        })
+                      }
+                      className={`data-type h-8 w-14 shrink-0 rounded-lg border bg-surface2 text-center text-sm font-bold tabular-nums transition-colors focus:border-accent focus:outline-none ${
+                        p.jerseyNo !== null && dupJerseys.has(p.jerseyNo)
+                          ? "border-err text-err"
+                          : p.jerseyNo === null
+                            ? "border-dashed border-line text-dim"
+                            : "border-line text-ink"
+                      }`}
+                    />
                     <span className="truncate font-semibold text-ink">{p.fullName}</span>
-                    <PositionTag position={p.position} short />
+                    <select
+                      aria-label={`Position for ${p.fullName}`}
+                      title="Court position — the libero swap needs a Middle Blocker to replace"
+                      value={p.position ?? ""}
+                      onChange={(e) =>
+                        update("players", p.id, {
+                          position: (e.target.value || null) as PlayerPosition | null,
+                        })
+                      }
+                      className="h-8 shrink-0 rounded-lg border border-line bg-surface2 px-1.5 text-[11px] font-semibold text-dim focus:border-accent focus:outline-none"
+                    >
+                      <option value="">Not listed</option>
+                      {POSITIONS_ALL.map((pos) => (
+                        <option key={pos} value={pos}>
+                          {POSITION_LABEL[pos]}
+                        </option>
+                      ))}
+                    </select>
                     {p.isCaptain && (
                       <span
                         className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/15 text-[10px] font-bold text-accent ring-1 ring-accent/30"

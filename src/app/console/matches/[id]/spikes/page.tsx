@@ -883,9 +883,15 @@ export default function FreeRallyTracker() {
       {armed && (
         <div className="card-premium sticky bottom-2 z-10 rounded-2xl border-accent/30 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <p className="stat-display text-lg font-extrabold uppercase text-ink">
-              {armed.player.jerseyNo !== null ? `#${armed.player.jerseyNo} ` : ""}
-              {armed.player.fullName}
+            <p className="flex items-baseline gap-2 text-ink">
+              {armed.player.jerseyNo !== null && (
+                <span className="stat-display tnum text-2xl font-extrabold text-accent">
+                  #{armed.player.jerseyNo}
+                </span>
+              )}
+              <span className="stat-display text-lg font-extrabold uppercase">
+                {armed.player.fullName}
+              </span>
               {armed.player.id === currentServerId && state.rally.serveOpen && (
                 <span className="ml-2 text-xs font-bold uppercase tracking-wider text-accent">
                   serving
