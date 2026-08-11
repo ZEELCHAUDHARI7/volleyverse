@@ -20,6 +20,7 @@ const POSITION_FILTERS: { key: PlayerPosition | "ALL"; label: string }[] = [
   { key: "MB", label: "Middle" },
   { key: "S", label: "Setters" },
   { key: "L", label: "Liberos" },
+  { key: "U", label: "Universal" },
   { key: "DS", label: "Def. Spec." },
 ];
 

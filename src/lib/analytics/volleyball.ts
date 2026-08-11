@@ -229,6 +229,7 @@ const POSITION_ZONE: Record<PlayerPosition, number> = {
   S: 2,
   L: 6,
   DS: 5,
+  U: 2, // universal: attacks from the right like an opposite
 };
 const ZONE_LABEL: Record<number, string> = {
   1: "Zone 1 · back-right (serve)",

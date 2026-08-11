@@ -173,6 +173,9 @@ function positionRate(line: PlayerLine, position: PlayerPosition | null): number
   switch (position) {
     case "OH":
     case "OPP":
+    case "U":
+      // A Universal is judged on the attack like the other hitters: it is the
+      // one job every club that uses the label agrees the role does.
       return pct(line.spikeSuccesses, line.spikeAttempts);
     case "S":
       return pct(line.setSuccesses, line.setAttempts);
