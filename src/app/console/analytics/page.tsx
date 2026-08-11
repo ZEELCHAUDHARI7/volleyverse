@@ -22,7 +22,9 @@ import {
 import { RecordsStrip, DefendersLeaderboard } from "@/components/charts";
 import {
   exportTableCsv,
+  hasRecordedPlay,
   headToHead,
+  isDecided,
   outcomeFor,
   periodPerformance,
   seasonSummary,
@@ -37,7 +39,7 @@ import type { Match } from "@/lib/types";
 /**
  * SEASON & HISTORICAL ANALYTICS HUB.
  *
- * The macro view across every completed match: season totals, per-team
+ * The macro view across every match with recorded play: season totals, per-team
  * records, form, streaks, home/away splits, performance over time,
  * tournament performance, head-to-head, season records and the full match
  * history. Sport-neutral maths (general.ts) drives the records; the
@@ -45,8 +47,22 @@ import type { Match } from "@/lib/types";
  */
 export default function SeasonAnalytics() {
   const { ready, db } = useStore();
-  const completed = useMemo(
-    () => db.matches.filter((m) => m.status === "completed"),
+  /**
+   * Everything with recorded play, matches in progress included. The old
+   * filter was `status === "completed"`, so a season of live matches read as
+   * zero — and a match completed with no banked sets passed that filter while
+   * contributing nothing, which is what put teams in the rankings above a
+   * "Matches Played: 0".
+   */
+  const tracked = useMemo(() => db.matches.filter(hasRecordedPlay), [db.matches]);
+  /**
+   * Matches that exist but carry no set score at all. They cannot be analysed,
+   * and staying silent about them is what made this page look broken — so they
+   * get named, with a link to type the scores in.
+   */
+  const scoreless = useMemo(
+    () =>
+      db.matches.filter((m) => !hasRecordedPlay(m) && m.status !== "scheduled"),
     [db.matches],
   );
 
@@ -89,14 +105,31 @@ export default function SeasonAnalytics() {
   const teamName = (id: string) => db.teams.find((t) => t.id === id)?.name ?? "—";
   const teamShort = (id: string | null) => db.teams.find((t) => t.id === id)?.shortName ?? "TBD";
 
-  if (completed.length === 0) {
+  if (tracked.length === 0) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Season Analytics" subtitle="Historical performance across every completed match." />
+        <PageHeader
+          title="Season Analytics"
+          subtitle="Performance across every match with a recorded set score."
+        />
         <EmptyState
-          title="No completed matches yet"
-          hint="Run a match to completion in the Rally Tracker, then this dashboard fills with records, trends and head-to-head history."
-          action={<LinkButton href="/console">Back to console</LinkButton>}
+          title="Nothing to analyse yet"
+          hint={
+            scoreless.length > 0
+              ? `${scoreless.length} match${scoreless.length === 1 ? "" : "es"} ${
+                  scoreless.length === 1 ? "has" : "have"
+                } no set score recorded, so there is nothing to derive from. A match ended before its first set was banked keeps its tapped events but loses the scoreboard — open the match review to type the set scores in, and it will appear here.`
+              : "Bank a set in the tracker and this dashboard fills with records, trends and head-to-head history. It counts matches in progress too — you do not have to finish one first."
+          }
+          action={
+            scoreless.length > 0 ? (
+              <LinkButton href={`/console/matches/${scoreless[0].id}/review`}>
+                Open match review
+              </LinkButton>
+            ) : (
+              <LinkButton href="/console">Back to console</LinkButton>
+            )
+          }
         />
       </div>
     );
@@ -128,7 +161,7 @@ export default function SeasonAnalytics() {
     exportTableCsv(
       "match_history.csv",
       ["Date", "Home", "Away", "Result", "Winner"],
-      [...completed]
+      [...tracked]
         .sort((a, b) => b.dateISO.localeCompare(a.dateISO))
         .map((m) => {
           const t = setTally(m);
@@ -137,7 +170,13 @@ export default function SeasonAnalytics() {
             teamName(m.homeTeamId),
             teamName(m.awayTeamId),
             `${t.home}-${t.away}`,
-            m.winnerTeamId ? teamName(m.winnerTeamId) : "—",
+            // An undecided match is labelled rather than given a blank winner,
+            // so a CSV reader can tell "not finished" from "drawn".
+            isDecided(m)
+              ? m.winnerTeamId
+                ? teamName(m.winnerTeamId)
+                : "—"
+              : "in progress",
           ];
         }),
     );
@@ -147,7 +186,7 @@ export default function SeasonAnalytics() {
     <div className="analytics-doc space-y-8">
       <PageHeader
         title="Season Analytics"
-        subtitle="Historical performance across every completed match."
+        subtitle="Performance across every match with a recorded set score — matches in progress included."
         action={
           <div className="no-print flex gap-2">
             <Button variant="ghost" onClick={exportHistory}>⬇ Export CSV</Button>
@@ -160,11 +199,34 @@ export default function SeasonAnalytics() {
       <section className="space-y-3">
         <SectionHeading icon="📊" title="Season Overview" />
         <KpiGrid kpis={seasonKpis} />
+        {/* Say plainly what is being counted — mixing live matches in silently
+            would be worse than the blank page this replaced. */}
+        {summary.inProgress > 0 && (
+          <p className="text-xs text-dim">
+            Includes {summary.inProgress} match
+            {summary.inProgress === 1 ? "" : "es"} still in progress. Points and
+            sets count from the moment a set is banked; wins, form and streaks
+            wait until a result is settled.
+          </p>
+        )}
+        {scoreless.length > 0 && (
+          <p className="text-xs text-err">
+            {scoreless.length} match{scoreless.length === 1 ? "" : "es"} cannot be
+            analysed — no set score was ever recorded.{" "}
+            <Link
+              href={`/console/matches/${scoreless[0].id}/review`}
+              className="underline underline-offset-2"
+            >
+              Add the set scores
+            </Link>{" "}
+            and {scoreless.length === 1 ? "it" : "they"} will appear here.
+          </p>
+        )}
       </section>
 
       {/* Team leaderboard */}
       <section className="space-y-3">
-        <SectionHeading icon="🥇" title="Team Rankings" hint="By win percentage across all completed matches." />
+        <SectionHeading icon="🥇" title="Team Rankings" hint="By win percentage across settled results." />
         <RankingBars title="Win Percentage" data={ranking} unit="%" />
       </section>
 
@@ -265,7 +327,7 @@ export default function SeasonAnalytics() {
             )}
           </>
         ) : (
-          <Card><p className="text-sm text-dim">{teamName(focusTeam)} has no completed matches yet.</p></Card>
+          <Card><p className="text-sm text-dim">{teamName(focusTeam)} has no recorded set scores yet.</p></Card>
         )}
       </section>
 
@@ -316,16 +378,16 @@ export default function SeasonAnalytics() {
               </div>
             </>
           ) : (
-            <p className="text-sm text-dim">{teamName(focusTeam)} and {teamName(oppId)} have not met in a completed match yet.</p>
+            <p className="text-sm text-dim">{teamName(focusTeam)} and {teamName(oppId)} have not met in a recorded match yet.</p>
           )}
         </Card>
       </section>
 
       {/* Match history */}
       <section className="space-y-3">
-        <SectionHeading icon="🗂️" title="Match History" trailing={<StatusChip tone="dim">{completed.length} matches</StatusChip>} />
+        <SectionHeading icon="🗂️" title="Match History" trailing={<StatusChip tone="dim">{tracked.length} matches</StatusChip>} />
         <div className="space-y-2">
-          {[...completed].sort((a, b) => b.dateISO.localeCompare(a.dateISO)).map((m) => (
+          {[...tracked].sort((a, b) => b.dateISO.localeCompare(a.dateISO)).map((m) => (
             <MatchHistoryRow key={m.id} match={m} teamName={teamName} teamShort={teamShort} />
           ))}
         </div>

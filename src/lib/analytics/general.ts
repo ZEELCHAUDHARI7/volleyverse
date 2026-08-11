@@ -11,7 +11,7 @@ import type { Match, Team, Tournament } from "../types";
 
 export type Outcome = "W" | "L" | null;
 
-/** Count the sets each side won in a completed match. */
+/** Count the sets each side won from the recorded set scores. */
 export function setTally(m: Match): { home: number; away: number } {
   let home = 0;
   let away = 0;
@@ -22,9 +22,52 @@ export function setTally(m: Match): { home: number; away: number } {
   return { home, away };
 }
 
+// ---------------------------------------------------------------------
+// What counts as a match worth analysing
+// ---------------------------------------------------------------------
+
+/**
+ * A match contributes to analytics once it has at least one recorded set.
+ *
+ * This test used to be `status === "completed"`, and it made the season page
+ * read zero until somebody remembered to press "End match". Worse, the flag
+ * and the data could disagree: a match completed with NO banked sets counted
+ * as played by `teamMatches` but not by `seasonSummary`, so the page listed
+ * teams in the rankings directly above "Matches played: 0".
+ *
+ * Recorded play is the honest test — a set score is data, a status flag is
+ * bookkeeping.
+ */
+export function hasRecordedPlay(m: Match): boolean {
+  return m.setScores.length > 0;
+}
+
+/** Sets a side must take to win a best-of-`totalSets`. */
+function setsToWin(totalSets: number): number {
+  return Math.floor(totalSets / 2) + 1;
+}
+
+/**
+ * True when the RESULT is settled — explicitly ended, or one side already
+ * holds the majority of the sets.
+ *
+ * Volume statistics (points, sets, averages) count every recorded set, but
+ * win/loss, form and streaks only count decided matches: a live match at 1-0
+ * must never be banked as a win.
+ */
+export function isDecided(m: Match): boolean {
+  // Recorded play comes first, deliberately: a match force-completed with no
+  // banked sets is neither played NOR decided. One rule, no contradiction.
+  if (!hasRecordedPlay(m)) return false;
+  if (m.status === "completed") return true;
+  const t = setTally(m);
+  const need = setsToWin(m.totalSets);
+  return t.home >= need || t.away >= need;
+}
+
 /** Resolve a match result to W/L for a given team (null if not decided). */
 export function outcomeFor(m: Match, teamId: string): Outcome {
-  if (m.status !== "completed") return null;
+  if (!isDecided(m)) return null;
   const involved = m.homeTeamId === teamId || m.awayTeamId === teamId;
   if (!involved) return null;
   const winnerId =
@@ -38,12 +81,15 @@ export function outcomeFor(m: Match, teamId: string): Outcome {
   return winnerId === teamId ? "W" : "L";
 }
 
-/** Chronologically completed matches involving a team. */
+/**
+ * Chronologically, every match involving a team that has recorded play —
+ * matches still in progress included, so a season in flight is not invisible.
+ */
 export function teamMatches(matches: Match[], teamId: string): Match[] {
   return matches
     .filter(
       (m) =>
-        m.status === "completed" &&
+        hasRecordedPlay(m) &&
         (m.homeTeamId === teamId || m.awayTeamId === teamId),
     )
     .sort((a, b) =>
@@ -108,14 +154,9 @@ export function teamRecord(matches: Match[], teamId: string): TeamRecord {
 
   for (const m of ms) {
     const isHome = m.homeTeamId === teamId;
-    const outcome = outcomeFor(m, teamId);
-    if (outcome === null) continue;
 
-    rec.played++;
-    const split = isHome ? rec.home : rec.away;
-    split.played++;
-
-    // Set + point tallies from the team's perspective.
+    // Set + point tallies from the team's perspective. Every recorded set
+    // counts, decided or not — points scored are points scored.
     for (const s of m.setScores) {
       const forPts = isHome ? s.homePoints : s.awayPoints;
       const againstPts = isHome ? s.awayPoints : s.homePoints;
@@ -125,6 +166,15 @@ export function teamRecord(matches: Match[], teamId: string): TeamRecord {
       else if (againstPts > forPts) rec.setsLost++;
       setCount++;
     }
+
+    // W/L, form and streaks need a settled result, so an undecided match
+    // stops here: its points are in, its record is not.
+    const outcome = outcomeFor(m, teamId);
+    if (outcome === null) continue;
+
+    rec.played++;
+    const split = isHome ? rec.home : rec.away;
+    split.played++;
 
     if (outcome === "W") {
       rec.won++;
@@ -184,14 +234,16 @@ export function headToHead(
   const between = matches
     .filter(
       (m) =>
-        m.status === "completed" &&
+        hasRecordedPlay(m) &&
         ((m.homeTeamId === teamA && m.awayTeamId === teamB) ||
           (m.homeTeamId === teamB && m.awayTeamId === teamA)),
     )
     .sort((a, b) => b.dateISO.localeCompare(a.dateISO));
 
   for (const m of between) {
-    h2h.played++;
+    // Sets accrue from any recorded play; `played` waits for a settled result
+    // so the head-to-head can never read "1 played, 0-0".
+    if (isDecided(m)) h2h.played++;
     const t = setTally(m);
     const aIsHome = m.homeTeamId === teamA;
     h2h.aSets += aIsHome ? t.home : t.away;
@@ -338,39 +390,53 @@ export interface SeasonSummary {
   sweeps: number; // 3–0 / 2–0 results
   fiveSetters: number;
   closestMatchId: string | null;
+  /**
+   * How many of `matchesPlayed` are still undecided. Lets a screen say
+   * "12 matches (2 in progress)" instead of quietly mixing them in.
+   */
+  inProgress: number;
 }
 
 export function seasonSummary(matches: Match[]): SeasonSummary {
-  const completed = matches.filter(
-    (m) => m.status === "completed" && m.setScores.length > 0,
-  );
+  // Every match with recorded play, in progress or finished. A match with no
+  // banked sets contributes nothing to any of these numbers and so is not
+  // counted as played either — that mismatch was the old bug.
+  const played = matches.filter(hasRecordedPlay);
   let totalSets = 0;
   let totalPoints = 0;
   let sweeps = 0;
   let fiveSetters = 0;
+  let inProgress = 0;
   let closestMatchId: string | null = null;
   let closestMargin = Infinity;
 
-  for (const m of completed) {
+  for (const m of played) {
     const t = setTally(m);
     totalSets += m.setScores.length;
     for (const s of m.setScores) totalPoints += s.homePoints + s.awayPoints;
+    const decided = isDecided(m);
+    if (!decided) inProgress++;
     const margin = Math.abs(t.home - t.away);
-    if (margin >= 2 && Math.min(t.home, t.away) === 0) sweeps++;
-    if (m.setScores.length === 5) fiveSetters++;
-    if (margin < closestMargin) {
-      closestMargin = margin;
-      closestMatchId = m.id;
+    // Shape-of-result counts only make sense once the result is in: a live
+    // match at 2-0 is not a sweep, and set 5 may still be to come.
+    if (decided) {
+      if (margin >= 2 && Math.min(t.home, t.away) === 0) sweeps++;
+      if (m.setScores.length === 5) fiveSetters++;
+      if (margin < closestMargin) {
+        closestMargin = margin;
+        closestMatchId = m.id;
+      }
     }
   }
 
   return {
-    matchesPlayed: completed.length,
+    matchesPlayed: played.length,
     totalSets,
     totalPoints,
     avgPointsPerSet: totalSets ? Math.round((totalPoints / totalSets) * 10) / 10 : 0,
     sweeps,
     fiveSetters,
     closestMatchId,
+    inProgress,
   };
 }

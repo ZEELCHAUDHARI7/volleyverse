@@ -79,8 +79,15 @@ export interface DataProvider {
     m: Omit<Match, "id" | "status" | "published" | "winnerTeamId" | "setScores">,
   ) => Match;
   startMatch: (matchId: string) => void;
-  /** Persist a finished set's score (match_sets row). */
+  /** Persist a finished set's score (match_sets row). Upserts by set number. */
   recordSetScore: (matchId: string, set: MatchSet) => void;
+  /**
+   * Replace a match's whole set-score list — the post-match correction path.
+   * Unlike `recordSetScore` this can also REMOVE a set (leave it out of the
+   * array), which matters when a set was banked by mistake, or when a match
+   * ended with no scores at all and they have to be typed in.
+   */
+  setSetScores: (matchId: string, sets: MatchSet[]) => void;
   completeMatch: (matchId: string, winnerTeamId: string | null) => void;
   /**
    * Permanently delete a match and everything derived from it. Because all

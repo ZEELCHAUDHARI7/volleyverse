@@ -681,6 +681,18 @@ function LiveScreen({
   };
 
   const endMatch = () => {
+    // Bank the set in progress FIRST. Ending a match mid-set used to drop that
+    // set's score entirely, and a match that ended before its first set was
+    // banked completed with no set scores at all — which made it invisible to
+    // every season total while still counting as a completed match. That is
+    // the whole reason Season Analytics could read zero.
+    if (state.usScore > 0 || state.oppScore > 0) {
+      store.recordSetScore(matchId, {
+        setNo: state.set,
+        homePoints: state.usScore,
+        awayPoints: state.oppScore,
+      });
+    }
     const winnerTeamId =
       state.usSets === state.oppSets
         ? null

@@ -177,6 +177,11 @@ function LocalStoreProvider({ children }: { children: React.ReactNode }) {
           (a, b) => a.setNo - b.setNo,
         ),
       })),
+    setSetScores: (matchId, sets) =>
+      patchMatch(matchId, (m) => ({
+        ...m,
+        setScores: [...sets].sort((a, b) => a.setNo - b.setNo),
+      })),
     completeMatch: (matchId, winnerTeamId) =>
       patchMatch(matchId, (m) => ({
         ...m,
