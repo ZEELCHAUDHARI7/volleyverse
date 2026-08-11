@@ -1,4 +1,5 @@
 import type { EventType } from "./types";
+import type { LiberoState, SubCount } from "./substitution";
 
 /**
  * RALLY ENGINE — the courtside state machine (v2: two-sided ✓ O ✗).
@@ -287,6 +288,14 @@ export interface RallySnapshot {
   serving: Side;
   usLineup: Lineup;
   oppLineup: Lineup;
+  /**
+   * Libero placement at the START of the rally. Undo restores the whole court,
+   * so a libero swap (and any substitution made mid-rally) rewinds with it.
+   */
+  usLibero?: LiberoState;
+  oppLibero?: LiberoState;
+  /** Substitution counters at the start of the rally — restored with the court. */
+  subs?: SubCount;
   /** StatEvent ids emitted by the rally — removed on rally-undo. */
   eventIds: string[];
   /** Was the assist upgrade applied (for accurate undo). */
@@ -312,6 +321,16 @@ export interface MatchState {
   /** Current on-court rotations — BOTH teams, auto-rotated on side-outs. */
   usLineup: Lineup;
   oppLineup: Lineup;
+  /**
+   * Libero placement per side (substitution.ts). The lineups above stay the
+   * single truth of "who is where" — while a libero is on court they simply
+   * occupy the Middle Blocker's slot, so rotation needs no special case. These
+   * only record whether the swap is active and who comes back.
+   */
+  usLibero: LiberoState;
+  oppLibero: LiberoState;
+  /** Regular substitutions used this set, per side. Libero swaps never count. */
+  subs: SubCount;
   /** Final scores of completed sets, oldest first — fan scoreboard data. */
   setScores: { us: number; opp: number }[];
   rally: RallyState;
@@ -335,6 +354,11 @@ export function initialMatchState(
     oppSets: 0,
     usLineup: us.lineup,
     oppLineup: opp.lineup,
+    // Liberos start on the bench; the caller runs `syncBothLiberos` straight
+    // away, which walks the receiving side's libero on before the first serve.
+    usLibero: { onCourt: false, replacedId: null },
+    oppLibero: { onCourt: false, replacedId: null },
+    subs: { us: 0, opp: 0 },
     setScores: [],
     rally: openingRally(servingFromToss(toss)),
     history: [],

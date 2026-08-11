@@ -597,6 +597,31 @@ export function useSupabaseBackend(): DataProvider {
         }));
       },
 
+      setSetScores: (matchId, sets: MatchSet[]) => {
+        // Delete-then-upsert, like setRosters: the array IS the new truth, so a
+        // set left out of it must disappear server-side too.
+        enqueue(
+          { kind: "delete", table: "match_sets", match: { match_id: matchId } },
+          ...sets.map(
+            (s): PendingOp => ({
+              kind: "upsert",
+              table: "match_sets",
+              row: {
+                match_id: matchId,
+                set_no: s.setNo,
+                home_points: s.homePoints,
+                away_points: s.awayPoints,
+              },
+              onConflict: "match_id,set_no",
+            }),
+          ),
+        );
+        patchMatch(matchId, (m) => ({
+          ...m,
+          setScores: [...sets].sort((a, b) => a.setNo - b.setNo),
+        }));
+      },
+
       completeMatch: (matchId, winnerTeamId) => {
         enqueue({
           kind: "upsert",

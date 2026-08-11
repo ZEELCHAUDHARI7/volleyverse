@@ -67,11 +67,18 @@ export function CourtBoard({
    */
   tappableIds?: Set<string> | null;
   onTap?: (playerId: string, side: Side) => void;
-  /** Optional libero chips: [side, playerId, enabled][] rendered per side. */
-  liberos?: { side: Side; playerId: string; enabled: boolean }[];
+  /**
+   * Optional libero row per side. `onCourt` is set by the automatic swap
+   * (substitution.ts): while it is true the libero holds a court SLOT, so the
+   * tile is the tappable thing and the chip below is a status line. While it is
+   * false the libero is genuinely on the bench and cannot touch the ball.
+   */
+  liberos?: { side: Side; playerId: string; enabled: boolean; onCourt?: boolean }[];
 }) {
   const canTap = (pid: string) =>
     !!onTap && !!pid && (tappableIds === null || (!!tappableIds && tappableIds.has(pid)));
+
+  const liberoIdOf = (side: Side) => liberos?.find((l) => l.side === side)?.playerId ?? null;
 
   const tile = (pos: Position, side: Side) => {
     const lineup = side === "US" ? usLineup : oppLineup;
@@ -79,6 +86,7 @@ export function CourtBoard({
     const p = players.get(pid);
     const isServer = pos === 1 && side === serving;
     const isArmed = armedId === pid;
+    const isLibero = !!pid && liberoIdOf(side) === pid;
     const tappable = canTap(pid);
     // Fade rule: once a player is armed, everyone else dims; before that, only
     // a restricted set (e.g. serve lock) dims the non-tappable players.
@@ -99,7 +107,9 @@ export function CourtBoard({
             ? "border-accent bg-accent/15 ring-2 ring-accent"
             : faded
               ? "border-line/50 bg-surface2/20 opacity-30"
-              : "border-line bg-surface2/40"
+              : isLibero
+                ? "border-violet/50 bg-violet/10"
+                : "border-line bg-surface2/40"
         }`}
       >
         <span className="tnum text-[9px] text-dim">
@@ -113,6 +123,11 @@ export function CourtBoard({
         {isServer && (
           <span className="live-ring absolute right-1 top-1 inline-block h-1.5 w-1.5 rounded-full bg-accent" />
         )}
+        {isLibero && (
+          <span className="absolute left-1 top-1 rounded bg-violet/25 px-1 text-[8px] font-extrabold uppercase leading-tight tracking-wider text-violet">
+            L
+          </span>
+        )}
       </button>
     );
   };
@@ -122,6 +137,32 @@ export function CourtBoard({
     if (!lib) return null;
     const p = players.get(lib.playerId);
     const isArmed = armedId === lib.playerId;
+
+    // On court: the libero is holding a slot, so the tile above carries the tap
+    // and this row is a status line — "who is in, for whom, in which slot" is
+    // exactly what a collector needs to trust an automatic swap.
+    if (lib.onCourt) {
+      const pos = ([1, 2, 3, 4, 5, 6] as Position[]).find(
+        (x) => (side === "US" ? usLineup : oppLineup)[x] === lib.playerId,
+      );
+      return (
+        <div
+          className={`flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-violet/40 bg-violet/10 text-xs font-bold ${
+            armedId && !isArmed ? "opacity-40" : ""
+          }`}
+        >
+          <span className="rounded bg-violet/25 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-violet">
+            Libero on
+          </span>
+          <span className="text-ink">{p?.name}</span>
+          {pos && <span className="tnum text-[10px] text-dim">P{pos}</span>}
+        </div>
+      );
+    }
+
+    // Off court: the automatic swap has the libero on the bench (their team is
+    // serving), so they cannot be tapped — shown, not hidden, so the collector
+    // can see the system is tracking it.
     const faded = armedId ? !isArmed : !lib.enabled;
     return (
       <button
@@ -140,6 +181,7 @@ export function CourtBoard({
           Libero
         </span>
         {p?.name}
+        <span className="text-[9px] uppercase tracking-wider text-dim">bench</span>
       </button>
     );
   };

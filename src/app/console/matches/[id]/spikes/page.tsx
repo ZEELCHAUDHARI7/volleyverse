@@ -31,7 +31,25 @@ import {
   resolveFault,
   resolveTap,
 } from "@/lib/free-rally";
-import type { Player } from "@/lib/types";
+import {
+  type LiberoEvent,
+  type LiberoState,
+  type SubCount,
+  LIBERO_OFF,
+  NO_SUBS,
+  applySub,
+  liberoStateFrom,
+  subCountFrom,
+  syncCourt,
+} from "@/lib/substitution";
+import { SubControl } from "@/components/sub-sheet";
+import {
+  type SetScope,
+  SetNavigator,
+  scopeLabel,
+  setEntries,
+} from "@/components/set-strip";
+import type { Player, StatEvent } from "@/lib/types";
 
 /**
  * FREE-RALLY TRACKER — the court, without the fixed touch sequence.
@@ -52,6 +70,11 @@ interface Snapshot {
   serving: Side;
   usLineup: Lineup;
   oppLineup: Lineup;
+  /** Libero placement at the start of the rally — undo rewinds the court too. */
+  usLibero?: LiberoState;
+  oppLibero?: LiberoState;
+  /** Substitution counters at the start of the rally, restored with the court. */
+  subs?: SubCount;
   eventIds: string[];
 }
 
@@ -67,6 +90,11 @@ interface FreeMatchState {
   oppSets: number;
   usLineup: Lineup;
   oppLineup: Lineup;
+  /** Libero placement per side — the swap is automatic (substitution.ts). */
+  usLibero: LiberoState;
+  oppLibero: LiberoState;
+  /** Regular substitutions used this set. Libero swaps never count. */
+  subs: SubCount;
   setScores: { us: number; opp: number }[];
   rally: FreeRallyState;
   /** Event ids logged in the rally in progress — tap-level undo. */
@@ -87,11 +115,42 @@ function initialState(us: TeamSetup, opp: TeamSetup, toss: Toss): FreeMatchState
     oppSets: 0,
     usLineup: us.lineup,
     oppLineup: opp.lineup,
+    usLibero: LIBERO_OFF,
+    oppLibero: LIBERO_OFF,
+    subs: NO_SUBS,
     setScores: [],
     rally: openRally(servingFromToss(toss)),
     current: [],
     history: [],
   };
+}
+
+/**
+ * A session saved before substitutions existed has no libero or sub fields —
+ * and, in that old model, a libero was never in a lineup, so "both liberos on
+ * the bench" is exactly right. The first sync then walks the receiving side's
+ * libero on.
+ */
+function hydrate(s: FreeMatchState): FreeMatchState {
+  return {
+    ...s,
+    usLibero: liberoStateFrom(s.usLibero),
+    oppLibero: liberoStateFrom(s.oppLibero),
+    subs: subCountFrom(s.subs),
+  };
+}
+
+/** One line for the court flash: what the system just did, and to whom. */
+function liberoNote(events: LiberoEvent[], nameOf: (id: string) => string): string | null {
+  if (events.length === 0) return null;
+  return events
+    .map(
+      (e) =>
+        `⇄ Libero ${e.change === "IN" ? "in" : "out"} · ${nameOf(e.inId)} for ${nameOf(
+          e.outId,
+        )} · P${e.position}`,
+    )
+    .join("   ");
 }
 
 const OUTCOMES: { outcome: Outcome; glyph: string; label: string; cls: string }[] = [
@@ -132,6 +191,15 @@ export default function FreeRallyTracker() {
   const [armed, setArmed] = useState<{ player: Player; side: Side } | null>(null);
   const [faulting, setFaulting] = useState(false);
   const [ending, setEnding] = useState(false);
+  /** Last automatic libero swap, shown under the court until the next point. */
+  const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * Which set the stats below are showing. "ALL" is the running match total;
+   * a number narrows every chart to that set's events alone. Set scores and
+   * `setNo`-tagged events are kept for the whole match, so a banked set stays
+   * fully readable — this is what selects it.
+   */
+  const [scope, setScope] = useState<SetScope>("ALL");
 
   // Resume mid-match after a reload. Keyed on the route id, not the match
   // object — useMatch returns a fresh object on every db change, so keying on
@@ -142,7 +210,7 @@ export default function FreeRallyTracker() {
       const raw = window.localStorage.getItem(STATE_KEY(id));
       if (raw) {
         const parsed = JSON.parse(raw) as FreeMatchState;
-        if (parsed.usLineup && parsed.oppLineup && parsed.rally) setState(parsed);
+        if (parsed.usLineup && parsed.oppLineup && parsed.rally) setState(hydrate(parsed));
       }
     } catch {
       // corrupted payload — fall back to the setup wizard
@@ -161,6 +229,28 @@ export default function FreeRallyTracker() {
     },
     [id],
   );
+
+  // Self-healing libero sync. Every path that changes the serve syncs the court
+  // itself; this is the backstop for the paths that arrive from OUTSIDE a
+  // handler — a session resumed from storage (including one saved before this
+  // feature existed) or a roster whose positions were only just filled in.
+  // syncCourt is idempotent and returns the SAME object when the court is
+  // already right, so this settles in one pass and cannot loop.
+  useEffect(() => {
+    if (!state) return;
+    // Never mid-rally: the court a rally is being scored on must not move under
+    // the collector. A resumed session that needs a swap gets it at the next
+    // dead ball, which is the only moment a swap is legal anyway.
+    if (state.current.length > 0) return;
+    const isMB = (pid: string) =>
+      [...homeRoster, ...awayRoster].find((p) => p.id === pid)?.position === "MB";
+    const r = syncCourt(
+      state,
+      { us: state.setup.us.liberoId, opp: state.setup.opp.liberoId },
+      isMB,
+    );
+    if (r.state !== state) persist(r.state);
+  }, [state, homeRoster, awayRoster, persist]);
 
   const players = useMemo(() => {
     const map = new Map<string, CourtPlayer>();
@@ -186,6 +276,16 @@ export default function FreeRallyTracker() {
     [homeRoster, awayRoster],
   );
 
+  /** The libero replaces a Middle Blocker — this is how the engine spots one. */
+  const isMiddleBlocker = (playerId: string) => byId.get(playerId)?.position === "MB";
+
+  /**
+   * Narrow events to the selected set. Every event carries its `setNo`, so a
+   * banked set's stats are one filter away rather than gone.
+   */
+  const inScope = (evs: StatEvent[]) =>
+    scope === "ALL" ? evs : evs.filter((e) => e.setNo === scope);
+
   if (!store.ready || !loaded) return <PageSkeleton />;
 
   if (!match || !homeTeam || !awayTeam) {
@@ -209,7 +309,17 @@ export default function FreeRallyTracker() {
         homeRoster={homeRoster}
         awayRoster={awayRoster}
         store={store}
-        onReady={({ us, opp, toss }) => persist(initialState(us, opp, toss))}
+        onReady={({ us, opp, toss }) =>
+          // Sync straight away: the receiving side's libero is on court before
+          // the first serve, without anyone pressing anything.
+          persist(
+            syncCourt(
+              initialState(us, opp, toss),
+              { us: us.liberoId, opp: opp.liberoId },
+              isMiddleBlocker,
+            ).state,
+          )
+        }
       />
     );
   }
@@ -218,6 +328,22 @@ export default function FreeRallyTracker() {
   const currentServerId = serverId(
     state.rally.serving === "US" ? state.usLineup : state.oppLineup,
   );
+
+  const liberoIds = {
+    us: state.setup.us.liberoId,
+    opp: state.setup.opp.liberoId,
+  };
+  const nameOf = (pid: string) => players.get(pid)?.name ?? "Player";
+
+  /**
+   * Put the liberos where the serve says they belong, and report it on screen.
+   * Called after every point, set start and toss — never by the user.
+   */
+  const syncLiberos = (s: FreeMatchState): FreeMatchState => {
+    const r = syncCourt(s, liberoIds, isMiddleBlocker);
+    setNotice(liberoNote(r.events, nameOf));
+    return r.state;
+  };
 
   /** Apply a point: score, serve, rotation — all from resolvePoint. */
   const applyPoint = (
@@ -231,12 +357,18 @@ export default function FreeRallyTracker() {
       serving: s.rally.serving,
       usLineup: s.usLineup,
       oppLineup: s.oppLineup,
+      usLibero: s.usLibero,
+      oppLibero: s.oppLibero,
+      subs: s.subs,
       eventIds,
     };
     const { nextServing, rotateWinner } = resolvePoint(s.rally.serving, winner);
     const usLineup = rotateWinner && winner === "US" ? rotate(s.usLineup) : s.usLineup;
     const oppLineup = rotateWinner && winner === "OPP" ? rotate(s.oppLineup) : s.oppLineup;
-    return {
+    // ROTATE FIRST, THEN sync (substitution.ts ordering contract): rotation
+    // carries the libero one slot clockwise, so the returning Middle Blocker
+    // lands exactly where the rotation puts them.
+    return syncLiberos({
       ...s,
       usScore: winner === "US" ? s.usScore + 1 : s.usScore,
       oppScore: winner === "OPP" ? s.oppScore + 1 : s.oppScore,
@@ -245,7 +377,45 @@ export default function FreeRallyTracker() {
       rally: openRally(nextServing),
       current: [],
       history: [...s.history, snapshot],
-    };
+    });
+  };
+
+  /** A coach substitution: the incoming player takes the exact slot. */
+  const onSub = (side: Side, outId: string, inId: string) => {
+    const lineup = side === "US" ? state.usLineup : state.oppLineup;
+    const libero = side === "US" ? state.usLibero : state.oppLibero;
+    const res = applySub({
+      lineup,
+      libero,
+      liberoId: side === "US" ? liberoIds.us : liberoIds.opp,
+      outId,
+      inId,
+    });
+    if (!res.ok) return;
+    const next: FreeMatchState =
+      side === "US"
+        ? { ...state, usLineup: res.lineup, usLibero: res.libero }
+        : { ...state, oppLineup: res.lineup, oppLibero: res.libero };
+    // Re-sync: a substitution can change WHICH middle blocker is in the back
+    // row, so the libero may now be owed the court (or owed the bench).
+    const synced = syncCourt(
+      {
+        ...next,
+        subs: {
+          us: next.subs.us + (side === "US" ? 1 : 0),
+          opp: next.subs.opp + (side === "OPP" ? 1 : 0),
+        },
+      },
+      liberoIds,
+      isMiddleBlocker,
+    );
+    persist(synced.state);
+    setNotice(
+      [`⇄ Sub · ${nameOf(inId)} on for ${nameOf(outId)}`, liberoNote(synced.events, nameOf)]
+        .filter(Boolean)
+        .join("   "),
+    );
+    setArmed(null);
   };
 
   const onOutcome = (outcome: Outcome) => {
@@ -292,18 +462,26 @@ export default function FreeRallyTracker() {
     const prev = state.history[state.history.length - 1];
     if (!prev) return;
     for (const eid of prev.eventIds) store.removeEvent(eid);
-    persist({
-      ...state,
-      usScore: prev.usScore,
-      oppScore: prev.oppScore,
-      usLineup: prev.usLineup,
-      oppLineup: prev.oppLineup,
-      // Back to the START of that rally, so the serve slot reopens — its taps
-      // were just deleted, and the first of them may have been the serve.
-      rally: openRally(prev.serving),
-      current: [],
-      history: state.history.slice(0, -1),
-    });
+    // The court rewinds whole: lineups AND libero placement. A substitution made
+    // during the undone rally rewinds with it, which is the honest reading of
+    // "undo that rally".
+    persist(
+      syncLiberos({
+        ...state,
+        usScore: prev.usScore,
+        oppScore: prev.oppScore,
+        usLineup: prev.usLineup,
+        oppLineup: prev.oppLineup,
+        usLibero: liberoStateFrom(prev.usLibero),
+        oppLibero: liberoStateFrom(prev.oppLibero),
+        subs: subCountFrom(prev.subs),
+        // Back to the START of that rally, so the serve slot reopens — its taps
+        // were just deleted, and the first of them may have been the serve.
+        rally: openRally(prev.serving),
+        current: [],
+        history: state.history.slice(0, -1),
+      }),
+    );
     setArmed(null);
   };
 
@@ -339,20 +517,27 @@ export default function FreeRallyTracker() {
       state.toss,
       state.decidingToss,
     );
-    persist({
-      ...state,
-      set: nextSet,
-      usScore: 0,
-      oppScore: 0,
-      usSets,
-      oppSets,
-      setScores: [...state.setScores, { us: state.usScore, opp: state.oppScore }],
-      usLineup: state.setup.us.lineup,
-      oppLineup: state.setup.opp.lineup,
-      rally: openRally(nextServer ?? state.rally.serving),
-      current: [],
-      history: [],
-    });
+    persist(
+      // Fresh set: starting rotations, liberos back on the bench and the
+      // per-set substitution counters cleared — then sync for the new server.
+      syncLiberos({
+        ...state,
+        set: nextSet,
+        usScore: 0,
+        oppScore: 0,
+        usSets,
+        oppSets,
+        setScores: [...state.setScores, { us: state.usScore, opp: state.oppScore }],
+        usLineup: state.setup.us.lineup,
+        oppLineup: state.setup.opp.lineup,
+        usLibero: LIBERO_OFF,
+        oppLibero: LIBERO_OFF,
+        subs: NO_SUBS,
+        rally: openRally(nextServer ?? state.rally.serving),
+        current: [],
+        history: [],
+      }),
+    );
   };
 
   const setOver = setPointReached(state.usScore, state.oppScore, SET_TARGET);
@@ -428,18 +613,16 @@ export default function FreeRallyTracker() {
             <span className="text-azure">{setsWon.opp} {awayTeam.shortName}</span>
           </p>
           <p className="mt-1 text-xs text-dim">sets</p>
-          {match.setScores.length > 0 && (
-            <div className="mt-4 flex flex-wrap justify-center gap-1.5">
-              {match.setScores.map((s) => (
-                <span
-                  key={s.setNo}
-                  className="tnum rounded-lg border border-line bg-surface2/50 px-2.5 py-1 text-xs"
-                >
-                  {s.homePoints}–{s.awayPoints}
-                </span>
-              ))}
-            </div>
-          )}
+          {/* Tap a set to read the match one set at a time. */}
+          <div className="mt-4 flex justify-center">
+            <SetNavigator
+              sets={setEntries(match.setScores, null)}
+              scope={scope}
+              onScope={setScope}
+              homeShort={homeTeam.shortName}
+              awayShort={awayTeam.shortName}
+            />
+          </div>
           <div className="mt-5">
             <LinkButton href="/console">Back to console</LinkButton>
           </div>
@@ -447,10 +630,13 @@ export default function FreeRallyTracker() {
 
         <h2 className="stat-display text-lg font-bold uppercase tracking-wide text-ink">
           Spiker performance
+          <span className="ml-2 text-xs font-semibold normal-case tracking-normal text-dim">
+            {scopeLabel(scope)}
+          </span>
         </h2>
         <SpikeChartGrid
           players={allPlayers}
-          events={events}
+          events={inScope(events)}
           homeTeamId={homeTeam.id}
           homeLabel={homeTeam.name}
           awayLabel={awayTeam.name}
@@ -464,11 +650,13 @@ export default function FreeRallyTracker() {
   if (isDecidingSet(state.set, match.totalSets) && state.decidingToss === null) {
     const choose = (winner: Side, choice: Toss["choice"]) => {
       const toss: Toss = { winner, choice };
-      persist({
-        ...state,
-        decidingToss: toss,
-        rally: openRally(servingFromToss(toss)),
-      });
+      persist(
+        syncLiberos({
+          ...state,
+          decidingToss: toss,
+          rally: openRally(servingFromToss(toss)),
+        }),
+      );
     };
     return (
       <div className="mx-auto max-w-md space-y-4 px-4 py-16">
@@ -519,6 +707,7 @@ export default function FreeRallyTracker() {
               {state.usSets}–{state.oppSets}
             </p>
           </div>
+
           <div>
             <p className="stat-display text-sm font-extrabold uppercase text-ink">
               {awayTeam.name}
@@ -528,6 +717,23 @@ export default function FreeRallyTracker() {
             </p>
           </div>
         </div>
+        {/* Every set of the match, banked ones included — tap one to read the
+            stats below for that set alone. A finished set never leaves the
+            screen again. */}
+        <div className="mt-3 flex justify-center border-t border-line/60 pt-3">
+          <SetNavigator
+            sets={setEntries(match.setScores, {
+              setNo: state.set,
+              homePoints: state.usScore,
+              awayPoints: state.oppScore,
+            })}
+            scope={scope}
+            onScope={setScope}
+            homeShort={homeTeam.shortName}
+            awayShort={awayTeam.shortName}
+          />
+        </div>
+
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2 border-t border-line/60 pt-3">
           <Button
             variant="ghost"
@@ -622,14 +828,57 @@ export default function FreeRallyTracker() {
           setFaulting(false);
         }}
         liberos={[
-          ...(state.setup.us.liberoId
-            ? [{ side: "US" as Side, playerId: state.setup.us.liberoId, enabled: true }]
+          ...(liberoIds.us
+            ? [
+                {
+                  side: "US" as Side,
+                  playerId: liberoIds.us,
+                  // Off court means their team is serving — they cannot play.
+                  enabled: false,
+                  onCourt: state.usLibero.onCourt,
+                },
+              ]
             : []),
-          ...(state.setup.opp.liberoId
-            ? [{ side: "OPP" as Side, playerId: state.setup.opp.liberoId, enabled: true }]
+          ...(liberoIds.opp
+            ? [
+                {
+                  side: "OPP" as Side,
+                  playerId: liberoIds.opp,
+                  enabled: false,
+                  onCourt: state.oppLibero.onCourt,
+                },
+              ]
             : []),
         ]}
       />
+
+      {/* Player management: SUB is the coach's; the libero is the system's. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <SubControl
+          // FIVB 15.2.1: a substitution is requested with the ball out of play.
+          // Holding to that is also what keeps Undo honest — the court a rally
+          // was played with never changes halfway through it.
+          disabled={state.current.length > 0}
+          disabledReason="Ball is live — substitute when the rally ends"
+          homeName={homeTeam.name}
+          awayName={awayTeam.name}
+          usLineup={state.usLineup}
+          oppLineup={state.oppLineup}
+          usLibero={state.usLibero}
+          oppLibero={state.oppLibero}
+          usLiberoId={liberoIds.us}
+          oppLiberoId={liberoIds.opp}
+          homeRoster={homeRoster}
+          awayRoster={awayRoster}
+          subs={state.subs}
+          onSub={onSub}
+        />
+        <p className="min-w-0 flex-1 truncate text-xs text-dim">
+          {state.current.length > 0
+            ? "Ball is live — substitute when the rally ends."
+            : (notice ?? "Libero swaps run automatically on every change of serve.")}
+        </p>
+      </div>
 
       {armed && (
         <div className="card-premium sticky bottom-2 z-10 rounded-2xl border-accent/30 p-4">
@@ -698,12 +947,12 @@ export default function FreeRallyTracker() {
       <h2 className="stat-display pt-2 text-lg font-bold uppercase tracking-wide text-ink">
         Spiker performance
         <span className="ml-2 text-xs font-semibold normal-case tracking-normal text-dim">
-          updates on every tap
+          {scope === "ALL" ? "all sets · updates on every tap" : `${scopeLabel(scope)} only`}
         </span>
       </h2>
       <SpikeChartGrid
         players={allPlayers}
-        events={events}
+        events={inScope(events)}
         homeTeamId={homeTeam.id}
         homeLabel={homeTeam.name}
         awayLabel={awayTeam.name}
