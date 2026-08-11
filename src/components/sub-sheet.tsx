@@ -204,12 +204,25 @@ export function SubControl({
                     }`}
                   >
                     <span className="tnum text-[9px] text-dim">P{pos}</span>
-                    <span className="max-w-full truncate text-[13px] font-bold leading-tight">
+                    {p?.jerseyNo != null && (
+                      <span className="stat-display tnum text-lg font-extrabold leading-none">
+                        #{p.jerseyNo}
+                      </span>
+                    )}
+                    <span
+                      className={`max-w-full truncate leading-tight ${
+                        p?.jerseyNo != null
+                          ? "text-[10px] text-dim"
+                          : "text-[13px] font-bold"
+                      }`}
+                    >
                       {p?.fullName.split(" ")[0] ?? "—"}
                     </span>
-                    <span className="text-[9px] uppercase tracking-wider text-dim">
-                      {slot.isLibero ? "libero · auto" : `#${p?.jerseyNo ?? "—"}`}
-                    </span>
+                    {slot.isLibero && (
+                      <span className="text-[9px] uppercase tracking-wider text-violet">
+                        libero · auto
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -263,12 +276,20 @@ export function SubControl({
                       }`}
                     >
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-bold leading-tight">
-                          {p?.fullName.split(" ")[0]}
-                        </span>
-                        <span className="tnum text-[10px] text-dim">
-                          #{p?.jerseyNo ?? "—"}
-                        </span>
+                        {p?.jerseyNo != null ? (
+                          <>
+                            <span className="stat-display tnum block text-lg font-extrabold leading-none">
+                              #{p.jerseyNo}
+                            </span>
+                            <span className="mt-0.5 block truncate text-[10px] leading-tight text-dim">
+                              {p.fullName.split(" ")[0]}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="block truncate text-sm font-bold leading-tight">
+                            {p?.fullName.split(" ")[0]}
+                          </span>
+                        )}
                       </span>
                       <PositionTag position={p?.position ?? null} short />
                     </button>

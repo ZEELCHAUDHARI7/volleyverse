@@ -102,7 +102,7 @@ export function CourtBoard({
         type="button"
         disabled={!tappable}
         onClick={() => onTap?.(pid, side)}
-        className={`relative flex min-h-14 flex-col items-center justify-center rounded-xl border px-1 text-center transition-all duration-200 active:scale-[0.97] ${
+        className={`relative flex min-h-16 flex-col items-center justify-center rounded-xl border px-1 text-center transition-all duration-200 active:scale-[0.97] ${
           isArmed || highlightId === pid
             ? "border-accent bg-accent/15 ring-2 ring-accent"
             : faded
@@ -116,10 +116,21 @@ export function CourtBoard({
           P{pos}
           {isServer ? " · serve" : ""}
         </span>
-        <span className="max-w-full truncate text-[13px] font-bold leading-tight">
-          {p?.name ?? "Open"}
-        </span>
-        {p?.jersey !== undefined && <span className="tnum text-[9px] text-dim">#{p.jersey}</span>}
+        {/* The collector reads the jersey off the player's back, so the number
+            leads and the name confirms the tap. Where no number is on file the
+            name takes the headline slot rather than showing a dead "#—". */}
+        {p === undefined ? (
+          <span className="stat-display text-xl font-extrabold leading-none">Open</span>
+        ) : p.jersey !== undefined ? (
+          <>
+            <span className="stat-display tnum text-xl font-extrabold leading-none">
+              #{p.jersey}
+            </span>
+            <span className="max-w-full truncate text-[10px] leading-tight text-dim">{p.name}</span>
+          </>
+        ) : (
+          <span className="max-w-full truncate text-[13px] font-bold leading-tight">{p.name}</span>
+        )}
         {isServer && (
           <span className="live-ring absolute right-1 top-1 inline-block h-1.5 w-1.5 rounded-full bg-accent" />
         )}
@@ -154,7 +165,14 @@ export function CourtBoard({
           <span className="rounded bg-violet/25 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-violet">
             Libero on
           </span>
-          <span className="text-ink">{p?.name}</span>
+          {p?.jersey !== undefined && (
+            <span className="stat-display tnum text-base font-extrabold text-ink">
+              #{p.jersey}
+            </span>
+          )}
+          <span className={p?.jersey !== undefined ? "text-[11px] text-dim" : "text-ink"}>
+            {p?.name}
+          </span>
           {pos && <span className="tnum text-[10px] text-dim">P{pos}</span>}
         </div>
       );
@@ -180,7 +198,10 @@ export function CourtBoard({
         <span className="rounded bg-violet/20 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-violet">
           Libero
         </span>
-        {p?.name}
+        {p?.jersey !== undefined && (
+          <span className="stat-display tnum text-base font-extrabold">#{p.jersey}</span>
+        )}
+        <span className={p?.jersey !== undefined ? "text-[11px] text-dim" : ""}>{p?.name}</span>
         <span className="text-[9px] uppercase tracking-wider text-dim">bench</span>
       </button>
     );
