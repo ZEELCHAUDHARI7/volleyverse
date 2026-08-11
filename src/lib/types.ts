@@ -16,7 +16,13 @@
 // ---------------------------------------------------------------------
 
 /** Standard indoor volleyball positions. */
-export type PlayerPosition = "OH" | "OPP" | "MB" | "S" | "L" | "DS";
+/**
+ * `U` (Universal) is how Indian league sheets label an all-round attacker who
+ * is not pinned to the opposite slot. It is kept distinct from `OPP` because
+ * the team sheets we load say "Universal", and collapsing the two would put a
+ * label on a player that their own club did not give them.
+ */
+export type PlayerPosition = "OH" | "OPP" | "MB" | "S" | "L" | "DS" | "U";
 
 export const POSITION_LABEL: Record<PlayerPosition, string> = {
   OH: "Outside Hitter",
@@ -25,9 +31,10 @@ export const POSITION_LABEL: Record<PlayerPosition, string> = {
   S: "Setter",
   L: "Libero",
   DS: "Defensive Specialist",
+  U: "Universal",
 };
 
-export const POSITIONS_ALL: PlayerPosition[] = ["OH", "OPP", "MB", "S", "L", "DS"];
+export const POSITIONS_ALL: PlayerPosition[] = ["OH", "OPP", "MB", "S", "L", "DS", "U"];
 
 /**
  * Denormalized roster row the UI consumes: players ⋈ team_players.

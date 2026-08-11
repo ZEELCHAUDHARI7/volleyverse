@@ -74,6 +74,7 @@ const POSITION_COLOR: Record<PlayerPosition, string> = {
   MB: "bg-ok/15 text-ok ring-1 ring-ok/25",
   L: "bg-violet/15 text-violet ring-1 ring-violet/25",
   DS: "bg-violet/15 text-violet ring-1 ring-violet/25",
+  U: "bg-accent/15 text-accent ring-1 ring-accent/25",
 };
 
 export function PositionTag({
