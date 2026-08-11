@@ -133,7 +133,9 @@ function LocalStoreProvider({ children }: { children: React.ReactNode }) {
     syncStatus: "local",
     // Nothing can refuse a write here — localStorage takes whatever it is given.
     lastError: null,
+    rejectedCount: 0,
     clearErrors: () => {},
+    retryRejected: () => {},
 
     insert: (collection, row) => {
       const withId = { ...row, id: newId(String(collection).slice(0, 2)) } as Db[typeof collection][number];
