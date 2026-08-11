@@ -44,6 +44,12 @@ import {
 import { CourtBoard, type CourtPlayer } from "@/components/court-board";
 import { SetupWizard } from "@/components/court-setup";
 import { SubControl } from "@/components/sub-sheet";
+import {
+  type SetScope,
+  SetNavigator,
+  scopeLabel,
+  setEntries,
+} from "@/components/set-strip";
 
 /**
  * RALLY TRACKER v3 — the live courtside engine, two real teams.
@@ -320,6 +326,11 @@ function LiveScreen({
 
   const [armed, setArmed] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ text: string; big?: boolean } | null>(null);
+  /**
+   * Which set the performer strip below is reading. Banking a set keeps its
+   * score and its `setNo`-tagged events — this selects them back.
+   */
+  const [scope, setScope] = useState<SetScope>("ALL");
   const [savedAt, setSavedAt] = useState<number | null>(null);
   // Deciding-set toss (FIVB 6.3.2/7.1) - selections for the fresh toss prompt.
   const [dToss, setDToss] = useState<{ winner: Side | null; choice: Toss["choice"] | null }>({
@@ -681,9 +692,11 @@ function LiveScreen({
     router.push(`/console/matches/${matchId}/review`);
   };
 
-  // ---- Live top performers (this match, both rosters) ----
+  // ---- Live top performers (both rosters, whole match or one set) ----
   const matchEvents = store.db.events.filter((e) => e.matchId === matchId);
-  const ls = lines(allRoster, matchEvents);
+  const scopedEvents =
+    scope === "ALL" ? matchEvents : matchEvents.filter((e) => e.setNo === scope);
+  const ls = lines(allRoster, scopedEvents);
   const topScorer = [...ls].sort((a, b) => b.points - a.points)[0];
   const topServer = [...ls].sort((a, b) => b.aces - a.aces)[0];
   const topDef = [...ls].sort((a, b) => b.superDigs + b.blocks - (a.superDigs + a.blocks))[0];
@@ -797,6 +810,21 @@ function LiveScreen({
             {awayTeam.shortName}
           </p>
         </div>
+        {/* Every set of the match, banked ones included — a finished set never
+            leaves the screen. Tap one to read the performer strip for it. */}
+        <div className="mt-2 flex justify-center">
+          <SetNavigator
+            sets={setEntries(match.setScores, {
+              setNo: state.set,
+              homePoints: state.usScore,
+              awayPoints: state.oppScore,
+            })}
+            scope={scope}
+            onScope={setScope}
+            homeShort={homeTeam.shortName}
+            awayShort={awayTeam.shortName}
+          />
+        </div>
       </header>
 
       {/* Set-won banner */}
@@ -863,8 +891,11 @@ function LiveScreen({
         </div>
       </div>
 
-      {/* Top performers strip */}
-      <div className="mt-3 grid grid-cols-3 gap-2">
+      {/* Top performers strip — scoped by the set navigator above */}
+      <p className="mt-3 text-center text-[10px] font-bold uppercase tracking-[0.2em] text-dim">
+        Top performers · {scopeLabel(scope)}
+      </p>
+      <div className="mt-1.5 grid grid-cols-3 gap-2">
         <MiniStat label="Top scorer" name={nm(topScorer?.playerId)} value={`${topScorer?.points ?? 0} pts`} />
         <MiniStat label="Aces" name={nm(topServer?.playerId)} value={`${topServer?.aces ?? 0}`} />
         <MiniStat label="Defence" name={nm(topDef?.playerId)} value={`${(topDef?.blocks ?? 0) + (topDef?.superDigs ?? 0)}`} />

@@ -43,7 +43,13 @@ import {
   syncCourt,
 } from "@/lib/substitution";
 import { SubControl } from "@/components/sub-sheet";
-import type { Player } from "@/lib/types";
+import {
+  type SetScope,
+  SetNavigator,
+  scopeLabel,
+  setEntries,
+} from "@/components/set-strip";
+import type { Player, StatEvent } from "@/lib/types";
 
 /**
  * FREE-RALLY TRACKER — the court, without the fixed touch sequence.
@@ -187,6 +193,13 @@ export default function FreeRallyTracker() {
   const [ending, setEnding] = useState(false);
   /** Last automatic libero swap, shown under the court until the next point. */
   const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * Which set the stats below are showing. "ALL" is the running match total;
+   * a number narrows every chart to that set's events alone. Set scores and
+   * `setNo`-tagged events are kept for the whole match, so a banked set stays
+   * fully readable — this is what selects it.
+   */
+  const [scope, setScope] = useState<SetScope>("ALL");
 
   // Resume mid-match after a reload. Keyed on the route id, not the match
   // object — useMatch returns a fresh object on every db change, so keying on
@@ -265,6 +278,13 @@ export default function FreeRallyTracker() {
 
   /** The libero replaces a Middle Blocker — this is how the engine spots one. */
   const isMiddleBlocker = (playerId: string) => byId.get(playerId)?.position === "MB";
+
+  /**
+   * Narrow events to the selected set. Every event carries its `setNo`, so a
+   * banked set's stats are one filter away rather than gone.
+   */
+  const inScope = (evs: StatEvent[]) =>
+    scope === "ALL" ? evs : evs.filter((e) => e.setNo === scope);
 
   if (!store.ready || !loaded) return <PageSkeleton />;
 
@@ -593,18 +613,16 @@ export default function FreeRallyTracker() {
             <span className="text-azure">{setsWon.opp} {awayTeam.shortName}</span>
           </p>
           <p className="mt-1 text-xs text-dim">sets</p>
-          {match.setScores.length > 0 && (
-            <div className="mt-4 flex flex-wrap justify-center gap-1.5">
-              {match.setScores.map((s) => (
-                <span
-                  key={s.setNo}
-                  className="tnum rounded-lg border border-line bg-surface2/50 px-2.5 py-1 text-xs"
-                >
-                  {s.homePoints}–{s.awayPoints}
-                </span>
-              ))}
-            </div>
-          )}
+          {/* Tap a set to read the match one set at a time. */}
+          <div className="mt-4 flex justify-center">
+            <SetNavigator
+              sets={setEntries(match.setScores, null)}
+              scope={scope}
+              onScope={setScope}
+              homeShort={homeTeam.shortName}
+              awayShort={awayTeam.shortName}
+            />
+          </div>
           <div className="mt-5">
             <LinkButton href="/console">Back to console</LinkButton>
           </div>
@@ -612,10 +630,13 @@ export default function FreeRallyTracker() {
 
         <h2 className="stat-display text-lg font-bold uppercase tracking-wide text-ink">
           Spiker performance
+          <span className="ml-2 text-xs font-semibold normal-case tracking-normal text-dim">
+            {scopeLabel(scope)}
+          </span>
         </h2>
         <SpikeChartGrid
           players={allPlayers}
-          events={events}
+          events={inScope(events)}
           homeTeamId={homeTeam.id}
           homeLabel={homeTeam.name}
           awayLabel={awayTeam.name}
@@ -686,6 +707,7 @@ export default function FreeRallyTracker() {
               {state.usSets}–{state.oppSets}
             </p>
           </div>
+
           <div>
             <p className="stat-display text-sm font-extrabold uppercase text-ink">
               {awayTeam.name}
@@ -695,6 +717,23 @@ export default function FreeRallyTracker() {
             </p>
           </div>
         </div>
+        {/* Every set of the match, banked ones included — tap one to read the
+            stats below for that set alone. A finished set never leaves the
+            screen again. */}
+        <div className="mt-3 flex justify-center border-t border-line/60 pt-3">
+          <SetNavigator
+            sets={setEntries(match.setScores, {
+              setNo: state.set,
+              homePoints: state.usScore,
+              awayPoints: state.oppScore,
+            })}
+            scope={scope}
+            onScope={setScope}
+            homeShort={homeTeam.shortName}
+            awayShort={awayTeam.shortName}
+          />
+        </div>
+
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2 border-t border-line/60 pt-3">
           <Button
             variant="ghost"
@@ -908,12 +947,12 @@ export default function FreeRallyTracker() {
       <h2 className="stat-display pt-2 text-lg font-bold uppercase tracking-wide text-ink">
         Spiker performance
         <span className="ml-2 text-xs font-semibold normal-case tracking-normal text-dim">
-          updates on every tap
+          {scope === "ALL" ? "all sets · updates on every tap" : `${scopeLabel(scope)} only`}
         </span>
       </h2>
       <SpikeChartGrid
         players={allPlayers}
-        events={events}
+        events={inScope(events)}
         homeTeamId={homeTeam.id}
         homeLabel={homeTeam.name}
         awayLabel={awayTeam.name}
