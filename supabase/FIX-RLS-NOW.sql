@@ -119,21 +119,20 @@ end $$;
 grant usage on schema public to anon, authenticated;
 
 
--- ---------- 2. Prove it took ----------
--- Every row should read `true` under using_expr and with_check — not an
--- auth.role() test. Anything still mentioning auth. is a policy this
--- script did not reach, and it will keep refusing writes.
-
-select tablename,
-       policyname,
-       cmd,
-       permissive,
-       roles::text,
-       coalesce(qual::text, '—')       as using_expr,
-       coalesce(with_check::text, '—') as with_check
-from pg_policies
-where schemaname = 'public'
-order by tablename, policyname;
+-- ---------- 2. The full policy listing ----------
+-- The SQL editor only shows the result of the LAST select in a file, and
+-- the last one here is the inventory in section 4 — the more useful of the
+-- two when something is wrong. Run this one on its own when you want to
+-- read the policies themselves. Every row should say `true` under
+-- using_expr and with_check; anything still naming auth. is a policy this
+-- script did not reach, and it will go on refusing writes.
+--
+--   select tablename, policyname, cmd, permissive, roles::text,
+--          coalesce(qual::text, '—')       as using_expr,
+--          coalesce(with_check::text, '—') as with_check
+--   from pg_policies
+--   where schemaname = 'public'
+--   order by tablename, policyname;
 
 
 -- ---------- 3. Smoke-test an actual anon insert into matches ----------
@@ -141,8 +140,15 @@ order by tablename, policyname;
 -- nothing is left behind.
 --
 --   'anon insert into matches accepted'  → fixed, go press RETRY.
---   SQLSTATE 42501                       → a policy or grant was missed.
---   any other SQLSTATE                   → different cause; read the text.
+--   'STILL BLOCKED'                      → a policy or grant was missed.
+--   'skipping'                           → the tables it needs are absent;
+--                                          section 4 says which.
+--
+-- NOTHING BELOW MAY RAISE. The SQL editor runs this file as ONE
+-- transaction: a diagnostic that throws would roll back the policy fix
+-- above and leave the console exactly as broken as it was, while the
+-- error message talks about something else entirely. Every failure here
+-- is reported as a notice.
 
 do $$
 declare
@@ -150,19 +156,31 @@ declare
   home uuid;
   away uuid;
 begin
-  select id into tour from tournaments limit 1;
-  select id into home from teams limit 1;
-  select id into away from teams where id is distinct from home limit 1;
+  -- Check the tables exist before naming them. A missing relation is a
+  -- parse-time-ish failure that no exception handler can soften, so it has
+  -- to be avoided rather than caught.
+  if to_regclass('public.tournaments') is null
+     or to_regclass('public.teams') is null
+     or to_regclass('public.matches') is null then
+    raise notice 'skipping the insert test — this database is missing one of '
+                 'tournaments/teams/matches. See section 4.';
+    return;
+  end if;
+
+  execute 'select id from tournaments limit 1' into tour;
+  execute 'select id from teams limit 1' into home;
+  execute 'select id from teams where id is distinct from $1 limit 1'
+    into away using home;
 
   if tour is null or home is null or away is null then
     raise notice 'No tournament/teams seeded yet — skipping the insert test. '
-                 'The policy listing above is still the answer.';
+                 'The policy listing is still the answer.';
     return;
   end if;
 
   set local role anon;
-  insert into matches (tournament_id, home_team_id, away_team_id, date)
-  values (tour, home, away, current_date);
+  execute 'insert into matches (tournament_id, home_team_id, away_team_id, date) '
+          'values ($1, $2, $3, current_date)' using tour, home, away;
   reset role;
 
   raise notice 'anon insert into matches accepted — the console will sync.';
@@ -174,5 +192,45 @@ exception
     raise notice 'Smoke test passed and rolled back cleanly. Nothing was stored.';
   when insufficient_privilege then
     reset role;
-    raise exception 'STILL BLOCKED (42501): a policy or grant was missed. %', sqlerrm;
+    raise notice 'STILL BLOCKED (42501): a policy or grant was missed. %', sqlerrm;
+  when others then
+    reset role;
+    raise notice 'Insert test could not run [%]: %. The policies above were '
+                 'still applied.', sqlstate, sqlerrm;
 end $$;
+
+
+-- ---------- 4. What is actually in this database ----------
+-- Run this on its own if the fix does not take. `present` false means the
+-- app expects a table your database has never had — the console will fail
+-- on that table with 42P01 ("relation does not exist"), which is a missing
+-- migration, not a security problem. Fix it by running schema.sql.
+
+with expected(name) as (
+  select unnest(array[
+    'leagues','seasons','divisions','venues','courts','tournaments',
+    'tournament_groups','teams','team_honours','staff','players',
+    'team_players','matches','match_officials','match_sets',
+    'match_rosters','stat_events','match_live_state'
+  ])
+)
+select e.name                                          as expected_table,
+       to_regclass('public.' || quote_ident(e.name)) is not null as present,
+       (select count(*) from pg_policies p
+         where p.schemaname = 'public' and p.tablename = e.name) as policies
+from expected e
+order by present, e.name;
+
+
+-- ---------- 5. Tables of these names in OTHER schemas ----------
+-- If section 4 says a table is absent but you know you created it, it may
+-- live outside `public` — where PostgREST cannot see it and none of the
+-- policies above apply to it. Run this one on its own too.
+--
+--   select table_schema, table_name
+--   from information_schema.tables
+--   where table_name in (
+--           'tournaments','matches','teams','players','stat_events',
+--           'team_players','match_rosters','match_sets')
+--     and table_schema not in ('pg_catalog','information_schema')
+--   order by table_schema, table_name;
