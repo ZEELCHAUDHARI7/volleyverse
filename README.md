@@ -43,8 +43,16 @@ showcase.
 
 The console has **no sign-in**: there is no login route, no auth middleware
 and no route guard. Everything under `/console` is open to whoever can reach
-the deployment — put it behind a network boundary if that matters. The
-publish flag still decides what the public routes show.
+the deployment — put it behind a network boundary if that matters.
+
+Because there is no session, the browser reaches Supabase as the `anon`
+role, and the RLS policies grant that role read and write (see the header
+of `supabase/schema.sql`). Two consequences worth being clear about: the
+anon key is in the public JS bundle, so anyone who can load the site can
+write to the database directly, past every screen; and `published` is a
+filter the showcase honours rather than a boundary the database enforces.
+Restore a sign-in and swap the policies back to
+`auth.role() = 'authenticated'` before running a league that matters.
 
 ## Rules engine
 
@@ -88,5 +96,9 @@ schedule a match from Match Day.
 Apply `supabase/schema.sql` to a Supabase project and implement
 `createSupabaseProvider()` per the notes in
 `src/lib/providers/supabase.ts` (queries, mutations, realtime channels).
-Everything runs on the anon key — there is no console sign-in — so the
-publish boundary is enforced entirely by RLS.
+Everything runs on the anon key — there is no console sign-in — so the RLS
+policies grant `anon` read and write, and the publish boundary is a UI
+filter rather than a database one. If you applied an earlier copy of the
+schema, run `supabase/migrations/2026-08-11-open-console-writes.sql` once:
+the original policies demanded an authenticated session that this client
+never creates, and every write was refused by row-level security.
