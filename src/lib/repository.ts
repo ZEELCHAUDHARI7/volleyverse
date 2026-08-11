@@ -65,8 +65,18 @@ export interface DataProvider {
    * believes they saved does not exist on the server.
    */
   lastError: string | null;
+  /** How many refused writes are parked on this device awaiting a retry. */
+  rejectedCount: number;
   /** Discard the parked rejected writes and clear `lastError`. */
   clearErrors: () => void;
+  /**
+   * Put the parked writes back on the queue and try them again — the path
+   * back after a human fixes the cause (a missing migration, closed RLS).
+   * Safe to call repeatedly: every queued write is an upsert by primary key
+   * or an append of a client-minted id, so replaying one that already landed
+   * changes nothing. Refused again, they are simply parked again.
+   */
+  retryRejected: () => void;
 
   // ---- Generic entity CRUD (leagues, seasons, tournaments, venues,
   //      courts, teams, staff, players, divisions, groups) ----
