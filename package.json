@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --experimental-strip-types src/lib/rally.test.mjs && node --experimental-strip-types src/lib/auth-routes.test.mjs && node --experimental-strip-types src/lib/spikes.test.mjs && node --experimental-strip-types src/lib/free-rally.test.mjs && node --experimental-strip-types src/lib/substitution.test.mjs"
+    "test": "node --experimental-strip-types src/lib/rally.test.mjs && node --experimental-strip-types src/lib/spikes.test.mjs && node --experimental-strip-types src/lib/free-rally.test.mjs && node --experimental-strip-types src/lib/substitution.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

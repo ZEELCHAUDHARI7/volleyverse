@@ -41,6 +41,11 @@ showcase.
 | `/console/matches/[id]/review` | Post-match corrections |
 | `/console/players`, `/console/analytics` | Player and season analytics |
 
+The console has **no sign-in**: there is no login route, no auth middleware
+and no route guard. Everything under `/console` is open to whoever can reach
+the deployment — put it behind a network boundary if that matters. The
+publish flag still decides what the public routes show.
+
 ## Rules engine
 
 `src/lib/rally.ts` is a pure FIVB state machine (rotation for both
@@ -82,5 +87,6 @@ schedule a match from Match Day.
 
 Apply `supabase/schema.sql` to a Supabase project and implement
 `createSupabaseProvider()` per the notes in
-`src/lib/providers/supabase.ts` (queries, mutations, realtime channels,
-auth). The publish boundary is enforced by RLS.
+`src/lib/providers/supabase.ts` (queries, mutations, realtime channels).
+Everything runs on the anon key — there is no console sign-in — so the
+publish boundary is enforced entirely by RLS.
