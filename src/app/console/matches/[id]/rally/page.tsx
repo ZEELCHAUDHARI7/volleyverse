@@ -45,7 +45,12 @@ import {
   subCountFrom,
   syncCourt,
 } from "@/lib/substitution";
-import { CourtBoard, type CourtPlayer } from "@/components/court-board";
+import {
+  CourtBoard,
+  type CourtPlayer,
+  type DragAnswer,
+  type DragMenu,
+} from "@/components/court-board";
 import { SetupWizard } from "@/components/court-setup";
 import { SetRotationGate } from "@/components/set-rotation";
 import { SubControl } from "@/components/sub-sheet";
@@ -463,32 +468,47 @@ function LiveScreen({
   // What would the armed tap mean right now? The action type comes from the
   // current phase; block-vs-dig is resolved by the tapped player's own row on
   // THEIR side — so a surprise touch by either team is logged correctly.
-  const armedAction: ActionKind | null = useMemo(() => {
-    if (!armed || phase === "OVER") return null;
-    const aSide = sideOf(armed);
+  //
+  // Hoisted out of the memo below so a gesture can ask the same question about
+  // a player it never armed. Both callers must agree: the trio a drag commits
+  // has to mean exactly what the panel's buttons would have meant.
+  const actionFor = (playerId: string, aSide: Side): ActionKind | null => {
+    if (phase === "OVER") return null;
     const lib = liberoOf(aSide);
-    const front = armed !== lib && isFrontRow(lineupOf(aSide), armed);
+    const front = playerId !== lib && isFrontRow(lineupOf(aSide), playerId);
     return inferAction(phase, front);
+  };
+
+  const armedAction: ActionKind | null = useMemo(() => {
+    if (!armed) return null;
+    return actionFor(armed, sideOf(armed));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [armed, phase, side, usLineup, oppLineup]);
 
-  // ---- Core: one of the three buttons for the armed player ----
-  const commit = (trio: Trio) => {
-    if (phase === "OVER" || !armed || !armedAction) return;
-    // The acting side is whoever was tapped — the court is fully open, so this
+  // ---- Core: one answer for one player ----
+  //
+  // Takes the player rather than reading `armed`, because a hold-and-drag never
+  // arms anyone: the whole action is one gesture, so there is no intermediate
+  // state for it to leave behind and nothing for this to read if it tried.
+  const commitFor = (playerId: string, trio: Trio) => {
+    if (phase === "OVER") return;
+    // The acting side is whoever was touched — the court is fully open, so this
     // may differ from the phase's expected side (an unexpected touch or tip).
-    const aSide = sideOf(armed);
-    const res = resolveTrio(armedAction, aSide, trio);
+    const aSide = sideOf(playerId);
+    // The same inference armedAction memoises, for an arbitrary player.
+    const action = actionFor(playerId, aSide);
+    if (!action) return;
+    const res = resolveTrio(action, aSide, trio);
     const teamId = teamIdOf(aSide);
 
     let eventId: string | null = null;
     let assistUpgradeEventId: string | null = null;
 
     if (res.event) {
-      const e = store.addEvent(matchId, teamId, armed, state.set, res.event);
+      const e = store.addEvent(matchId, teamId, playerId, state.set, res.event);
       eventId = e.id;
 
-      // Assist attribution: a kill upgrades that side's preceding set.
+      // Assist attribution: a spike upgrades that side's preceding set.
       if (res.event === "SPIKE_POINT") {
         const priorSet = [...rally.current]
           .reverse()
@@ -504,14 +524,14 @@ function LiveScreen({
       // Milestone flashes — flag at 3/5/7, record breaks league-wide.
       if (res.event === "SERVE_ACE" || res.event === "DIG_SUPER") {
         const isAce = res.event === "SERVE_ACE";
-        const n = perMatchCount(armed, res.event); // includes the one just added
+        const n = perMatchCount(playerId, res.event); // includes the one just added
         const broke = breaksRecord(
           isAce ? "aces" : "superDigs",
           store.db.events.filter((e) => e.id !== eventId),
           matchId,
-          armed,
+          playerId,
         );
-        const first = players.get(armed)?.name ?? "Player";
+        const first = players.get(playerId)?.name ?? "Player";
         if (broke) showFlash(`🏆 SEASON RECORD · ${first}: ${n} ${isAce ? "aces" : "super digs"}!`, true);
         else if ([3, 5, 7].includes(n)) showFlash(`🔥 ${first}: ${n} ${isAce ? "aces" : "super digs"} this match`, true);
       }
@@ -519,9 +539,9 @@ function LiveScreen({
 
     const logged: LoggedAction = {
       eventId,
-      playerId: armed,
+      playerId,
       side: aSide,
-      action: armedAction,
+      action,
       phase,
     };
     const nextCurrent = [...rally.current, logged];
@@ -535,6 +555,39 @@ function LiveScreen({
       });
       setArmed(null);
     }
+  };
+
+  /** The panel's path in: one of the three buttons, for the armed player. */
+  const commit = (trio: Trio) => {
+    if (armed) commitFor(armed, trio);
+  };
+
+  /**
+   * What the three directions mean for this player, right now.
+   *
+   * Unlike the free-rally tracker the answer depends on who is being held: the
+   * phase says what is happening, and their own row settles the one genuine
+   * ambiguity in the flow — a front-row player meeting an attack is blocking,
+   * the same touch behind them is a dig.
+   */
+  const dragMenuFor = (playerId: string, side: Side): DragMenu | null => {
+    const action = actionFor(playerId, side);
+    if (!action) return null;
+    const what = ACTION_LABEL[action];
+    return {
+      left: { glyph: "✓", label: `${what} · won`, tone: "ok" },
+      up: { glyph: "O", label: `${what} · rally on`, tone: "azure" },
+      right: { glyph: "✗", label: `${what} · fail`, tone: "err" },
+    };
+  };
+
+  /**
+   * A drag released. Nothing here has a second question behind it — the trio IS
+   * the whole answer in this tracker — so every direction commits outright, and
+   * the ← Back button below the court is what a wrong flick reaches for.
+   */
+  const onDrag = (playerId: string, _side: Side, answer: DragAnswer) => {
+    commitFor(playerId, answer === "LEFT" ? "WIN" : answer === "RIGHT" ? "LOSE" : "CONT");
   };
 
   // ---- Scorer missed a contact: advance the flow, log nothing ----
@@ -1007,6 +1060,8 @@ function LiveScreen({
         serving={rally.serving}
         armedId={armed}
         tappableIds={tappableIds}
+        onDrag={onDrag}
+        dragActions={dragMenuFor}
         onTap={(pid) => setArmed((a) => (a === pid ? null : pid))}
         liberos={liberos}
       />
@@ -1017,9 +1072,9 @@ function LiveScreen({
           {armed && armedAction
             ? `${armedName} · ${ACTION_LABEL[armedAction]}`
             : phase === "SERVE"
-              ? `Tap the server to start`
+              ? `Hold the server and flick ✓ ← · O ↑ · ✗ →`
               : phase !== "OVER"
-                ? `Tap whoever touched the ball — any player, either side`
+                ? `Hold whoever touched the ball and flick — or tap, then choose`
                 : ""}
         </p>
         <div className="grid grid-cols-3 gap-2">

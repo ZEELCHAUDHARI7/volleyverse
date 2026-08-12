@@ -60,8 +60,11 @@ const ERR_EVENTS = new Set<EventType>([
 ]);
 
 const EVENT_LABEL: Partial<Record<EventType, string>> = {
-  SPIKE_POINT: "Kill",
-  SPIKE_TOOL: "Tool",
+  // Court words, not scoresheet words. A coach shouting from the bench says
+  // "spike" and "checkout"; the stored EventType keeps its original name, so
+  // nothing already recorded has to be migrated to read correctly.
+  SPIKE_POINT: "Spike",
+  SPIKE_TOOL: "Checkout",
   SERVE_ACE: "Ace",
   BLOCK_WIN: "Block",
   SPIKE_ERR: "Attack error",
@@ -290,7 +293,7 @@ function attackByZone(roster: Player[], events: StatEvent[]): DistributionSeries
   return {
     key: "attack-zone",
     label: "Attack distribution (by zone)",
-    hint: "Kills by attacking lane — representative, from hitter role.",
+    hint: "Spikes by attacking lane — representative, from hitter role.",
     shape: "bar",
     data: [
       { key: "4", label: "Zone 4 (outside)", value: zoneKills[4], tone: "accent" },
@@ -320,8 +323,10 @@ function teamStatLine(
     0,
   );
 
-  // Kills here means "points from the attack" — kills and tools together, so
-  // the team's attack % does not drop when a scorer credits the block-out.
+  // Attack points means spikes AND checkouts together, so the team's attack %
+  // does not drop when a scorer credits the block-out. The row below is labelled
+  // "Attack Points" rather than "Spikes" for exactly that reason — the narrower
+  // word belongs to the SPIKE_POINT slice in the attack-outcomes pie.
   const kills = num(c.SPIKE_POINT) + num(c.SPIKE_TOOL);
   const attackErr = num(c.SPIKE_ERR) + num(c.SPIKE_BLOCKED);
   const attackAttempts = kills + num(c.SPIKE_IN) + attackErr;
@@ -352,7 +357,7 @@ function teamStatLine(
     stats: [
       { key: "points", label: "Total Points", value: totalPoints },
       { key: "sets", label: "Sets Won / Lost", value: `${setsWon} / ${setsLost}` },
-      { key: "kills", label: "Kills", value: kills },
+      { key: "kills", label: "Attack Points", value: kills },
       { key: "attAtt", label: "Attack Attempts", value: attackAttempts },
       { key: "attPct", label: "Attack Success", value: pct(kills, attackAttempts) ?? "—", unit: "%" },
       { key: "attErr", label: "Attack Errors", value: attackErr },
@@ -387,7 +392,7 @@ function comparison(
   const ca = countByType(events, awayId);
   const tally = setTally(match);
 
-  /** Points from the attack — kills and tools — over every attempt. */
+  /** Points from the attack — spikes and checkouts — over every attempt. */
   const attackPoints = (c: Record<EventType, number>) =>
     num(c.SPIKE_POINT) + num(c.SPIKE_TOOL);
   const attackPct = (c: Record<EventType, number>) => {
@@ -405,7 +410,7 @@ function comparison(
   return [
     { key: "points", label: "Points", home: homePts, away: awayPts },
     { key: "sets", label: "Sets Won", home: tally.home, away: tally.away, max: match.totalSets },
-    { key: "kills", label: "Kills", home: attackPoints(ch), away: attackPoints(ca) },
+    { key: "kills", label: "Attack Points", home: attackPoints(ch), away: attackPoints(ca) },
     { key: "aces", label: "Aces", home: num(ch.SERVE_ACE), away: num(ca.SERVE_ACE) },
     { key: "blocks", label: "Blocks", home: num(ch.BLOCK_WIN), away: num(ca.BLOCK_WIN) },
     { key: "digs", label: "Digs", home: num(ch.DIG_SUPER) + num(ch.DIG_SAVE), away: num(ca.DIG_SUPER) + num(ca.DIG_SAVE) },
@@ -512,7 +517,7 @@ function performers(analytics: PlayerAnalytic[]): Performer[] {
   const server = top(active, (a) => a.aces * 10 + (a.serveAttempts - a.serveErrors));
   if (server && server.aces > 0) out.push(to(server, "Best Server", server.aces, "aces"));
   const attacker = top(active, (a) => a.points);
-  if (attacker && attacker.points > 0) out.push(to(attacker, "Best Attacker", attacker.points, "kills", attacker.successRate != null ? `${attacker.successRate}%` : undefined));
+  if (attacker && attacker.points > 0) out.push(to(attacker, "Best Attacker", attacker.points, "attack pts", attacker.successRate != null ? `${attacker.successRate}%` : undefined));
   const blocker = top(active, (a) => a.blocks);
   if (blocker && blocker.blocks > 0) out.push(to(blocker, "Best Blocker", blocker.blocks, "blocks"));
   const defender = top(active, (a) => defensiveScore(a));
@@ -676,14 +681,14 @@ function attackOutcomes(
   return {
     key: "attack-outcomes",
     label: "Attack outcomes",
-    hint: "Every attack, resolved: kill, tool, kept in play, blocked, or error.",
+    hint: "Every attack, resolved: spike, checkout, kept in play, blocked, or error.",
     shape: "pie",
     // Five slices rather than three: the two that only the ✓/✗ sub-options can
     // tell apart are worth their own colour, and both are zero for a match
     // collected before they existed, so the chart simply reads as it always did.
     data: [
-      { key: "kill", label: "Kills", value: num(ch.SPIKE_POINT) + num(ca.SPIKE_POINT), tone: "ok" },
-      { key: "tool", label: "Tools", value: num(ch.SPIKE_TOOL) + num(ca.SPIKE_TOOL), tone: "violet" },
+      { key: "kill", label: "Spikes", value: num(ch.SPIKE_POINT) + num(ca.SPIKE_POINT), tone: "ok" },
+      { key: "tool", label: "Checkouts", value: num(ch.SPIKE_TOOL) + num(ca.SPIKE_TOOL), tone: "violet" },
       { key: "in", label: "In play", value: num(ch.SPIKE_IN) + num(ca.SPIKE_IN), tone: "azure" },
       { key: "blocked", label: "Blocked", value: num(ch.SPIKE_BLOCKED) + num(ca.SPIKE_BLOCKED), tone: "dim" },
       { key: "err", label: "Errors", value: num(ch.SPIKE_ERR) + num(ca.SPIKE_ERR), tone: "err" },

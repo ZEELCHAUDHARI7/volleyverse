@@ -16,11 +16,11 @@ import { ChartShell, axisProps, firstName, theme, tooltipStyle } from "./charts"
  * THE BLOCKING VIEW — everything the ✓/✗ sub-options make derivable.
  *
  * Not one extra tap was collected for any of this. Saying an attack was BLOCKED
- * names a blocker, and saying it was a TOOL names the blocker who got used;
+ * names a blocker, and saying it was a CHECKOUT names the blocker who got used;
  * those two answers are the whole input behind these cards, bars and matchups.
  *
  * "Duels won" is deliberately not called a block success rate. Its denominator
- * is the blocks and tools this app witnessed, so it answers "when the ball came
+ * is the blocks and checkouts this app witnessed, so it answers "when the ball came
  * through their hands, how often did it stay down" — an attack hit past the
  * block is invisible to it, and calling it a success rate would imply otherwise.
  */
@@ -121,7 +121,7 @@ export function BlockerCards({
                   {line.tooled}
                 </p>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-dim">
-                  Tooled
+                  Checked out
                 </p>
               </div>
             </div>
@@ -292,7 +292,7 @@ export function BlockLeaderboard({
                   </span>
                 </span>
                 <span className="tnum shrink-0 text-xs text-dim">
-                  {l.tooled} tooled
+                  {l.tooled} checked out
                   <span className="stat-display ml-3 text-base font-extrabold text-ok">
                     {l.blocks}
                   </span>
@@ -382,7 +382,7 @@ export function DuelMatrix({
       </p>
       {shown.length === 0 ? (
         <p className="text-sm text-dim">
-          No matchups yet. They build themselves from the Blocked and Tool
+          No matchups yet. They build themselves from the Blocked and Checkout
           answers — a block recorded without naming the spiker cannot appear here.
         </p>
       ) : (
@@ -393,7 +393,7 @@ export function DuelMatrix({
                 <th className="py-1 pr-2">Blocker</th>
                 <th className="py-1 pr-2">Spiker</th>
                 <th className="py-1 pr-2 text-right">Blocked</th>
-                <th className="py-1 text-right">Tooled</th>
+                <th className="py-1 text-right">Checked out</th>
               </tr>
             </thead>
             <tbody>

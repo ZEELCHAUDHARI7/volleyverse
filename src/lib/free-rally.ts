@@ -46,6 +46,11 @@ export const FAULT_EVENT: Record<FaultKind, EventType> = {
  * `undefined` is a legal answer everywhere: an unrefined ✓ is a kill and an
  * unrefined ✗ is an error, which is exactly what every tap logged before this
  * existed meant. Nothing recorded before this change has to be re-read.
+ *
+ * The screen calls these SPIKE and CHECKOUT, which is what a coach shouts. The
+ * names here — and the EventTypes they resolve to — are deliberately left
+ * alone: renaming them would rewrite the stored vocabulary of every match
+ * already collected to change two words on a button.
  */
 export type AttackKind = "KILL" | "TOOL";
 export type FailKind = "BLOCKED" | "ERROR";
