@@ -9,6 +9,8 @@ import { SpikeChartGrid } from "@/components/spike-charts";
 import { Button, EmptyState, LinkButton, PageSkeleton } from "@/components/ui";
 import {
   type Lineup,
+  type MatchSetup,
+  type SetSetups,
   type Side,
   type TeamSetup,
   type Toss,
@@ -16,12 +18,16 @@ import {
   firstServerForSet,
   isDecidingSet,
   matchWinner,
+  openSetCourt,
   resolvePoint,
   rotate,
   serverId,
   servingFromToss,
   setPointReached,
+  setupForSet,
+  withSetSetup,
 } from "@/lib/rally";
+import { SetRotationGate } from "@/components/set-rotation";
 import {
   type FaultKind,
   type FreeRallyState,
@@ -35,8 +41,6 @@ import {
   type LiberoEvent,
   type LiberoState,
   type SubCount,
-  LIBERO_OFF,
-  NO_SUBS,
   applySub,
   liberoStateFrom,
   subCountFrom,
@@ -79,7 +83,12 @@ interface Snapshot {
 }
 
 interface FreeMatchState {
-  setup: { us: TeamSetup; opp: TeamSetup };
+  /** Set 1's starting rotations. Later sets may differ — see `setSetups`. */
+  setup: MatchSetup;
+  /** Starting rotations entered for later sets, keyed by set number. */
+  setSetups?: SetSetups;
+  /** True while the next set is waiting for its rotation to be confirmed. */
+  awaitingSetStart?: boolean;
   toss: Toss;
   /** FIVB 6.3.2/7.1 — the deciding set takes a fresh toss. null until taken. */
   decidingToss: Toss | null;
@@ -106,6 +115,9 @@ interface FreeMatchState {
 function initialState(us: TeamSetup, opp: TeamSetup, toss: Toss): FreeMatchState {
   return {
     setup: { us, opp },
+    setSetups: {},
+    // Set 1's rotation comes from the wizard, so no set start is ever owed.
+    awaitingSetStart: false,
     toss,
     decidingToss: null,
     set: 1,
@@ -113,11 +125,7 @@ function initialState(us: TeamSetup, opp: TeamSetup, toss: Toss): FreeMatchState
     oppScore: 0,
     usSets: 0,
     oppSets: 0,
-    usLineup: us.lineup,
-    oppLineup: opp.lineup,
-    usLibero: LIBERO_OFF,
-    oppLibero: LIBERO_OFF,
-    subs: NO_SUBS,
+    ...openSetCourt({ us, opp }),
     setScores: [],
     rally: openRally(servingFromToss(toss)),
     current: [],
@@ -137,6 +145,12 @@ function hydrate(s: FreeMatchState): FreeMatchState {
     usLibero: liberoStateFrom(s.usLibero),
     oppLibero: liberoStateFrom(s.oppLibero),
     subs: subCountFrom(s.subs),
+    // A session saved before rotation could change between sets has neither
+    // field. Empty + false is exactly the old behaviour: every set starts from
+    // `setup`, and no set start is owed — so resuming one never traps the
+    // collector behind a rotation screen for a set already in progress.
+    setSetups: s.setSetups ?? {},
+    awaitingSetStart: s.awaitingSetStart === true,
   };
 }
 
@@ -244,9 +258,12 @@ export default function FreeRallyTracker() {
     if (state.current.length > 0) return;
     const isMB = (pid: string) =>
       [...homeRoster, ...awayRoster].find((p) => p.id === pid)?.position === "MB";
+    // The libero is read from the rotation THIS set started from, not the
+    // match's: a side may designate a different libero for a later set.
+    const active = setupForSet(state.set, state.setup, state.setSetups);
     const r = syncCourt(
       state,
-      { us: state.setup.us.liberoId, opp: state.setup.opp.liberoId },
+      { us: active.us.liberoId, opp: active.opp.liberoId },
       isMB,
     );
     if (r.state !== state) persist(r.state);
@@ -329,9 +346,11 @@ export default function FreeRallyTracker() {
     state.rally.serving === "US" ? state.usLineup : state.oppLineup,
   );
 
+  /** The rotation the set in progress started from — set 1's unless changed. */
+  const activeSetup = setupForSet(state.set, state.setup, state.setSetups);
   const liberoIds = {
-    us: state.setup.us.liberoId,
-    opp: state.setup.opp.liberoId,
+    us: activeSetup.us.liberoId,
+    opp: activeSetup.opp.liberoId,
   };
   const nameOf = (pid: string) => players.get(pid)?.name ?? "Player";
 
@@ -517,27 +536,75 @@ export default function FreeRallyTracker() {
       state.toss,
       state.decidingToss,
     );
-    persist(
-      // Fresh set: starting rotations, liberos back on the bench and the
-      // per-set substitution counters cleared — then sync for the new server.
-      syncLiberos({
+    // Open the set on the rotation carried forward from the last one, then
+    // pause: `awaitingSetStart` puts the rotation screen in front of the court
+    // so the collector can change the six before the first serve. The court
+    // underneath is already coherent, so a session resumed at this point is
+    // playable whatever happens to the screen.
+    const nextSetup = setupForSet(nextSet, state.setup, state.setSetups);
+    const opened = syncCourt(
+      {
         ...state,
         set: nextSet,
+        awaitingSetStart: true,
         usScore: 0,
         oppScore: 0,
         usSets,
         oppSets,
         setScores: [...state.setScores, { us: state.usScore, opp: state.oppScore }],
-        usLineup: state.setup.us.lineup,
-        oppLineup: state.setup.opp.lineup,
-        usLibero: LIBERO_OFF,
-        oppLibero: LIBERO_OFF,
-        subs: NO_SUBS,
+        ...openSetCourt(nextSetup),
         rally: openRally(nextServer ?? state.rally.serving),
         current: [],
         history: [],
-      }),
+      },
+      // The carried rotation's liberos, not the match's: sync must not reach
+      // for a libero the incoming set no longer designates.
+      { us: nextSetup.us.liberoId, opp: nextSetup.opp.liberoId },
+      isMiddleBlocker,
     );
+    setNotice(liberoNote(opened.events, nameOf));
+    persist(opened.state);
+  };
+
+  /**
+   * The rotation for this set is confirmed — record it and let play begin.
+   *
+   * Recorded against THIS set only, so every set before it keeps the rotation
+   * it was actually played with, and every set after it inherits this one until
+   * someone changes it again.
+   */
+  const onStartSet = (setup: MatchSetup) => {
+    const six = new Set([
+      ...Object.values(setup.us.lineup),
+      ...Object.values(setup.opp.lineup),
+    ]);
+    // Scoresheet detail: anyone who has started a set is a starter for the
+    // match. Set 1's starters keep the flag — a player benched for set 2 still
+    // started the match.
+    store.setRosters(
+      match.id,
+      match.rosters.map((r) => ({
+        ...r,
+        isStarter: r.isStarter || six.has(r.playerId),
+        isLibero:
+          r.isLibero ||
+          r.playerId === setup.us.liberoId ||
+          r.playerId === setup.opp.liberoId,
+      })),
+    );
+    const started = syncCourt(
+      {
+        ...state,
+        setSetups: withSetSetup(state.setSetups, state.set, setup),
+        awaitingSetStart: false,
+        ...openSetCourt(setup),
+      },
+      { us: setup.us.liberoId, opp: setup.opp.liberoId },
+      isMiddleBlocker,
+    );
+    setNotice(liberoNote(started.events, nameOf));
+    persist(started.state);
+    setArmed(null);
   };
 
   const setOver = setPointReached(state.usScore, state.oppScore, SET_TARGET);
@@ -687,6 +754,25 @@ export default function FreeRallyTracker() {
     );
   }
 
+  // A set has been banked and the next one has not been lined up yet. Rotation
+  // changes between sets, so this is the moment to say how — it runs AFTER the
+  // deciding-set toss above, because who serves first decides which libero
+  // walks on, and after the set score is banked, so nothing is at risk here.
+  if (state.awaitingSetStart) {
+    return (
+      <SetRotationGate
+        set={state.set}
+        homeTeam={homeTeam}
+        awayTeam={awayTeam}
+        homeRoster={homeRoster}
+        awayRoster={awayRoster}
+        current={activeSetup}
+        serving={state.rally.serving}
+        onStart={onStartSet}
+      />
+    );
+  }
+
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 pb-24 pt-4">
       <header className="card-premium rounded-2xl p-4">
@@ -765,7 +851,7 @@ export default function FreeRallyTracker() {
             </p>
             <div className="mt-2 flex justify-center gap-2">
               <Button onClick={onBankSet}>
-                {decidesMatch ? "Finish match" : `Start set ${state.set + 1}`}
+                {decidesMatch ? "Finish match" : `Line up set ${state.set + 1} →`}
               </Button>
               <Button
                 variant="ghost"
