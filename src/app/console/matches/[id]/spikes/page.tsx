@@ -6,6 +6,7 @@ import { useMatch, useStore } from "@/lib/store";
 import { CourtBoard, type CourtPlayer } from "@/components/court-board";
 import { SetupWizard } from "@/components/court-setup";
 import { SpikeChartGrid } from "@/components/spike-charts";
+import { BlockChartGrid, BlockerCards } from "@/components/block-charts";
 import { Button, EmptyState, LinkButton, PageSkeleton } from "@/components/ui";
 import {
   type Lineup,
@@ -14,11 +15,13 @@ import {
   type Side,
   type TeamSetup,
   type Toss,
+  FRONT_ROW,
   SET_TARGET,
   firstServerForSet,
   isDecidingSet,
   matchWinner,
   openSetCourt,
+  other,
   resolvePoint,
   rotate,
   serverId,
@@ -29,10 +32,15 @@ import {
 } from "@/lib/rally";
 import { SetRotationGate } from "@/components/set-rotation";
 import {
+  type DuelKind,
   type FaultKind,
   type FreeRallyState,
   type Outcome,
+  type TapKind,
+  blockerEvent,
   closeServe,
+  isDuel,
+  isServeTap,
   openRally,
   resolveFault,
   resolveTap,
@@ -188,6 +196,45 @@ const OUTCOMES: { outcome: Outcome; glyph: string; label: string; cls: string }[
   },
 ];
 
+/**
+ * HOW A ✓ OR ✗ FINISHED — the second question, asked only when it has an answer
+ * worth having.
+ *
+ * A kill and a tool are both points; a block and a net error both cost one. The
+ * pairs are worth separating because they are different skills and, for the two
+ * duels, because they name a player on the other side of the net who never
+ * otherwise gets credited for anything.
+ */
+const WIN_KINDS: { kind: TapKind; glyph: string; label: string; hint: string }[] = [
+  {
+    kind: "KILL",
+    glyph: "🔨",
+    label: "Kill",
+    hint: "Landed in the opponent court",
+  },
+  {
+    kind: "TOOL",
+    glyph: "🎯",
+    label: "Tool",
+    hint: "Off the blocker and out",
+  },
+];
+
+const LOSE_KINDS: { kind: TapKind; glyph: string; label: string; hint: string }[] = [
+  {
+    kind: "BLOCKED",
+    glyph: "🚫",
+    label: "Blocked",
+    hint: "Stopped at the net — name who",
+  },
+  {
+    kind: "ERROR",
+    glyph: "❌",
+    label: "Error",
+    hint: "Into the net or out",
+  },
+];
+
 const FAULTS: { kind: FaultKind; label: string }[] = [
   { kind: "NET", label: "Net touch" },
   { kind: "FOUR_HITS", label: "Four hits" },
@@ -204,6 +251,13 @@ export default function FreeRallyTracker() {
   const [loaded, setLoaded] = useState(false);
   const [armed, setArmed] = useState<{ player: Player; side: Side } | null>(null);
   const [faulting, setFaulting] = useState(false);
+  /**
+   * The half-answered tap: which of ✓ / ✗ was pressed, and — once Blocked or
+   * Tool is chosen — which duel is waiting for a blocker to be named. Nothing
+   * is logged until the answer is complete, so backing out costs no undo.
+   */
+  const [asking, setAsking] = useState<Outcome | null>(null);
+  const [duel, setDuel] = useState<DuelKind | null>(null);
   const [ending, setEnding] = useState(false);
   /** Last automatic libero swap, shown under the court until the next point. */
   const [notice, setNotice] = useState<string | null>(null);
@@ -434,24 +488,110 @@ export default function FreeRallyTracker() {
         .filter(Boolean)
         .join("   "),
     );
-    setArmed(null);
+    disarm();
   };
 
-  const onOutcome = (outcome: Outcome) => {
+  /** Put the panel away, with every half-answered question dropped with it. */
+  const disarm = () => {
+    setArmed(null);
+    setFaulting(false);
+    setAsking(null);
+    setDuel(null);
+  };
+
+  /** Is this tap the serve? A serve has no kill/tool or blocked/error split. */
+  const armedIsServe =
+    armed !== null &&
+    isServeTap(state.rally, armed.side, armed.player.id === currentServerId);
+
+  /**
+   * Who could legally have blocked that attack: the three front-row players of
+   * the side the ball was hit at, read off the live lineup so a rotation or a
+   * substitution changes the choices with no extra step.
+   *
+   * The libero cannot appear here, and not because they are filtered out —
+   * syncCourt only ever places a libero in a back-row slot, so the front row is
+   * three eligible blockers by construction.
+   */
+  const blockerChoices: Player[] =
+    armed === null
+      ? []
+      : FRONT_ROW.map(
+          (pos) => (armed.side === "US" ? state.oppLineup : state.usLineup)[pos],
+        )
+          .map((pid) => byId.get(pid))
+          .filter((p): p is Player => p !== undefined);
+
+  /**
+   * Log a finished tap. `kind` refines ✓ and ✗; `blockerId` is required by the
+   * two kinds that are duels, and a duel logs TWO events for one rally — the
+   * spiker's and the blocker's — each naming the other in `vsPlayerId`.
+   *
+   * Both ids go into `current`, so one Undo takes the whole duel back rather
+   * than leaving a blocker credited for a block that no longer happened.
+   */
+  const logTap = (outcome: Outcome, kind?: TapKind, blockerId?: string) => {
     if (!armed) return;
     const { player, side } = armed;
     const isServer = player.id === currentServerId;
-    const res = resolveTap(state.rally, side, isServer, outcome);
-    const e = store.addEvent(match.id, teamIdFor(side), player.id, state.set, res.event);
-    const ids = [...state.current, e.id];
+    const res = resolveTap(state.rally, side, isServer, outcome, kind);
+    const spike = store.addEvent(
+      match.id,
+      teamIdFor(side),
+      player.id,
+      state.set,
+      res.event,
+      blockerId ?? null,
+    );
+    const ids = [...state.current, spike.id];
+
+    if (kind && isDuel(kind) && blockerId) {
+      const block = store.addEvent(
+        match.id,
+        teamIdFor(other(side)),
+        blockerId,
+        state.set,
+        blockerEvent(kind),
+        player.id,
+      );
+      ids.push(block.id);
+    }
 
     persist(
       res.pointTo
         ? applyPoint(state, res.pointTo, ids)
         : { ...state, rally: closeServe(state.rally), current: ids },
     );
-    setArmed(null);
+    disarm();
+  };
+
+  /**
+   * ✓ or ✗ pressed. O and the serve have nothing to refine, so they log on the
+   * spot and the collector never sees a second screen for them.
+   */
+  const onOutcome = (outcome: Outcome) => {
+    if (!armed) return;
+    if (outcome === "CONT" || armedIsServe) {
+      logTap(outcome);
+      return;
+    }
+    setAsking(outcome);
     setFaulting(false);
+  };
+
+  /** Kill / Tool / Blocked / Error pressed. A duel still owes us a blocker. */
+  const onKind = (kind: TapKind) => {
+    if (!asking) return;
+    if (isDuel(kind)) {
+      setDuel(kind);
+      return;
+    }
+    logTap(asking, kind);
+  };
+
+  const onBlocker = (blockerId: string) => {
+    if (!asking || !duel) return;
+    logTap(asking, duel, blockerId);
   };
 
   const onFault = (kind: FaultKind) => {
@@ -460,8 +600,7 @@ export default function FreeRallyTracker() {
     const res = resolveFault(side, kind);
     const e = store.addEvent(match.id, teamIdFor(side), player.id, state.set, res.event);
     persist(applyPoint(state, res.pointTo, [...state.current, e.id]));
-    setArmed(null);
-    setFaulting(false);
+    disarm();
   };
 
   /** Undo the last tap in the rally in progress, else the last whole rally. */
@@ -475,7 +614,7 @@ export default function FreeRallyTracker() {
         current: ids,
         rally: ids.length === 0 ? openRally(state.rally.serving) : state.rally,
       });
-      setArmed(null);
+      disarm();
       return;
     }
     const prev = state.history[state.history.length - 1];
@@ -501,7 +640,7 @@ export default function FreeRallyTracker() {
         history: state.history.slice(0, -1),
       }),
     );
-    setArmed(null);
+    disarm();
   };
 
   /** Bank the set once it is won and move to the next. */
@@ -522,7 +661,7 @@ export default function FreeRallyTracker() {
         match.id,
         decided === "US" ? homeTeam.id : awayTeam.id,
       );
-      setArmed(null);
+      disarm();
       return;
     }
 
@@ -604,7 +743,7 @@ export default function FreeRallyTracker() {
     );
     setNotice(liberoNote(started.events, nameOf));
     persist(started.state);
-    setArmed(null);
+    disarm();
   };
 
   const setOver = setPointReached(state.usScore, state.oppScore, SET_TARGET);
@@ -646,7 +785,7 @@ export default function FreeRallyTracker() {
       leader === null ? null : leader === "US" ? homeTeam.id : awayTeam.id,
     );
     setEnding(false);
-    setArmed(null);
+    disarm();
   };
 
   // Finished match: the winner, the set scores, and the four charts in full.
@@ -702,6 +841,26 @@ export default function FreeRallyTracker() {
           </span>
         </h2>
         <SpikeChartGrid
+          players={allPlayers}
+          events={inScope(events)}
+          homeTeamId={homeTeam.id}
+          homeLabel={homeTeam.name}
+          awayLabel={awayTeam.name}
+        />
+
+        <h2 className="stat-display text-lg font-bold uppercase tracking-wide text-ink">
+          Blocking
+          <span className="ml-2 text-xs font-semibold normal-case tracking-normal text-dim">
+            {scopeLabel(scope)}
+          </span>
+        </h2>
+        <BlockerCards
+          players={allPlayers}
+          events={inScope(events)}
+          homeTeamId={homeTeam.id}
+          seasonEvents={store.db.events}
+        />
+        <BlockChartGrid
           players={allPlayers}
           events={inScope(events)}
           homeTeamId={homeTeam.id}
@@ -906,12 +1065,11 @@ export default function FreeRallyTracker() {
           const p = byId.get(playerId);
           if (!p) return;
           if (armed?.player.id === playerId) {
-            setArmed(null);
-            setFaulting(false);
+            disarm();
             return;
           }
+          disarm();
           setArmed({ player: p, side });
-          setFaulting(false);
         }}
         liberos={[
           ...(liberoIds.us
@@ -986,52 +1144,123 @@ export default function FreeRallyTracker() {
             </p>
             <Button
               variant="ghost"
-              onClick={() => {
-                setArmed(null);
-                setFaulting(false);
-              }}
+              onClick={disarm}
             >
               Cancel
             </Button>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
-            {OUTCOMES.map((o) => (
+          {/* Three panels, one at a time: the outcome, how it finished, and —
+              only for a duel — which blocker was involved. Nothing is written
+              until the last of them is answered, so ← Back costs no undo. */}
+          {duel ? (
+            <div>
+              <p className="mb-2 text-xs text-dim">
+                {duel === "BLOCKED"
+                  ? "Who blocked it? Front row only — nobody else can block."
+                  : "Whose block did they use? Front row only."}
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {blockerChoices.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => onBlocker(p.id)}
+                    className="flex min-h-20 flex-col items-center justify-center gap-1 rounded-2xl border border-azure/40 bg-azure/10 px-2 text-azure transition-all duration-200 hover:border-azure"
+                  >
+                    <span className="stat-display tnum text-2xl font-extrabold">
+                      {p.jerseyNo !== null ? `#${p.jerseyNo}` : "—"}
+                    </span>
+                    <span className="w-full truncate text-center text-[11px] font-bold uppercase tracking-wider">
+                      {p.fullName.split(" ")[0]}
+                    </span>
+                  </button>
+                ))}
+              </div>
               <button
-                key={o.outcome}
                 type="button"
-                onClick={() => onOutcome(o.outcome)}
-                className={`flex min-h-20 flex-col items-center justify-center gap-1 rounded-2xl border transition-all duration-200 ${o.cls}`}
+                onClick={() => setDuel(null)}
+                className="mt-2 min-h-10 w-full rounded-xl border border-line text-[11px] font-bold uppercase tracking-wider text-dim hover:border-accent/40 hover:text-accent"
               >
-                <span className="stat-display text-3xl font-extrabold">{o.glyph}</span>
-                <span className="text-[11px] font-bold uppercase tracking-wider">
-                  {o.label}
-                </span>
+                ← Back
               </button>
-            ))}
-          </div>
-
-          {faulting ? (
-            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {FAULTS.map((f) => (
-                <button
-                  key={f.kind}
-                  type="button"
-                  onClick={() => onFault(f.kind)}
-                  className="min-h-12 rounded-xl border border-violet/40 bg-violet/10 text-xs font-bold uppercase tracking-wider text-violet"
-                >
-                  {f.label}
-                </button>
-              ))}
+            </div>
+          ) : asking ? (
+            <div>
+              <p className="mb-2 text-xs text-dim">
+                {asking === "WIN" ? "How did it score?" : "What went wrong?"}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {(asking === "WIN" ? WIN_KINDS : LOSE_KINDS).map((k) => (
+                  <button
+                    key={k.kind}
+                    type="button"
+                    onClick={() => onKind(k.kind)}
+                    className={`flex min-h-20 flex-col items-center justify-center gap-0.5 rounded-2xl border px-2 transition-all duration-200 ${
+                      asking === "WIN"
+                        ? "border-ok/40 bg-ok/10 text-ok hover:border-ok"
+                        : "border-err/40 bg-err/10 text-err hover:border-err"
+                    }`}
+                  >
+                    <span className="text-2xl leading-none">{k.glyph}</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider">
+                      {k.label}
+                    </span>
+                    <span className="text-center text-[10px] leading-tight opacity-70">
+                      {k.hint}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setAsking(null)}
+                className="mt-2 min-h-10 w-full rounded-xl border border-line text-[11px] font-bold uppercase tracking-wider text-dim hover:border-accent/40 hover:text-accent"
+              >
+                ← Back
+              </button>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => setFaulting(true)}
-              className="mt-2 min-h-10 w-full rounded-xl border border-line text-[11px] font-bold uppercase tracking-wider text-dim hover:border-violet/40 hover:text-violet"
-            >
-              ⚠ Fault — point to the other team
-            </button>
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                {OUTCOMES.map((o) => (
+                  <button
+                    key={o.outcome}
+                    type="button"
+                    onClick={() => onOutcome(o.outcome)}
+                    className={`flex min-h-20 flex-col items-center justify-center gap-1 rounded-2xl border transition-all duration-200 ${o.cls}`}
+                  >
+                    <span className="stat-display text-3xl font-extrabold">{o.glyph}</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider">
+                      {o.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {faulting ? (
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {FAULTS.map((f) => (
+                    <button
+                      key={f.kind}
+                      type="button"
+                      onClick={() => onFault(f.kind)}
+                      className="min-h-12 rounded-xl border border-violet/40 bg-violet/10 text-xs font-bold uppercase tracking-wider text-violet"
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setFaulting(true)}
+                  className="mt-2 min-h-10 w-full rounded-xl border border-line text-[11px] font-bold uppercase tracking-wider text-dim hover:border-violet/40 hover:text-violet"
+                >
+                  ⚠ Fault — point to the other team
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
@@ -1043,6 +1272,30 @@ export default function FreeRallyTracker() {
         </span>
       </h2>
       <SpikeChartGrid
+        players={allPlayers}
+        events={inScope(events)}
+        homeTeamId={homeTeam.id}
+        homeLabel={homeTeam.name}
+        awayLabel={awayTeam.name}
+      />
+
+      {/* Blocking, from the same taps. Nothing below was collected separately:
+          naming the blocker on a ✗ → Blocked (or a ✓ → Tool) is the whole
+          input, and the season column comes from the store rather than this
+          match, so a blocker's running total is on screen courtside. */}
+      <h2 className="stat-display pt-2 text-lg font-bold uppercase tracking-wide text-ink">
+        Blocking
+        <span className="ml-2 text-xs font-semibold normal-case tracking-normal text-dim">
+          {scope === "ALL" ? "all sets · no extra taps" : `${scopeLabel(scope)} only`}
+        </span>
+      </h2>
+      <BlockerCards
+        players={allPlayers}
+        events={inScope(events)}
+        homeTeamId={homeTeam.id}
+        seasonEvents={store.db.events}
+      />
+      <BlockChartGrid
         players={allPlayers}
         events={inScope(events)}
         homeTeamId={homeTeam.id}

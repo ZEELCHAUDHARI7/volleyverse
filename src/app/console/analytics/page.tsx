@@ -21,6 +21,11 @@ import {
 } from "@/components/analytics";
 import { RecordsStrip, DefendersLeaderboard } from "@/components/charts";
 import {
+  BestSetBlocks,
+  BlockLeaderboard,
+  DuelMatrix,
+} from "@/components/block-charts";
+import {
   exportTableCsv,
   hasRecordedPlay,
   headToHead,
@@ -241,6 +246,25 @@ export default function SeasonAnalytics() {
           stats={["points", "aces", "blocks", "superDigs"]}
         />
         <DefendersLeaderboard players={db.players} events={db.events} limit={5} />
+      </section>
+
+      {/* Blocking across the season. Every number here was collected by naming
+          the blocker on an attack that was stopped — no separate block sheet. */}
+      <section className="space-y-3">
+        <SectionHeading
+          icon="🧱"
+          title="The Wall"
+          hint="Season blocking, derived from the attacks that were stopped."
+        />
+        <BestSetBlocks players={db.players} events={db.events} />
+        <BlockLeaderboard
+          players={db.players}
+          events={db.events}
+          limit={8}
+          title="Top Blockers of the Season"
+          hint="Total blocks, with the spiker each one stops most often."
+        />
+        <DuelMatrix players={db.players} events={db.events} limit={10} />
       </section>
 
       {/* Team deep-dive */}

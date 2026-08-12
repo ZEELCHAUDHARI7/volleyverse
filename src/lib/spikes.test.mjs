@@ -107,6 +107,48 @@ t("2 of 3 attempts won is 67%, not 66% — disambiguates round from floor/trunca
   assert.equal(line.successRate, 67);
 });
 
+qa.suite("Kills, Tools, Errors, Blocked");
+
+t("a tool is a point won and an attempt, counted apart from a kill", () => {
+  const line = spikeLine("A", [ev("A", "SPIKE_POINT"), ev("A", "SPIKE_TOOL")]);
+  assert.equal(line.attempts, 2);
+  assert.equal(line.pointsWon, 2);
+  assert.equal(line.kills, 1);
+  assert.equal(line.tools, 1);
+  assert.equal(line.successRate, 100);
+});
+
+t("being blocked is a failed attempt, counted apart from an own error", () => {
+  const line = spikeLine("A", [ev("A", "SPIKE_ERR"), ev("A", "SPIKE_BLOCKED")]);
+  assert.equal(line.attempts, 2);
+  assert.equal(line.failed, 2);
+  assert.equal(line.errors, 1);
+  assert.equal(line.blocked, 1);
+  assert.equal(line.errorRate, 100);
+});
+
+t("the split always adds back up to the totals", () => {
+  const line = spikeLine("A", [
+    ev("A", "SPIKE_POINT"),
+    ev("A", "SPIKE_TOOL"),
+    ev("A", "SPIKE_IN"),
+    ev("A", "SPIKE_ERR"),
+    ev("A", "SPIKE_BLOCKED"),
+  ]);
+  assert.equal(line.pointsWon, line.kills + line.tools);
+  assert.equal(line.failed, line.errors + line.blocked);
+  assert.equal(line.attempts, line.pointsWon + line.rallyContinued + line.failed);
+  assert.equal(line.successRate, 40);
+  assert.equal(line.errorRate, 40);
+});
+
+t("the blocker's half of the duel is not the spiker's attempt", () => {
+  // BLOCK_WIN and BLOCK_TOOLED belong to the blocker. If they leaked into the
+  // spiker's line, one blocked attack would read as two attempts.
+  const line = spikeLine("A", [ev("A", "BLOCK_WIN"), ev("A", "BLOCK_TOOLED")]);
+  assert.equal(line.attempts, 0);
+});
+
 qa.suite("Multiple Players");
 
 t("spikeLines returns one line per id, in the order given", () => {
