@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useMatch, useStore } from "@/lib/store";
-import { CourtBoard, type CourtPlayer } from "@/components/court-board";
+import {
+  CourtBoard,
+  type CourtPlayer,
+  type DragAnswer,
+  type DragMenu,
+} from "@/components/court-board";
 import { SetupWizard } from "@/components/court-setup";
 import { SpikeChartGrid } from "@/components/spike-charts";
 import { BlockChartGrid, BlockerCards } from "@/components/block-charts";
@@ -61,14 +66,17 @@ import {
   scopeLabel,
   setEntries,
 } from "@/components/set-strip";
-import type { Player, StatEvent } from "@/lib/types";
+import type { EventType, Player, StatEvent } from "@/lib/types";
 
 /**
  * FREE-RALLY TRACKER — the court, without the fixed touch sequence.
  *
- * Tap whoever touched the ball, in any order, as many times as it happened.
- * The only thing the app infers is the serve, and it does that from rotation:
- * the serving side's P1 tapped before anything else in a rally is a serve.
+ * Hold whoever touched the ball and flick — left for a point won, right for a
+ * failure, up to keep the rally going — in any order, as many times as it
+ * happened. The only thing the app infers is the serve, and it does that from
+ * rotation: the serving side's P1 acted on before anything else in a rally is a
+ * serve. A plain tap still opens the old panel, which is where faults live and
+ * where a mouse ends up.
  *
  * Score, serve order and rotation all follow from ✓ and ✗ — there is no
  * manual scoreboard, because every rally-ending event has a tap behind it.
@@ -200,22 +208,26 @@ const OUTCOMES: { outcome: Outcome; glyph: string; label: string; cls: string }[
  * HOW A ✓ OR ✗ FINISHED — the second question, asked only when it has an answer
  * worth having.
  *
- * A kill and a tool are both points; a block and a net error both cost one. The
- * pairs are worth separating because they are different skills and, for the two
- * duels, because they name a player on the other side of the net who never
- * otherwise gets credited for anything.
+ * A spike and a checkout are both points; a block and a net error both cost
+ * one. The pairs are worth separating because they are different skills and,
+ * for the two duels, because they name a player on the other side of the net
+ * who never otherwise gets credited for anything.
+ *
+ * The words are the ones shouted on court, not the ones on a scoresheet — a
+ * coach reading SPIKE and CHECKOUT needs no translation, and the stored
+ * EventType keeps its original name so nothing recorded has to be migrated.
  */
 const WIN_KINDS: { kind: TapKind; glyph: string; label: string; hint: string }[] = [
   {
     kind: "KILL",
     glyph: "🔨",
-    label: "Kill",
-    hint: "Landed in the opponent court",
+    label: "Spike",
+    hint: "Ball landed directly in opponent court",
   },
   {
     kind: "TOOL",
     glyph: "🎯",
-    label: "Tool",
+    label: "Checkout",
     hint: "Off the blocker and out",
   },
 ];
@@ -234,6 +246,24 @@ const LOSE_KINDS: { kind: TapKind; glyph: string; label: string; hint: string }[
     hint: "Into the net or out",
   },
 ];
+
+/**
+ * What the undo bar says just happened.
+ *
+ * Read off the RESOLVED event rather than the button pressed, so the line is
+ * true for the serve too: ← on the server is an ace, not "point won", and a
+ * scorer who flicked the wrong way needs to recognise the mistake at a glance.
+ */
+const EVENT_WORD: Partial<Record<EventType, string>> = {
+  SERVE_ACE: "Ace",
+  SERVE_IN: "Serve in",
+  SERVE_ERR: "Service error",
+  SPIKE_POINT: "Spike",
+  SPIKE_TOOL: "Checkout",
+  SPIKE_IN: "Rally continues",
+  SPIKE_ERR: "Attack error",
+  SPIKE_BLOCKED: "Blocked",
+};
 
 const FAULTS: { kind: FaultKind; label: string }[] = [
   { kind: "NET", label: "Net touch" },
@@ -261,6 +291,15 @@ export default function FreeRallyTracker() {
   const [ending, setEnding] = useState(false);
   /** Last automatic libero swap, shown under the court until the next point. */
   const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * What the last gesture recorded, shown with an Undo beside it.
+   *
+   * A drag commits on release, so the wrong flick writes an event with no
+   * confirmation step in front of it. This is the confirmation step, moved to
+   * after the fact: the way out has to already be on screen when the scorer
+   * realises, not one scroll up in the header.
+   */
+  const [lastAction, setLastAction] = useState<string | null>(null);
   /**
    * Which set the stats below are showing. "ALL" is the running match total;
    * a number narrows every chart to that set's events alone. Set scores and
@@ -499,7 +538,7 @@ export default function FreeRallyTracker() {
     setDuel(null);
   };
 
-  /** Is this tap the serve? A serve has no kill/tool or blocked/error split. */
+  /** Is this the serve? A serve has no spike/checkout or blocked/error split. */
   const armedIsServe =
     armed !== null &&
     isServeTap(state.rally, armed.side, armed.player.id === currentServerId);
@@ -530,9 +569,13 @@ export default function FreeRallyTracker() {
    * Both ids go into `current`, so one Undo takes the whole duel back rather
    * than leaving a blocker credited for a block that no longer happened.
    */
-  const logTap = (outcome: Outcome, kind?: TapKind, blockerId?: string) => {
-    if (!armed) return;
-    const { player, side } = armed;
+  const logTapFor = (
+    target: { player: Player; side: Side },
+    outcome: Outcome,
+    kind?: TapKind,
+    blockerId?: string,
+  ) => {
+    const { player, side } = target;
     const isServer = player.id === currentServerId;
     const res = resolveTap(state.rally, side, isServer, outcome, kind);
     const spike = store.addEvent(
@@ -562,7 +605,15 @@ export default function FreeRallyTracker() {
         ? applyPoint(state, res.pointTo, ids)
         : { ...state, rally: closeServe(state.rally), current: ids },
     );
+    setLastAction(
+      `${EVENT_WORD[res.event] ?? "Logged"} · ${player.fullName.split(" ")[0]}`,
+    );
     disarm();
+  };
+
+  /** The panel's path in: the armed player is the target. */
+  const logTap = (outcome: Outcome, kind?: TapKind, blockerId?: string) => {
+    if (armed) logTapFor(armed, outcome, kind, blockerId);
   };
 
   /**
@@ -579,7 +630,50 @@ export default function FreeRallyTracker() {
     setFaulting(false);
   };
 
-  /** Kill / Tool / Blocked / Error pressed. A duel still owes us a blocker. */
+  /**
+   * The three directions, for whoever is being held.
+   *
+   * Unlike the phase-based tracker this engine asks the same question of
+   * everyone — it infers only the serve — so the labels vary in exactly one
+   * place, and it is the place where a scorer would otherwise be told they had
+   * won a point when what they recorded was an ace.
+   */
+  const dragMenuFor = (playerId: string, side: Side): DragMenu => {
+    const serve = isServeTap(state.rally, side, playerId === currentServerId);
+    return {
+      left: { glyph: "✓", label: serve ? "Ace" : "Point won", tone: "ok" },
+      up: { glyph: "O", label: serve ? "Serve in" : "Rally on", tone: "azure" },
+      right: { glyph: "✗", label: serve ? "Service error" : "Failed", tone: "err" },
+    };
+  };
+
+  /**
+   * A drag released. One gesture is the whole action wherever there is nothing
+   * left to ask — ↑ always, and ← / → on the serve, which has no spike/checkout
+   * or blocked/error split. Everywhere else the release arms the player and
+   * opens the sub-menu it chose, so the second question is one tap away rather
+   * than two, and nothing is written until it is answered.
+   */
+  const onDrag = (playerId: string, side: Side, answer: DragAnswer) => {
+    const player = byId.get(playerId);
+    if (!player) return;
+    const target = { player, side };
+    if (answer === "UP") {
+      logTapFor(target, "CONT");
+      return;
+    }
+    const outcome: Outcome = answer === "LEFT" ? "WIN" : "LOSE";
+    if (isServeTap(state.rally, side, playerId === currentServerId)) {
+      logTapFor(target, outcome);
+      return;
+    }
+    setArmed(target);
+    setFaulting(false);
+    setDuel(null);
+    setAsking(outcome);
+  };
+
+  /** Spike / Checkout / Blocked / Error pressed. A duel still owes us a blocker. */
   const onKind = (kind: TapKind) => {
     if (!asking) return;
     if (isDuel(kind)) {
@@ -600,11 +694,17 @@ export default function FreeRallyTracker() {
     const res = resolveFault(side, kind);
     const e = store.addEvent(match.id, teamIdFor(side), player.id, state.set, res.event);
     persist(applyPoint(state, res.pointTo, [...state.current, e.id]));
+    setLastAction(
+      `${FAULTS.find((f) => f.kind === kind)?.label ?? "Fault"} · ${player.fullName.split(" ")[0]}`,
+    );
     disarm();
   };
 
   /** Undo the last tap in the rally in progress, else the last whole rally. */
   const onUndo = () => {
+    // The bar describes one specific event. Once anything is rolled back it is
+    // describing something that may no longer be the last thing that happened.
+    setLastAction(null);
     if (state.current.length > 0) {
       const ids = [...state.current];
       const last = ids.pop()!;
@@ -1061,6 +1161,8 @@ export default function FreeRallyTracker() {
         serving={state.rally.serving}
         armedId={armed?.player.id ?? null}
         tappableIds={null}
+        onDrag={onDrag}
+        dragActions={dragMenuFor}
         onTap={(playerId, side) => {
           const p = byId.get(playerId);
           if (!p) return;
@@ -1123,6 +1225,25 @@ export default function FreeRallyTracker() {
             : (notice ?? "Libero swaps run automatically on every change of serve.")}
         </p>
       </div>
+
+      {/* Committed by a flick, so the way back has to be here already — see
+          lastAction. It stands down the moment a player is armed, because the
+          panel below carries its own ← Back. */}
+      {!armed && lastAction && (
+        <div className="sticky bottom-2 z-10 flex items-center justify-between gap-3 rounded-2xl border border-line bg-surface2/95 px-3 py-2 backdrop-blur">
+          <p className="min-w-0 truncate text-xs font-bold text-ink">
+            <span className="text-accent">✓ Logged</span>{" "}
+            <span className="font-normal text-dim">{lastAction}</span>
+          </p>
+          <Button
+            variant="ghost"
+            onClick={onUndo}
+            disabled={state.current.length === 0 && state.history.length === 0}
+          >
+            ↶ Undo
+          </Button>
+        </div>
+      )}
 
       {armed && (
         <div className="card-premium sticky bottom-2 z-10 rounded-2xl border-accent/30 p-4">
@@ -1280,7 +1401,7 @@ export default function FreeRallyTracker() {
       />
 
       {/* Blocking, from the same taps. Nothing below was collected separately:
-          naming the blocker on a ✗ → Blocked (or a ✓ → Tool) is the whole
+          naming the blocker on a ✗ → Blocked (or a ✓ → Checkout) is the whole
           input, and the season column comes from the store rather than this
           match, so a blocker's running total is on screen courtside. */}
       <h2 className="stat-display pt-2 text-lg font-bold uppercase tracking-wide text-ink">
