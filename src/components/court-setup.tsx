@@ -24,7 +24,14 @@ import { CourtBoard, type CourtPlayer } from "@/components/court-board";
 
 type WizardStep = "TOSS" | "HOME_SIX" | "AWAY_SIX" | "COURT";
 
-interface SixState {
+/**
+ * A starting six being built or edited. Slots are partial because a six is
+ * incomplete while it is being filled in — `lineupComplete` is the gate.
+ * Exported alongside `SixPicker` so the between-sets rotation screen
+ * (set-rotation.tsx) edits a six with the same control the wizard builds one
+ * with, rather than growing a second picker that can drift from this one.
+ */
+export interface SixState {
   slots: Partial<Record<Position, string>>;
   liberoId: string | null;
 }
@@ -229,8 +236,8 @@ export function SetupWizard({
   );
 }
 
-/** Tap-to-place starting-six picker — used for both sides. */
-function SixPicker({
+/** Tap-to-place starting-six picker — used for both sides, and between sets. */
+export function SixPicker({
   roster,
   six,
   setSix,

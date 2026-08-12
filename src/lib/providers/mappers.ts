@@ -352,6 +352,7 @@ export const statEventFromRow = (r: Row): StatEvent => ({
   setNo: Number(r.set_no),
   type: r.type as EventType,
   ts: r.ts ? new Date(String(r.ts)).getTime() : Date.now(),
+  vsPlayerId: ns(r.vs_player_id),
 });
 export const statEventToRow = (e: Partial<StatEvent>): Row => ({
   ...(e.id !== undefined && { id: e.id }),
@@ -361,4 +362,8 @@ export const statEventToRow = (e: Partial<StatEvent>): Row => ({
   ...(e.setNo !== undefined && { set_no: e.setNo }),
   ...(e.type !== undefined && { type: e.type }),
   ...(e.ts !== undefined && { ts: new Date(e.ts).toISOString() }),
+  // Written whenever the field is present, null included: a duel whose
+  // opponent is genuinely unknown must say so in the column, not omit it and
+  // leave whatever an earlier upsert of the same id put there.
+  ...(e.vsPlayerId !== undefined && { vs_player_id: e.vsPlayerId }),
 });

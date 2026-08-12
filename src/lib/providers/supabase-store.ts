@@ -726,7 +726,7 @@ export function useSupabaseBackend(): DataProvider {
         patchMatch(matchId, (m) => ({ ...m, officials }));
       },
 
-      addEvent: (matchId, teamId, playerId, setNo, type) => {
+      addEvent: (matchId, teamId, playerId, setNo, type, vsPlayerId) => {
         const e: StatEvent = {
           id: uuid(),
           matchId,
@@ -735,6 +735,7 @@ export function useSupabaseBackend(): DataProvider {
           setNo,
           type,
           ts: Date.now(),
+          vsPlayerId: vsPlayerId ?? null,
         };
         enqueue({ kind: "upsert", table: "stat_events", row: M.statEventToRow(e) });
         patchDb((prev) => ({ ...prev, events: [...prev.events, e] }));

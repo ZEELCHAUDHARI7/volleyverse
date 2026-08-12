@@ -10,6 +10,8 @@ import {
   resolveTap,
   resolveFault,
   closeServe,
+  blockerEvent,
+  isDuel,
   FAULT_EVENT,
 } from "./free-rally.ts";
 
@@ -133,6 +135,71 @@ t("a first tap on the receiving side is a spike, never a serve", () => {
     event: "SPIKE_POINT",
     pointTo: "OPP",
   });
+});
+
+qa.suite("Kill, Tool, Blocked, Error");
+
+t("an unrefined ✓ is still a kill and an unrefined ✗ still an error", () => {
+  // The whole back catalogue of taps was logged without a refinement. They
+  // must keep meaning exactly what they meant when they were recorded.
+  assert.equal(resolveTap(mid(), "US", false, "WIN").event, "SPIKE_POINT");
+  assert.equal(resolveTap(mid(), "US", false, "LOSE").event, "SPIKE_ERR");
+});
+
+t("✓ + TOOL is a point off the block, awarded to the spiker's team", () => {
+  assert.deepEqual(resolveTap(mid(), "US", false, "WIN", "TOOL"), {
+    event: "SPIKE_TOOL",
+    pointTo: "US",
+  });
+});
+
+t("✓ + KILL is a kill", () => {
+  assert.equal(resolveTap(mid(), "US", false, "WIN", "KILL").event, "SPIKE_POINT");
+});
+
+t("✗ + BLOCKED is not the spiker's error, but still concedes the point", () => {
+  assert.deepEqual(resolveTap(mid(), "US", false, "LOSE", "BLOCKED"), {
+    event: "SPIKE_BLOCKED",
+    pointTo: "OPP",
+  });
+});
+
+t("✗ + ERROR is the spiker's own miss", () => {
+  assert.equal(resolveTap(mid(), "US", false, "LOSE", "ERROR").event, "SPIKE_ERR");
+});
+
+t("a serve ignores the refinement — an ace cannot be a tool", () => {
+  assert.equal(resolveTap(open(), "US", true, "WIN", "TOOL").event, "SERVE_ACE");
+  assert.equal(resolveTap(open(), "US", true, "LOSE", "BLOCKED").event, "SERVE_ERR");
+});
+
+t("only a duel needs an opponent named", () => {
+  assert.equal(isDuel("TOOL"), true);
+  assert.equal(isDuel("BLOCKED"), true);
+  assert.equal(isDuel("KILL"), false);
+  assert.equal(isDuel("ERROR"), false);
+});
+
+t("the blocker's half of a duel is the opposite of the spiker's", () => {
+  assert.equal(blockerEvent("BLOCKED"), "BLOCK_WIN");
+  assert.equal(blockerEvent("TOOL"), "BLOCK_TOOLED");
+});
+
+t("exactly one of the two events in a duel ends the rally", () => {
+  // The analytics reconstruction scores every rally-ending event it walks
+  // past. If both halves of a duel were rally-enders, every block would score
+  // twice — this is the assertion that pins the asymmetry down.
+  const ENDERS = new Set(["SPIKE_POINT", "SPIKE_TOOL", "SERVE_ACE", "BLOCK_WIN"]);
+  const blocked = [
+    resolveTap(mid(), "US", false, "LOSE", "BLOCKED").event,
+    blockerEvent("BLOCKED"),
+  ];
+  const tooled = [
+    resolveTap(mid(), "US", false, "WIN", "TOOL").event,
+    blockerEvent("TOOL"),
+  ];
+  assert.equal(blocked.filter((e) => ENDERS.has(e)).length, 1);
+  assert.equal(tooled.filter((e) => ENDERS.has(e)).length, 1);
 });
 
 qa.suite("Faults");

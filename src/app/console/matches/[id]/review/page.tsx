@@ -13,6 +13,7 @@ import {
   PageSkeleton,
   StatusChip,
 } from "@/components/ui";
+import { BlockLeaderboard, DuelMatrix } from "@/components/block-charts";
 import type { Match, MatchSet } from "@/lib/types";
 
 /**
@@ -243,6 +244,19 @@ export default function MatchReview() {
           </div>
         )}
       </Card>
+
+      {/* Blocking. The Blk column above says how many; these two say against
+          whom, which is the half a coach plans a rotation from. */}
+      <div className="mt-4 space-y-4">
+        <BlockLeaderboard
+          players={allRoster}
+          events={events}
+          limit={6}
+          title="Blockers"
+          hint="Who stopped the most attacks in this match."
+        />
+        <DuelMatrix players={allRoster} events={events} />
+      </div>
     </div>
   );
 }

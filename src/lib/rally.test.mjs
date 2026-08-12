@@ -24,6 +24,10 @@ import {
   openingRally,
   initialMatchState,
   skipPhase,
+  setupForSet,
+  withSetSetup,
+  openSetCourt,
+  lineupComplete,
   TRIOS,
   POSITIONS,
 } from "./rally.ts";
@@ -269,6 +273,107 @@ t("the third set won decides a best-of-five", () => {
 t("a best-of-three is decided by the second set, not the third", () => {
   assert.equal(matchWinner(2, 0, 3), "US");
   assert.equal(matchWinner(1, 1, 3), null);
+});
+
+qa.suite("Per-set starting rotation");
+
+const SIX_A = { 1: "s", 2: "oh1", 3: "mb1", 4: "opp", 5: "oh2", 6: "mb2" };
+const SIX_B = { 1: "oh2", 2: "mb2", 3: "s", 4: "oh1", 5: "mb1", 6: "opp" };
+const SIX_C = { 1: "mb1", 2: "opp", 3: "oh2", 4: "mb2", 5: "s", 6: "oh1" };
+const setupOf = (usSix, oppSix, usLib = null, oppLib = null) => ({
+  us: { lineup: usSix, liberoId: usLib },
+  opp: { lineup: oppSix, liberoId: oppLib },
+});
+const MATCH_SETUP = setupOf(SIX_A, SIX_A);
+
+t("with nothing entered, every set starts from the match setup", () => {
+  // The whole back-compatibility story: a session saved before rotation could
+  // change between sets has no setSetups at all, and must behave as it did.
+  assert.deepEqual(setupForSet(1, MATCH_SETUP, undefined), MATCH_SETUP);
+  assert.deepEqual(setupForSet(4, MATCH_SETUP, undefined), MATCH_SETUP);
+  assert.deepEqual(setupForSet(3, MATCH_SETUP, {}), MATCH_SETUP);
+});
+
+t("a rotation entered for a set is the one that set starts from", () => {
+  const entered = withSetSetup({}, 2, setupOf(SIX_B, SIX_C));
+  assert.deepEqual(setupForSet(2, MATCH_SETUP, entered).us.lineup, SIX_B);
+  assert.deepEqual(setupForSet(2, MATCH_SETUP, entered).opp.lineup, SIX_C);
+});
+
+t("an entered rotation carries forward to later sets until changed", () => {
+  const entered = withSetSetup({}, 2, setupOf(SIX_B, SIX_B));
+  // Set 3 was never entered, so it inherits set 2's — not set 1's.
+  assert.deepEqual(setupForSet(3, MATCH_SETUP, entered).us.lineup, SIX_B);
+  assert.deepEqual(setupForSet(5, MATCH_SETUP, entered).us.lineup, SIX_B);
+});
+
+t("a later entry overrides the carry-forward from an earlier one", () => {
+  const entered = withSetSetup(
+    withSetSetup({}, 2, setupOf(SIX_B, SIX_B)),
+    4,
+    setupOf(SIX_C, SIX_C),
+  );
+  assert.deepEqual(setupForSet(3, MATCH_SETUP, entered).us.lineup, SIX_B);
+  assert.deepEqual(setupForSet(4, MATCH_SETUP, entered).us.lineup, SIX_C);
+  assert.deepEqual(setupForSet(5, MATCH_SETUP, entered).us.lineup, SIX_C);
+});
+
+t("entering set 3 leaves sets 1 and 2 exactly as they were", () => {
+  // Editing the rotation must never rewrite the record of a set already played.
+  const before = withSetSetup({}, 2, setupOf(SIX_B, SIX_B));
+  const after = withSetSetup(before, 3, setupOf(SIX_C, SIX_C));
+  assert.deepEqual(setupForSet(1, MATCH_SETUP, after), MATCH_SETUP);
+  assert.deepEqual(setupForSet(2, MATCH_SETUP, after).us.lineup, SIX_B);
+  assert.deepEqual(before[3], undefined); // the input was not mutated
+});
+
+t("opening a set puts both teams on the given rotation", () => {
+  const court = openSetCourt(setupOf(SIX_B, SIX_C));
+  assert.deepEqual(court.usLineup, SIX_B);
+  assert.deepEqual(court.oppLineup, SIX_C);
+});
+
+t("opening a set benches both liberos and clears the sub counters", () => {
+  // FIVB 15.6/19.3.2: substitution counts are per set, and the libero swap is
+  // re-decided by whoever serves first — so a set opens with both on the bench.
+  const court = openSetCourt(setupOf(SIX_B, SIX_C, "lib1", "lib2"));
+  assert.deepEqual(court.usLibero, { onCourt: false, replacedId: null });
+  assert.deepEqual(court.oppLibero, { onCourt: false, replacedId: null });
+  assert.deepEqual(court.subs, { us: 0, opp: 0 });
+});
+
+t("opening a set is pure — the setup handed in is not touched", () => {
+  const setup = setupOf({ ...SIX_A }, { ...SIX_A });
+  const court = openSetCourt(setup);
+  court.usLineup = SIX_C;
+  assert.deepEqual(setup.us.lineup, SIX_A);
+});
+
+t("a six is ready only when all six slots are filled", () => {
+  assert.equal(lineupComplete(SIX_A), true);
+  assert.equal(lineupComplete({ 1: "a", 2: "b", 3: "c" }), false);
+  assert.equal(lineupComplete({ ...SIX_A, 4: undefined }), false);
+});
+
+t("the same player cannot hold two slots", () => {
+  // Building a six from empty cannot produce a duplicate, but EDITING one can:
+  // this is the check that only matters once rotations change between sets.
+  assert.equal(lineupComplete({ ...SIX_A, 6: SIX_A[1] }), false);
+});
+
+t("a match still starts on its set-1 six, liberos benched", () => {
+  const s = initialMatchState(
+    { lineup: SIX_A, liberoId: "lib1" },
+    { lineup: SIX_B, liberoId: null },
+    { winner: "US", choice: "SERVE" },
+  );
+  assert.deepEqual(s.usLineup, SIX_A);
+  assert.deepEqual(s.oppLineup, SIX_B);
+  assert.equal(s.usLibero.onCourt, false);
+  assert.deepEqual(s.subs, { us: 0, opp: 0 });
+  // Set 1's rotation comes from the wizard, so no set start is ever owed.
+  assert.equal(s.awaitingSetStart, false);
+  assert.deepEqual(setupForSet(1, s.setup, s.setSetups).us.lineup, SIX_A);
 });
 
 qa.finish();

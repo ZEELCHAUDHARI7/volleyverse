@@ -113,12 +113,19 @@ export interface DataProvider {
   setOfficials: (matchId: string, officials: MatchOfficial[]) => void;
 
   // ---- Stat events (append-only + undo) ----
+  /**
+   * Append one contact. `vsPlayerId` names the opponent when the contact was a
+   * duel at the net — the blocker on a tool or a blocked attack, the spiker on
+   * the blocker's half of it. Optional: most contacts have no opponent to name,
+   * and every call written before duels existed passes five arguments.
+   */
   addEvent: (
     matchId: string,
     teamId: string,
     playerId: string,
     setNo: number,
     type: EventType,
+    vsPlayerId?: string | null,
   ) => StatEvent;
   removeEvent: (eventId: string) => void;
   /** Post-match correction: remove the most recent event of a type. */

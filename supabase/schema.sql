@@ -195,14 +195,20 @@ create table stat_events (
   player_id uuid not null references team_players (id),
   set_no integer not null,
   type text not null check (type in (
-    'SPIKE_POINT','SPIKE_IN','SPIKE_ERR',
+    'SPIKE_POINT','SPIKE_TOOL','SPIKE_IN','SPIKE_ERR','SPIKE_BLOCKED',
     'RECV_PERFECT','RECV_GOOD','RECV_POOR','RECV_ERR',
     'SET_ASSIST','SET_GOOD','SET_ERR',
-    'BLOCK_WIN','BLOCK_MISS',
+    'BLOCK_WIN','BLOCK_MISS','BLOCK_TOOLED',
     'SERVE_ACE','SERVE_IN','SERVE_ERR',
     'DIG_SUPER','DIG_SAVE','DIG_FAIL',
     'FAULT_NET','FAULT_FOUR_HITS','FAULT_DOUBLE','FAULT_ROTATION'
   )),
+  -- The opponent on the other end of a duel at the net: the blocker on a
+  -- SPIKE_TOOL or SPIKE_BLOCKED, the spiker on a BLOCK_WIN or BLOCK_TOOLED.
+  -- Null everywhere else, and on the block wins the phase-based tracker
+  -- records, which never asks who was hitting. Every spiker-vs-blocker
+  -- matchup in the product is derived from this column.
+  vs_player_id uuid references team_players (id),
   ts timestamptz not null default now()
 );
 
@@ -226,9 +232,11 @@ select
     from match_sets s where s.match_id = m.id) as points,
   count(*) filter (where e.type = 'SERVE_ACE') as aces,
   count(*) filter (where e.type = 'BLOCK_WIN') as blocks,
-  count(*) filter (where e.type in ('SPIKE_ERR','SERVE_ERR','RECV_ERR','SET_ERR','BLOCK_MISS','DIG_FAIL')) as errors,
-  round(100.0 * count(*) filter (where e.type = 'SPIKE_POINT')
-    / nullif(count(*) filter (where e.type in ('SPIKE_POINT','SPIKE_IN','SPIKE_ERR')), 0), 1) as attack_pct,
+  count(*) filter (where e.type in ('SPIKE_ERR','SPIKE_BLOCKED','SERVE_ERR','RECV_ERR','SET_ERR','BLOCK_MISS','DIG_FAIL')) as errors,
+  -- Attack % counts tools as points and blocked attacks as attempts, matching
+  -- teamStatLine in src/lib/analytics/volleyball.ts. A tool is a point.
+  round(100.0 * count(*) filter (where e.type in ('SPIKE_POINT','SPIKE_TOOL'))
+    / nullif(count(*) filter (where e.type in ('SPIKE_POINT','SPIKE_TOOL','SPIKE_IN','SPIKE_ERR','SPIKE_BLOCKED')), 0), 1) as attack_pct,
   round(100.0 * count(*) filter (where e.type in ('SERVE_ACE','SERVE_IN'))
     / nullif(count(*) filter (where e.type in ('SERVE_ACE','SERVE_IN','SERVE_ERR')), 0), 1) as service_pct,
   round(100.0 * count(*) filter (where e.type in ('RECV_PERFECT','RECV_GOOD'))
