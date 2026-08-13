@@ -20,9 +20,18 @@ export interface SpikeLine {
   playerId: string;
   /** Every tap: point + rally-continued + failed. */
   attempts: number;
-  pointsWon: number; // SPIKE_POINT
+  /** Points from the attack: kills AND tools. */
+  pointsWon: number;
   rallyContinued: number; // SPIKE_IN
-  failed: number; // SPIKE_ERR
+  /** Attacks that cost the point: own errors AND getting blocked. */
+  failed: number;
+  // The four ways an attack can end, kept apart. pointsWon = kills + tools and
+  // failed = errors + blocked, so the two rates below mean what they always
+  // meant — the split adds detail without moving any existing number.
+  kills: number; // SPIKE_POINT
+  tools: number; // SPIKE_TOOL — used the blocker to score
+  errors: number; // SPIKE_ERR — into the net or out
+  blocked: number; // SPIKE_BLOCKED — stopped at the net
   /** pointsWon / attempts as whole percent. null when attempts === 0. */
   successRate: number | null;
   /** failed / attempts as whole percent. null when attempts === 0. */
@@ -34,17 +43,23 @@ const rate = (n: number, d: number): number | null =>
   d === 0 ? null : Math.round((n / d) * 100);
 
 export function spikeLine(playerId: string, events: StatEvent[]): SpikeLine {
-  let pointsWon = 0;
+  let kills = 0;
+  let tools = 0;
   let rallyContinued = 0;
-  let failed = 0;
+  let errors = 0;
+  let blocked = 0;
 
   for (const e of events) {
     if (e.playerId !== playerId) continue;
-    if (e.type === "SPIKE_POINT") pointsWon++;
+    if (e.type === "SPIKE_POINT") kills++;
+    else if (e.type === "SPIKE_TOOL") tools++;
     else if (e.type === "SPIKE_IN") rallyContinued++;
-    else if (e.type === "SPIKE_ERR") failed++;
+    else if (e.type === "SPIKE_ERR") errors++;
+    else if (e.type === "SPIKE_BLOCKED") blocked++;
   }
 
+  const pointsWon = kills + tools;
+  const failed = errors + blocked;
   const attempts = pointsWon + rallyContinued + failed;
   return {
     playerId,
@@ -52,6 +67,10 @@ export function spikeLine(playerId: string, events: StatEvent[]): SpikeLine {
     pointsWon,
     rallyContinued,
     failed,
+    kills,
+    tools,
+    errors,
+    blocked,
     successRate: rate(pointsWon, attempts),
     errorRate: rate(failed, attempts),
   };

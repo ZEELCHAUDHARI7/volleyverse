@@ -2,8 +2,8 @@ import { createBrowserClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * Browser Supabase client — the single connection the realtime provider,
- * the live-state channel and Auth all share.
+ * Browser Supabase client — the single connection the realtime provider and
+ * the live-state channel share.
  *
  * Configuration is env-driven so the app degrades gracefully:
  *   - Both NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY set
@@ -11,9 +11,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *   - Either missing → the app falls back to the offline-first
  *     LocalProvider (localStorage + cross-tab sync). Nothing throws.
  *
- * createBrowserClient stores the session in a cookie rather than
- * localStorage, which is what lets middleware and server components read
- * it. See src/middleware.ts and REALTIME_SYNC.md.
+ * createBrowserClient keeps its auth storage in a cookie rather than
+ * localStorage, so server components can read it. There is no sign-in in the
+ * console, so today that cookie is never populated; every request runs on the
+ * anon key. See REALTIME_SYNC.md.
  */
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

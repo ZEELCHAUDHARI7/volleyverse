@@ -65,8 +65,18 @@ export interface DataProvider {
    * believes they saved does not exist on the server.
    */
   lastError: string | null;
+  /** How many refused writes are parked on this device awaiting a retry. */
+  rejectedCount: number;
   /** Discard the parked rejected writes and clear `lastError`. */
   clearErrors: () => void;
+  /**
+   * Put the parked writes back on the queue and try them again — the path
+   * back after a human fixes the cause (a missing migration, closed RLS).
+   * Safe to call repeatedly: every queued write is an upsert by primary key
+   * or an append of a client-minted id, so replaying one that already landed
+   * changes nothing. Refused again, they are simply parked again.
+   */
+  retryRejected: () => void;
 
   // ---- Generic entity CRUD (leagues, seasons, tournaments, venues,
   //      courts, teams, staff, players, divisions, groups) ----
@@ -79,8 +89,15 @@ export interface DataProvider {
     m: Omit<Match, "id" | "status" | "published" | "winnerTeamId" | "setScores">,
   ) => Match;
   startMatch: (matchId: string) => void;
-  /** Persist a finished set's score (match_sets row). */
+  /** Persist a finished set's score (match_sets row). Upserts by set number. */
   recordSetScore: (matchId: string, set: MatchSet) => void;
+  /**
+   * Replace a match's whole set-score list — the post-match correction path.
+   * Unlike `recordSetScore` this can also REMOVE a set (leave it out of the
+   * array), which matters when a set was banked by mistake, or when a match
+   * ended with no scores at all and they have to be typed in.
+   */
+  setSetScores: (matchId: string, sets: MatchSet[]) => void;
   completeMatch: (matchId: string, winnerTeamId: string | null) => void;
   /**
    * Permanently delete a match and everything derived from it. Because all
@@ -96,12 +113,19 @@ export interface DataProvider {
   setOfficials: (matchId: string, officials: MatchOfficial[]) => void;
 
   // ---- Stat events (append-only + undo) ----
+  /**
+   * Append one contact. `vsPlayerId` names the opponent when the contact was a
+   * duel at the net — the blocker on a tool or a blocked attack, the spiker on
+   * the blocker's half of it. Optional: most contacts have no opponent to name,
+   * and every call written before duels existed passes five arguments.
+   */
   addEvent: (
     matchId: string,
     teamId: string,
     playerId: string,
     setNo: number,
     type: EventType,
+    vsPlayerId?: string | null,
   ) => StatEvent;
   removeEvent: (eventId: string) => void;
   /** Post-match correction: remove the most recent event of a type. */

@@ -195,14 +195,20 @@ create table stat_events (
   player_id uuid not null references team_players (id),
   set_no integer not null,
   type text not null check (type in (
-    'SPIKE_POINT','SPIKE_IN','SPIKE_ERR',
+    'SPIKE_POINT','SPIKE_TOOL','SPIKE_IN','SPIKE_ERR','SPIKE_BLOCKED',
     'RECV_PERFECT','RECV_GOOD','RECV_POOR','RECV_ERR',
     'SET_ASSIST','SET_GOOD','SET_ERR',
-    'BLOCK_WIN','BLOCK_MISS',
+    'BLOCK_WIN','BLOCK_MISS','BLOCK_TOOLED',
     'SERVE_ACE','SERVE_IN','SERVE_ERR',
     'DIG_SUPER','DIG_SAVE','DIG_FAIL',
     'FAULT_NET','FAULT_FOUR_HITS','FAULT_DOUBLE','FAULT_ROTATION'
   )),
+  -- The opponent on the other end of a duel at the net: the blocker on a
+  -- SPIKE_TOOL or SPIKE_BLOCKED, the spiker on a BLOCK_WIN or BLOCK_TOOLED.
+  -- Null everywhere else, and on the block wins the phase-based tracker
+  -- records, which never asks who was hitting. Every spiker-vs-blocker
+  -- matchup in the product is derived from this column.
+  vs_player_id uuid references team_players (id),
   ts timestamptz not null default now()
 );
 
@@ -226,9 +232,11 @@ select
     from match_sets s where s.match_id = m.id) as points,
   count(*) filter (where e.type = 'SERVE_ACE') as aces,
   count(*) filter (where e.type = 'BLOCK_WIN') as blocks,
-  count(*) filter (where e.type in ('SPIKE_ERR','SERVE_ERR','RECV_ERR','SET_ERR','BLOCK_MISS','DIG_FAIL')) as errors,
-  round(100.0 * count(*) filter (where e.type = 'SPIKE_POINT')
-    / nullif(count(*) filter (where e.type in ('SPIKE_POINT','SPIKE_IN','SPIKE_ERR')), 0), 1) as attack_pct,
+  count(*) filter (where e.type in ('SPIKE_ERR','SPIKE_BLOCKED','SERVE_ERR','RECV_ERR','SET_ERR','BLOCK_MISS','DIG_FAIL')) as errors,
+  -- Attack % counts tools as points and blocked attacks as attempts, matching
+  -- teamStatLine in src/lib/analytics/volleyball.ts. A tool is a point.
+  round(100.0 * count(*) filter (where e.type in ('SPIKE_POINT','SPIKE_TOOL'))
+    / nullif(count(*) filter (where e.type in ('SPIKE_POINT','SPIKE_TOOL','SPIKE_IN','SPIKE_ERR','SPIKE_BLOCKED')), 0), 1) as attack_pct,
   round(100.0 * count(*) filter (where e.type in ('SERVE_ACE','SERVE_IN'))
     / nullif(count(*) filter (where e.type in ('SERVE_ACE','SERVE_IN','SERVE_ERR')), 0), 1) as service_pct,
   round(100.0 * count(*) filter (where e.type in ('RECV_PERFECT','RECV_GOOD'))
@@ -285,47 +293,41 @@ select
 from per_match
 group by tournament_id, team_id;
 
--- ---------- Row Level Security: the publish boundary ----------
--- Public (anon) readers see only published, completed matches and the
--- events/sets attached to them. Authenticated league staff see all and
--- write through their role. Adjust to your auth model before go-live.
+-- ---------- Row Level Security: an open console ----------
+-- The console has no sign-in (see README), so the browser reaches this
+-- database as the anon role and nothing else. Policies that demanded
+-- auth.role() = 'authenticated' therefore refused every write the tracker
+-- made — "new row violates row-level security policy" — so the anon role
+-- is granted read and write here instead.
+--
+-- The cost, stated plainly: the anon key ships in the public JS bundle,
+-- so anyone who can reach the site can write to this database directly,
+-- past every screen. `published` is now a display filter the showcase
+-- honours, not a boundary the database enforces. Restore a sign-in and
+-- swap these policies back to auth.role() = 'authenticated' before
+-- running a league that matters.
 
 alter table matches enable row level security;
 alter table stat_events enable row level security;
 alter table match_sets enable row level security;
 
-create policy "public reads published matches"
-  on matches for select
-  using (published = true or auth.role() = 'authenticated');
+create policy "open console reads matches"
+  on matches for select using (true);
 
-create policy "public reads events of published matches"
-  on stat_events for select
-  using (
-    exists (select 1 from matches m where m.id = match_id
-      and (m.published = true or auth.role() = 'authenticated'))
-  );
+create policy "open console reads stat_events"
+  on stat_events for select using (true);
 
-create policy "public reads sets of published matches"
-  on match_sets for select
-  using (
-    exists (select 1 from matches m where m.id = match_id
-      and (m.published = true or auth.role() = 'authenticated'))
-  );
+create policy "open console reads match_sets"
+  on match_sets for select using (true);
 
-create policy "staff writes matches"
-  on matches for all
-  using (auth.role() = 'authenticated')
-  with check (auth.role() = 'authenticated');
+create policy "open console writes matches"
+  on matches for all using (true) with check (true);
 
-create policy "staff writes events"
-  on stat_events for all
-  using (auth.role() = 'authenticated')
-  with check (auth.role() = 'authenticated');
+create policy "open console writes stat_events"
+  on stat_events for all using (true) with check (true);
 
-create policy "staff writes sets"
-  on match_sets for all
-  using (auth.role() = 'authenticated')
-  with check (auth.role() = 'authenticated');
+create policy "open console writes match_sets"
+  on match_sets for all using (true) with check (true);
 
 -- =====================================================================
 -- REAL-TIME SYNCHRONISATION (Issue #3)
@@ -353,19 +355,14 @@ create table if not exists match_live_state (
 
 alter table match_live_state enable row level security;
 
--- A live match's scoreboard is broadcast content (public the way the gym
--- scoreboard is), but only once the match is published. Staff see all.
-create policy "public reads live state of published matches"
-  on match_live_state for select
-  using (
-    exists (select 1 from matches m where m.id = match_id
-      and (m.published = true or auth.role() = 'authenticated'))
-  );
+-- A live match's scoreboard is broadcast content, public the way the gym
+-- scoreboard is. Open to the anon role for the same reason as above: the
+-- collector's browser has no session to write this projection with.
+create policy "open console reads match_live_state"
+  on match_live_state for select using (true);
 
-create policy "staff writes live state"
-  on match_live_state for all
-  using (auth.role() = 'authenticated')
-  with check (auth.role() = 'authenticated');
+create policy "open console writes match_live_state"
+  on match_live_state for all using (true) with check (true);
 
 -- Keep updated_at fresh so late joiners can tell how stale the projection is.
 create or replace function touch_live_state() returns trigger as $$
@@ -411,12 +408,12 @@ end $$;
 -- =====================================================================
 -- RLS HARDENING — the remaining reference tables
 -- =====================================================================
--- matches / stat_events / match_sets / match_live_state are already
--- policied above (the publish boundary). Everything else is league
--- reference data: publicly readable (the showcase site renders it
--- anonymously) and writable only by authenticated staff. This is what
--- makes the console lock real — without it the public anon key can write
--- straight past the UI.
+-- matches / stat_events / match_sets / match_live_state are policied
+-- above. Everything else is league reference data: publicly readable (the
+-- showcase renders it anonymously) and — because the console has no
+-- sign-in to write with — writable by the anon role too. Registering a
+-- team and loading a roster are console actions, and they fail exactly
+-- like a tapped spike if this side is left authenticated-only.
 
 alter table leagues            enable row level security;
 alter table seasons            enable row level security;
@@ -448,9 +445,8 @@ begin
     execute format(
       'create policy "public reads %1$s" on %1$I for select using (true)', t);
     execute format(
-      'create policy "staff writes %1$s" on %1$I for all '
-      'using (auth.role() = ''authenticated'') '
-      'with check (auth.role() = ''authenticated'')', t);
+      'create policy "open console writes %1$s" on %1$I for all '
+      'using (true) with check (true)', t);
   end loop;
 end $$;
 

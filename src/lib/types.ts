@@ -16,7 +16,13 @@
 // ---------------------------------------------------------------------
 
 /** Standard indoor volleyball positions. */
-export type PlayerPosition = "OH" | "OPP" | "MB" | "S" | "L" | "DS";
+/**
+ * `U` (Universal) is how Indian league sheets label an all-round attacker who
+ * is not pinned to the opposite slot. It is kept distinct from `OPP` because
+ * the team sheets we load say "Universal", and collapsing the two would put a
+ * label on a player that their own club did not give them.
+ */
+export type PlayerPosition = "OH" | "OPP" | "MB" | "S" | "L" | "DS" | "U";
 
 export const POSITION_LABEL: Record<PlayerPosition, string> = {
   OH: "Outside Hitter",
@@ -25,9 +31,10 @@ export const POSITION_LABEL: Record<PlayerPosition, string> = {
   S: "Setter",
   L: "Libero",
   DS: "Defensive Specialist",
+  U: "Universal",
 };
 
-export const POSITIONS_ALL: PlayerPosition[] = ["OH", "OPP", "MB", "S", "L", "DS"];
+export const POSITIONS_ALL: PlayerPosition[] = ["OH", "OPP", "MB", "S", "L", "DS", "U"];
 
 /**
  * Denormalized roster row the UI consumes: players ⋈ team_players.
@@ -227,10 +234,14 @@ export interface Match {
  * reception %, standings tie-breaks, season records) derives from these.
  */
 export type EventType =
-  // Attack
-  | "SPIKE_POINT" // kill — attack that scored
+  // Attack. A kill and a tool are both points and both attempts, but they are
+  // different skills — one was too powerful to stop, the other turned the
+  // blocker into the scorer — so they are counted apart.
+  | "SPIKE_POINT" // kill — the attack scored on its own
+  | "SPIKE_TOOL" // tool / block-out — scored off the opponent's block
   | "SPIKE_IN" // attack kept in play
-  | "SPIKE_ERR" // attack error (out / blocked / net)
+  | "SPIKE_ERR" // attack error — the spiker's own miss (net or out)
+  | "SPIKE_BLOCKED" // the block stopped it. NOT rally-ending: see BLOCK_WIN
   // Reception
   | "RECV_PERFECT" // ideal ball to the setter
   | "RECV_GOOD" // setter can run the offence
@@ -243,6 +254,7 @@ export type EventType =
   // Blocking
   | "BLOCK_WIN" // kill block
   | "BLOCK_MISS" // block attempt beaten
+  | "BLOCK_TOOLED" // the spiker used this blocker to score. NOT rally-ending
   // Serving
   | "SERVE_ACE" // untouched serve, instant point
   | "SERVE_IN" // serve in play
@@ -268,6 +280,17 @@ export interface StatEvent {
   setNo: number; // 1-based
   type: EventType;
   ts: number; // epoch ms — preserves entry order for undo
+  /**
+   * The opponent on the other end of a duel, when the contact had one: the
+   * blocker on a SPIKE_TOOL/SPIKE_BLOCKED, the spiker on a
+   * BLOCK_WIN/BLOCK_TOOLED. `undefined` on everything else, and on the
+   * BLOCK_WINs the phase-based tracker logs — it never asks who was hitting.
+   *
+   * A block is the one act in volleyball that is decided between two named
+   * players, so the pairing is stored rather than guessed from timestamps.
+   * Every spiker-vs-blocker matchup in the app is derived from this field.
+   */
+  vsPlayerId?: string | null;
 }
 
 // ---------------------------------------------------------------------

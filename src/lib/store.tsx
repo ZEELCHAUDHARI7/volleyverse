@@ -133,7 +133,9 @@ function LocalStoreProvider({ children }: { children: React.ReactNode }) {
     syncStatus: "local",
     // Nothing can refuse a write here — localStorage takes whatever it is given.
     lastError: null,
+    rejectedCount: 0,
     clearErrors: () => {},
+    retryRejected: () => {},
 
     insert: (collection, row) => {
       const withId = { ...row, id: newId(String(collection).slice(0, 2)) } as Db[typeof collection][number];
@@ -177,6 +179,11 @@ function LocalStoreProvider({ children }: { children: React.ReactNode }) {
           (a, b) => a.setNo - b.setNo,
         ),
       })),
+    setSetScores: (matchId, sets) =>
+      patchMatch(matchId, (m) => ({
+        ...m,
+        setScores: [...sets].sort((a, b) => a.setNo - b.setNo),
+      })),
     completeMatch: (matchId, winnerTeamId) =>
       patchMatch(matchId, (m) => ({
         ...m,
@@ -199,7 +206,7 @@ function LocalStoreProvider({ children }: { children: React.ReactNode }) {
     setOfficials: (matchId, officials) =>
       patchMatch(matchId, (m) => ({ ...m, officials })),
 
-    addEvent: (matchId, teamId, playerId, setNo, type) => {
+    addEvent: (matchId, teamId, playerId, setNo, type, vsPlayerId) => {
       const e: StatEvent = {
         id: newId("e"),
         matchId,
@@ -208,6 +215,10 @@ function LocalStoreProvider({ children }: { children: React.ReactNode }) {
         setNo,
         type,
         ts: Date.now(),
+        // null, not undefined, so JSON.stringify keeps the key: a persisted
+        // event that lost the field would read as "never asked" rather than
+        // "asked, nobody there".
+        vsPlayerId: vsPlayerId ?? null,
       };
       updateDb((prev) => ({ ...prev, events: [...prev.events, e] }));
       return e;

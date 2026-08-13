@@ -59,7 +59,11 @@ function describe(op: PendingOp, err: unknown): string {
   if (code === "23514")
     return `The database rejected a ${what}: a value is outside what the schema allows (${base}). A migration is probably missing — run the SQL in supabase/migrations/.`;
   if (code === "23503") return `The database rejected a ${what}: it references a row that does not exist (${base}).`;
-  if (code === "42501") return `The database rejected a ${what}: permission denied by row-level security (${base}). Are you still signed in?`;
+  // There is no sign-in in this console (see supabase-client.ts): every
+  // request runs on the anon key. So 42501 is never an expired session — it
+  // is always a database whose policies still demand an authenticated role.
+  if (code === "42501")
+    return `The database rejected a ${what}: row-level security will not let the anon role write (${base}). Run supabase/FIX-RLS-NOW.sql in the Supabase SQL editor, then press Retry.`;
   return `The database rejected a ${what}${code ? ` [${code}]` : ""}: ${base}`;
 }
 
@@ -105,6 +109,8 @@ export function useSupabaseBackend(): DataProvider {
   dbRef.current = db;
 
   const [lastError, setLastError] = useState<string | null>(null);
+  /** How many writes are parked, waiting for a human to fix the cause. */
+  const [rejected, setRejected] = useState(0);
 
   // ---- durable offline queue ----
   const queueRef = useRef<PendingOp[]>([]);
@@ -134,6 +140,7 @@ export function useSupabaseBackend(): DataProvider {
       /* storage full — the in-memory list still drives the UI this session */
     }
     console.error("[volleyverse] write rejected by the database", { op, err });
+    setRejected(rejectedRef.current.length);
     setLastError(message);
   }, []);
 
@@ -144,6 +151,7 @@ export function useSupabaseBackend(): DataProvider {
     } catch {
       /* ignore */
     }
+    setRejected(0);
     setLastError(null);
   }, []);
 
@@ -195,6 +203,39 @@ export function useSupabaseBackend(): DataProvider {
       flushingRef.current = false;
     }
   }, [execOp, park, persistQueue, supabase]);
+
+  /**
+   * Put the parked writes back on the queue and try them again.
+   *
+   * The banner tells the collector their taps are safe and will sync once the
+   * cause is fixed. That promise needs a road back: parking alone is a
+   * cul-de-sac, and `clearErrors` throws the rows away. This is the road.
+   *
+   * Parked ops go to the HEAD of the queue, because they were refused before
+   * anything now waiting was made — a match row must land before the
+   * stat_events that reference it, or the replay trades 42501 for 23503.
+   *
+   * If the cause is not actually fixed, they are simply parked again and the
+   * banner returns: retrying is safe. Every op is an upsert by primary key or
+   * an append of a client-minted uuid, so a write that DID land and a write
+   * that did not both converge on the same row.
+   */
+  const retryRejected = useCallback(() => {
+    const parked = rejectedRef.current.map((r) => r.op);
+    rejectedRef.current = [];
+    try {
+      window.localStorage.removeItem(REJECTED_KEY);
+    } catch {
+      /* ignore */
+    }
+    setRejected(0);
+    setLastError(null);
+    if (parked.length) {
+      queueRef.current = [...parked, ...queueRef.current];
+      persistQueue();
+    }
+    void flush();
+  }, [flush, persistQueue]);
 
   const enqueue = useCallback(
     (...ops: PendingOp[]) => {
@@ -355,6 +396,7 @@ export function useSupabaseBackend(): DataProvider {
       const raw = window.localStorage.getItem(REJECTED_KEY);
       if (raw) {
         rejectedRef.current = JSON.parse(raw) as RejectedOp[];
+        setRejected(rejectedRef.current.length);
         const last = rejectedRef.current[rejectedRef.current.length - 1];
         if (last) setLastError(last.message);
       }
@@ -481,7 +523,9 @@ export function useSupabaseBackend(): DataProvider {
       ready,
       syncStatus,
       lastError,
+      rejectedCount: rejected,
       clearErrors,
+      retryRejected,
 
       insert: (collection, row) => {
         const id = uuid();
@@ -597,6 +641,31 @@ export function useSupabaseBackend(): DataProvider {
         }));
       },
 
+      setSetScores: (matchId, sets: MatchSet[]) => {
+        // Delete-then-upsert, like setRosters: the array IS the new truth, so a
+        // set left out of it must disappear server-side too.
+        enqueue(
+          { kind: "delete", table: "match_sets", match: { match_id: matchId } },
+          ...sets.map(
+            (s): PendingOp => ({
+              kind: "upsert",
+              table: "match_sets",
+              row: {
+                match_id: matchId,
+                set_no: s.setNo,
+                home_points: s.homePoints,
+                away_points: s.awayPoints,
+              },
+              onConflict: "match_id,set_no",
+            }),
+          ),
+        );
+        patchMatch(matchId, (m) => ({
+          ...m,
+          setScores: [...sets].sort((a, b) => a.setNo - b.setNo),
+        }));
+      },
+
       completeMatch: (matchId, winnerTeamId) => {
         enqueue({
           kind: "upsert",
@@ -657,7 +726,7 @@ export function useSupabaseBackend(): DataProvider {
         patchMatch(matchId, (m) => ({ ...m, officials }));
       },
 
-      addEvent: (matchId, teamId, playerId, setNo, type) => {
+      addEvent: (matchId, teamId, playerId, setNo, type, vsPlayerId) => {
         const e: StatEvent = {
           id: uuid(),
           matchId,
@@ -666,6 +735,7 @@ export function useSupabaseBackend(): DataProvider {
           setNo,
           type,
           ts: Date.now(),
+          vsPlayerId: vsPlayerId ?? null,
         };
         enqueue({ kind: "upsert", table: "stat_events", row: M.statEventToRow(e) });
         patchDb((prev) => ({ ...prev, events: [...prev.events, e] }));
@@ -711,7 +781,9 @@ export function useSupabaseBackend(): DataProvider {
     online,
     pending,
     lastError,
+    rejected,
     clearErrors,
+    retryRejected,
     enqueue,
     patchDb,
     patchMatch,

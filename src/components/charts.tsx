@@ -220,7 +220,7 @@ export function ReachVsSuccess({
   return (
     <ChartShell
       title="Height vs Attack Success"
-      insight="Does height above the net translate into kills?"
+      insight="Does height above the net translate into attack points?"
     >
       <ScatterChart margin={{ top: 8, right: 16, left: -8, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke={t.line} />

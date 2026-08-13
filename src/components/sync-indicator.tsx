@@ -23,7 +23,7 @@ const META: Record<
 };
 
 export function SyncIndicator() {
-  const { syncStatus, lastError, clearErrors } = useStore();
+  const { syncStatus, lastError, rejectedCount, clearErrors, retryRejected } = useStore();
   if (syncStatus === "local") return null;
 
   // A refused write is not a badge. The collector is mid-match, trusting the
@@ -40,16 +40,31 @@ export function SyncIndicator() {
         </p>
         <p className="mt-1 text-xs leading-relaxed">{lastError}</p>
         <p className="mt-1.5 text-[11px] opacity-90">
-          Your taps are still stored on this device. Do not clear this browser&apos;s
-          data — fix the cause and they will sync.
+          {rejectedCount === 1
+            ? "1 write is held on this device"
+            : `${rejectedCount} writes are held on this device`}
+          . Do not clear this browser&apos;s data. Fix the cause above, then press
+          Retry — Dismiss throws them away.
         </p>
-        <button
-          type="button"
-          onClick={clearErrors}
-          className="mt-2 rounded-lg border border-white/40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider"
-        >
-          Dismiss
-        </button>
+        <div className="mt-2 flex gap-2">
+          {/* The way back. Without it the promise above is a lie: parked
+              writes are never re-sent, so fixing the database would not
+              recover a single tap. */}
+          <button
+            type="button"
+            onClick={retryRejected}
+            className="rounded-lg bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-err"
+          >
+            Retry
+          </button>
+          <button
+            type="button"
+            onClick={clearErrors}
+            className="rounded-lg border border-white/40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider"
+          >
+            Dismiss
+          </button>
+        </div>
       </div>
     );
   }

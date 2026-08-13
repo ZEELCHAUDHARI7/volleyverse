@@ -1,4 +1,5 @@
 import type { EventType } from "./types";
+import type { LiberoState, SubCount } from "./substitution";
 
 /**
  * RALLY ENGINE — the courtside state machine (v2: two-sided ✓ O ✗).
@@ -42,6 +43,99 @@ export interface TeamSetup {
   lineup: Lineup;
   /** Defensive specialist — free to enter for a back-row player. */
   liberoId: string | null;
+}
+
+/** Both sides' starting rotations for one set. */
+export interface MatchSetup {
+  us: TeamSetup;
+  opp: TeamSetup;
+}
+
+/**
+ * Starting rotations recorded per set, keyed by set number.
+ *
+ * Only sets whose rotation was ENTERED appear here. A missing set means "same
+ * as the last one entered" (see `setupForSet`), which is both the volleyball
+ * default and what makes an old session — recorded before rotation could change
+ * between sets — behave exactly as it always did.
+ */
+export type SetSetups = Record<number, MatchSetup>;
+
+/**
+ * The rotations `set` starts from: the one entered for it, else the most recent
+ * one entered before it, else the match setup (which is always set 1's).
+ *
+ * Carrying the last entered rotation forward rather than snapping back to set 1
+ * is the honest reading of a coach's edit — it stands until they change it
+ * again, exactly like a substitution stands until the next one.
+ */
+export function setupForSet(
+  set: number,
+  matchSetup: MatchSetup,
+  setSetups?: SetSetups,
+): MatchSetup {
+  if (setSetups) {
+    for (let s = set; s >= 1; s--) {
+      const entered = setSetups[s];
+      if (entered) return entered;
+    }
+  }
+  return matchSetup;
+}
+
+/** Record `setup` as the starting rotation for `set`, leaving other sets alone. */
+export function withSetSetup(
+  setSetups: SetSetups | undefined,
+  set: number,
+  setup: MatchSetup,
+): SetSetups {
+  return { ...(setSetups ?? {}), [set]: setup };
+}
+
+/**
+ * The court fields opening a set resets — the same five in both trackers, so
+ * neither can drift from the other on what "a fresh set" means.
+ */
+export interface SetOpening {
+  usLineup: Lineup;
+  oppLineup: Lineup;
+  usLibero: LiberoState;
+  oppLibero: LiberoState;
+  subs: SubCount;
+}
+
+/**
+ * Open a set from `setup`: both teams on their starting rotation, both liberos
+ * on the bench, both substitution counters at zero. The caller then syncs the
+ * court for the new server (ordering contract in substitution.ts).
+ *
+ * The libero and sub constants are written out rather than imported from
+ * substitution.ts because this file must stay free of RUNTIME imports — see the
+ * header note on the type-stripping test runner.
+ */
+export function openSetCourt(setup: MatchSetup): SetOpening {
+  return {
+    usLineup: setup.us.lineup,
+    oppLineup: setup.opp.lineup,
+    usLibero: { onCourt: false, replacedId: null },
+    oppLibero: { onCourt: false, replacedId: null },
+    subs: { us: 0, opp: 0 },
+  };
+}
+
+/**
+ * Is a part-filled starting six ready to play? Six slots, six DIFFERENT people
+ * — the duplicate check is the one a tap-to-place picker cannot make for
+ * itself once a lineup is being edited rather than built from empty.
+ */
+export function lineupComplete(slots: Partial<Record<Position, string>>): boolean {
+  const ids: string[] = [];
+  for (const p of POSITIONS) {
+    const id = slots[p];
+    if (!id) return false;
+    ids.push(id);
+  }
+  return new Set(ids).size === 6;
 }
 
 /**
@@ -287,6 +381,14 @@ export interface RallySnapshot {
   serving: Side;
   usLineup: Lineup;
   oppLineup: Lineup;
+  /**
+   * Libero placement at the START of the rally. Undo restores the whole court,
+   * so a libero swap (and any substitution made mid-rally) rewinds with it.
+   */
+  usLibero?: LiberoState;
+  oppLibero?: LiberoState;
+  /** Substitution counters at the start of the rally — restored with the court. */
+  subs?: SubCount;
   /** StatEvent ids emitted by the rally — removed on rally-undo. */
   eventIds: string[];
   /** Was the assist upgrade applied (for accurate undo). */
@@ -294,7 +396,21 @@ export interface RallySnapshot {
 }
 
 export interface MatchState {
-  setup: { us: TeamSetup; opp: TeamSetup };
+  /** Set 1's starting rotations. Later sets may differ — see `setSetups`. */
+  setup: MatchSetup;
+  /**
+   * Starting rotations entered for later sets. Absent on a session saved before
+   * rotation could change between sets, which `setupForSet` reads as "every set
+   * starts from `setup`" — the old behaviour, exactly.
+   */
+  setSetups?: SetSetups;
+  /**
+   * True while a set has been banked and the next one is waiting for its
+   * starting rotation to be confirmed. The court below already holds the
+   * carried-forward rotation, so the state is playable either way — this only
+   * says the screen owes the collector a chance to change it before the serve.
+   */
+  awaitingSetStart?: boolean;
   /** Pre-match toss (FIVB 7.1) - decides set-1 first service. */
   toss: Toss;
   /**
@@ -312,6 +428,16 @@ export interface MatchState {
   /** Current on-court rotations — BOTH teams, auto-rotated on side-outs. */
   usLineup: Lineup;
   oppLineup: Lineup;
+  /**
+   * Libero placement per side (substitution.ts). The lineups above stay the
+   * single truth of "who is where" — while a libero is on court they simply
+   * occupy the Middle Blocker's slot, so rotation needs no special case. These
+   * only record whether the swap is active and who comes back.
+   */
+  usLibero: LiberoState;
+  oppLibero: LiberoState;
+  /** Regular substitutions used this set, per side. Libero swaps never count. */
+  subs: SubCount;
   /** Final scores of completed sets, oldest first — fan scoreboard data. */
   setScores: { us: number; opp: number }[];
   rally: RallyState;
@@ -326,6 +452,9 @@ export function initialMatchState(
 ): MatchState {
   return {
     setup: { us, opp },
+    setSetups: {},
+    // Set 1's rotation is entered by the setup wizard, so it is never owed.
+    awaitingSetStart: false,
     toss,
     decidingToss: null,
     set: 1,
@@ -333,8 +462,9 @@ export function initialMatchState(
     oppScore: 0,
     usSets: 0,
     oppSets: 0,
-    usLineup: us.lineup,
-    oppLineup: opp.lineup,
+    // Liberos start on the bench; the caller runs `syncBothLiberos` straight
+    // away, which walks the receiving side's libero on before the first serve.
+    ...openSetCourt({ us, opp }),
     setScores: [],
     rally: openingRally(servingFromToss(toss)),
     history: [],

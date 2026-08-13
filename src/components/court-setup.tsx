@@ -24,7 +24,14 @@ import { CourtBoard, type CourtPlayer } from "@/components/court-board";
 
 type WizardStep = "TOSS" | "HOME_SIX" | "AWAY_SIX" | "COURT";
 
-interface SixState {
+/**
+ * A starting six being built or edited. Slots are partial because a six is
+ * incomplete while it is being filled in — `lineupComplete` is the gate.
+ * Exported alongside `SixPicker` so the between-sets rotation screen
+ * (set-rotation.tsx) edits a six with the same control the wizard builds one
+ * with, rather than growing a second picker that can drift from this one.
+ */
+export interface SixState {
   slots: Partial<Record<Position, string>>;
   liberoId: string | null;
 }
@@ -229,8 +236,8 @@ export function SetupWizard({
   );
 }
 
-/** Tap-to-place starting-six picker — used for both sides. */
-function SixPicker({
+/** Tap-to-place starting-six picker — used for both sides, and between sets. */
+export function SixPicker({
   roster,
   six,
   setSix,
@@ -242,8 +249,9 @@ function SixPicker({
   const { slots, liberoId } = six;
   const placed = new Set(Object.values(slots));
   const nextPos = POSITIONS.find((p) => !slots[p]);
-  const nameOf = (pid?: string) =>
-    roster.find((p) => p.id === pid)?.fullName.split(" ")[0] ?? "";
+  const playerAt = (pid?: string) => roster.find((p) => p.id === pid);
+  const nameOf = (pid?: string) => playerAt(pid)?.fullName.split(" ")[0] ?? "";
+  const jerseyOf = (pid?: string) => playerAt(pid)?.jerseyNo ?? null;
 
   const tapPlayer = (playerId: string) => {
     const existing = POSITIONS.find((p) => slots[p] === playerId);
@@ -266,7 +274,14 @@ function SixPicker({
         <p className="mb-2 text-center text-[10px] uppercase tracking-widest text-dim">← net →</p>
         <div className="grid grid-cols-3 gap-2">
           {[...FRONT_ROW, ...BACK_ROW].map((p) => (
-            <MiniSlot key={p} pos={p} name={nameOf(slots[p])} active={p === nextPos} />
+            <MiniSlot
+              key={p}
+              pos={p}
+              name={nameOf(slots[p])}
+              jersey={jerseyOf(slots[p])}
+              filled={Boolean(slots[p])}
+              active={p === nextPos}
+            />
           ))}
         </div>
       </div>
@@ -286,11 +301,23 @@ function SixPicker({
                 pos ? "ring-2 ring-accent" : isLibero ? "opacity-40" : ""
               }`}
             >
-              <span>
-                <span className="block text-sm font-bold leading-tight">
-                  {p.fullName.split(" ")[0]}
-                </span>
-                <span className="tnum text-[11px] text-dim">#{p.jerseyNo ?? "—"}</span>
+              {/* Number first: it is what the collector can actually read on
+                  the court. The name underneath confirms the tap. */}
+              <span className="min-w-0">
+                {p.jerseyNo !== null ? (
+                  <>
+                    <span className="stat-display tnum block text-xl font-extrabold leading-none">
+                      #{p.jerseyNo}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[11px] leading-tight text-dim">
+                      {p.fullName.split(" ")[0]}
+                    </span>
+                  </>
+                ) : (
+                  <span className="block truncate text-sm font-bold leading-tight">
+                    {p.fullName.split(" ")[0]}
+                  </span>
+                )}
               </span>
               {pos ? (
                 <span className="stat-display tnum text-lg font-extrabold text-accent">P{pos}</span>
@@ -322,6 +349,9 @@ function SixPicker({
                     : "border border-line text-dim"
               }`}
             >
+              {p.jerseyNo !== null && (
+                <span className="tnum mr-1.5 text-sm font-extrabold">#{p.jerseyNo}</span>
+              )}
               {p.fullName.split(" ")[0]}
             </button>
           );
@@ -342,11 +372,23 @@ function StepTitle({ n, title, sub }: { n: number; title: string; sub: string })
   );
 }
 
-function MiniSlot({ pos, name, active }: { pos: Position; name: string; active: boolean }) {
+function MiniSlot({
+  pos,
+  name,
+  jersey,
+  filled,
+  active,
+}: {
+  pos: Position;
+  name: string;
+  jersey: number | null;
+  filled: boolean;
+  active: boolean;
+}) {
   return (
     <div
       className={`flex min-h-16 flex-col items-center justify-center rounded-xl border text-center ${
-        name
+        filled
           ? "border-accent/40 bg-accent/5"
           : active
             ? "border-accent border-dashed"
@@ -354,7 +396,18 @@ function MiniSlot({ pos, name, active }: { pos: Position; name: string; active: 
       }`}
     >
       <span className="tnum text-[10px] text-dim">P{pos}</span>
-      <span className="text-sm font-bold leading-tight">{name || "Open"}</span>
+      {!filled ? (
+        <span className="stat-display text-lg font-extrabold leading-none">Open</span>
+      ) : jersey !== null ? (
+        <>
+          <span className="stat-display tnum text-lg font-extrabold leading-none">#{jersey}</span>
+          <span className="max-w-full truncate px-1 text-[10px] leading-tight text-dim">
+            {name}
+          </span>
+        </>
+      ) : (
+        <span className="max-w-full truncate px-1 text-sm font-bold leading-tight">{name}</span>
+      )}
     </div>
   );
 }

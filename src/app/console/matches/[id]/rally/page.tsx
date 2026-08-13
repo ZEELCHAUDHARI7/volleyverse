@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMatch, useStore } from "@/lib/store";
@@ -12,6 +13,7 @@ import {
   POSITIONS,
   type ActionKind,
   type LoggedAction,
+  type MatchSetup,
   type MatchState,
   type Phase,
   type RallySnapshot,
@@ -23,6 +25,8 @@ import {
   initialMatchState,
   isDecidingSet,
   isFrontRow,
+  matchWinner,
+  openSetCourt,
   openingRally,
   resolvePoint,
   resolveTrio,
@@ -30,10 +34,32 @@ import {
   serverId,
   servingFromToss,
   setPointReached,
+  setupForSet,
   skipPhase,
+  withSetSetup,
 } from "@/lib/rally";
-import { CourtBoard, type CourtPlayer } from "@/components/court-board";
+import {
+  type LiberoEvent,
+  applySub,
+  liberoStateFrom,
+  subCountFrom,
+  syncCourt,
+} from "@/lib/substitution";
+import {
+  CourtBoard,
+  type CourtPlayer,
+  type DragAnswer,
+  type DragMenu,
+} from "@/components/court-board";
 import { SetupWizard } from "@/components/court-setup";
+import { SetRotationGate } from "@/components/set-rotation";
+import { SubControl } from "@/components/sub-sheet";
+import {
+  type SetScope,
+  SetNavigator,
+  scopeLabel,
+  setEntries,
+} from "@/components/set-strip";
 
 /**
  * RALLY TRACKER v3 — the live courtside engine, two real teams.
@@ -57,6 +83,38 @@ import { SetupWizard } from "@/components/court-setup";
 
 const RALLY_KEY = (matchId: string) => `volleyverse:rally:${matchId}`;
 
+/**
+ * A session saved before substitutions existed carries no libero or sub fields.
+ * In that model a libero was never placed in a lineup, so "both on the bench" is
+ * the correct reading; the first sync walks the receiving libero on.
+ */
+function hydrate(s: MatchState): MatchState {
+  return {
+    ...s,
+    usLibero: liberoStateFrom(s.usLibero),
+    oppLibero: liberoStateFrom(s.oppLibero),
+    subs: subCountFrom(s.subs),
+    // Likewise for a session saved before rotation could change between sets:
+    // no recorded per-set rotations and no set start owed is exactly the old
+    // behaviour, so resuming one never lands on a rotation screen mid-set.
+    setSetups: s.setSetups ?? {},
+    awaitingSetStart: s.awaitingSetStart === true,
+  };
+}
+
+/** One line for the flash: what the system just did, and to whom. */
+function liberoNote(events: LiberoEvent[], nameOf: (id: string) => string): string | null {
+  if (events.length === 0) return null;
+  return events
+    .map(
+      (e) =>
+        `⇄ Libero ${e.change === "IN" ? "in" : "out"} · ${nameOf(e.inId)} for ${nameOf(
+          e.outId,
+        )} · P${e.position}`,
+    )
+    .join("   ");
+}
+
 
 export default function RallyTracker() {
   const { id } = useParams<{ id: string }>();
@@ -74,7 +132,7 @@ export default function RallyTracker() {
       const raw = window.localStorage.getItem(RALLY_KEY(match.id));
       if (raw) {
         const parsed = JSON.parse(raw) as MatchState;
-        if (parsed.oppLineup && parsed.usLineup) setState(parsed);
+        if (parsed.oppLineup && parsed.usLineup) setState(hydrate(parsed));
       }
     } catch {
       // corrupted → start fresh at setup
@@ -117,7 +175,7 @@ export default function RallyTracker() {
       }
       try {
         const parsed = JSON.parse(e.newValue) as MatchState;
-        if (parsed.oppLineup && parsed.usLineup) setState(parsed);
+        if (parsed.oppLineup && parsed.usLineup) setState(hydrate(parsed));
       } catch {
         // partial write / corrupt payload — keep current state
       }
@@ -126,11 +184,57 @@ export default function RallyTracker() {
     return () => window.removeEventListener("storage", onStorage);
   }, [match]);
 
+  // Self-healing libero sync. Every path that changes the serve syncs the court
+  // itself; this is the backstop for state that arrives from OUTSIDE a handler —
+  // a session resumed from storage (including one saved before this feature
+  // existed), or another tab's update. syncCourt is idempotent and hands back the
+  // SAME object when the court is already right, so this settles in one pass and
+  // cannot loop.
+  useEffect(() => {
+    if (!state) return;
+    // Never mid-rally: the court a rally is being scored on must not move under
+    // the collector. A resumed session that needs a swap gets it at the next
+    // dead ball, which is the only moment a swap is legal anyway.
+    if (state.rally.current.length > 0) return;
+    const roster = [...homeRoster, ...awayRoster];
+    const isMB = (pid: string) => roster.find((p) => p.id === pid)?.position === "MB";
+    // The libero comes from the rotation THIS set started from, not the match's:
+    // a side may designate a different libero for a later set.
+    const active = setupForSet(state.set, state.setup, state.setSetups);
+    const r = syncCourt(
+      state,
+      { us: active.us.liberoId, opp: active.opp.liberoId },
+      isMB,
+    );
+    if (r.state !== state) persist(r.state);
+  }, [state, homeRoster, awayRoster, persist]);
+
   if (!ready || !loaded) return null;
   if (!match || !homeTeam || !awayTeam) {
     return (
       <div className="flex min-h-dvh items-center justify-center">
         <p className="text-dim">Match not found.</p>
+      </div>
+    );
+  }
+
+  // A finished match has no live session left, and the setup wizard is not the
+  // answer to "this match is over" — offering a fresh toss for a completed
+  // match invites someone to overwrite a played scoresheet. Send them to the
+  // report instead. (Reached most often straight after banking the final set,
+  // while the push to /review is still in flight.)
+  if (!state && match.status === "completed") {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-4 text-center">
+        <p className="stat-display text-xl font-extrabold uppercase text-ink">
+          Match complete
+        </p>
+        <Link
+          href={`/console/matches/${match.id}/review`}
+          className="flex min-h-12 items-center rounded-2xl border border-line px-5 text-sm font-bold text-dim"
+        >
+          Open the match report →
+        </Link>
       </div>
     );
   }
@@ -144,7 +248,20 @@ export default function RallyTracker() {
         homeRoster={homeRoster}
         awayRoster={awayRoster}
         store={store}
-        onReady={({ us, opp, toss }) => persist(initialMatchState(us, opp, toss))}
+        onReady={({ us, opp, toss }) => {
+          // Sync straight away: the receiving side's libero is on court before
+          // the first serve, with no user input.
+          const roster = [...homeRoster, ...awayRoster];
+          const isMB = (pid: string) =>
+            roster.find((p) => p.id === pid)?.position === "MB";
+          persist(
+            syncCourt(
+              initialMatchState(us, opp, toss),
+              { us: us.liberoId, opp: opp.liberoId },
+              isMB,
+            ).state,
+          );
+        }}
       />
     );
   }
@@ -233,7 +350,13 @@ function LiveScreen({
   const phase = rally.phase;
   const side = rally.side; // team performing the current phase
   const lineupOf = (s: Side) => (s === "US" ? usLineup : oppLineup);
-  const liberoOf = (s: Side) => state.setup[s === "US" ? "us" : "opp"].liberoId;
+  /** The rotation the set in progress started from — set 1's unless changed. */
+  const activeSetup = setupForSet(state.set, state.setup, state.setSetups);
+  const liberoOf = (s: Side) => activeSetup[s === "US" ? "us" : "opp"].liberoId;
+  const liberoIds = { us: liberoOf("US"), opp: liberoOf("OPP") };
+  /** The libero replaces a Middle Blocker — this is how the engine spots one. */
+  const isMiddleBlocker = (pid: string) =>
+    allRoster.find((p) => p.id === pid)?.position === "MB";
   const teamName = (s: Side) => (s === "US" ? homeTeam.name : awayTeam.name);
   const teamIdOf = (s: Side) => (s === "US" ? match.homeTeamId : match.awayTeamId);
   const rosterOf = (s: Side) => (s === "US" ? homeRoster : awayRoster);
@@ -244,6 +367,11 @@ function LiveScreen({
 
   const [armed, setArmed] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ text: string; big?: boolean } | null>(null);
+  /**
+   * Which set the performer strip below is reading. Banking a set keeps its
+   * score and its `setNo`-tagged events — this selects them back.
+   */
+  const [scope, setScope] = useState<SetScope>("ALL");
   const [savedAt, setSavedAt] = useState<number | null>(null);
   // Deciding-set toss (FIVB 6.3.2/7.1) - selections for the fresh toss prompt.
   const [dToss, setDToss] = useState<{ winner: Side | null; choice: Toss["choice"] | null }>({
@@ -283,6 +411,55 @@ function LiveScreen({
     flashTimer.current = setTimeout(() => setFlash(null), big ? 6000 : 2800);
   };
 
+  /**
+   * Put the liberos where the serve says they belong. Called after every point,
+   * set start and toss — never by the user. The note is returned rather than
+   * flashed so the caller can fold it into its own message instead of one
+   * overwriting the other.
+   */
+  const syncLiberos = (s: MatchState): { state: MatchState; note: string | null } => {
+    const r = syncCourt(s, liberoIds, isMiddleBlocker);
+    return {
+      state: r.state,
+      note: liberoNote(r.events, (pid) => players.get(pid)?.name ?? "Player"),
+    };
+  };
+
+  /** Flash several lines as one message, skipping the ones that are empty. */
+  const flashAll = (parts: (string | null)[], big = false) => {
+    const text = parts.filter(Boolean).join(" · ");
+    if (text) showFlash(text, big);
+  };
+
+  /** A coach substitution: the incoming player takes the exact slot. */
+  const onSub = (sd: Side, outId: string, inId: string) => {
+    const res = applySub({
+      lineup: lineupOf(sd),
+      libero: sd === "US" ? state.usLibero : state.oppLibero,
+      liberoId: liberoOf(sd),
+      outId,
+      inId,
+    });
+    if (!res.ok) return;
+    const withCourt: MatchState =
+      sd === "US"
+        ? { ...state, usLineup: res.lineup, usLibero: res.libero }
+        : { ...state, oppLineup: res.lineup, oppLibero: res.libero };
+    // Re-sync: a substitution can change WHICH middle blocker is in the back
+    // row, so the libero may now be owed the court (or owed the bench).
+    const synced = syncLiberos({
+      ...withCourt,
+      subs: {
+        us: withCourt.subs.us + (sd === "US" ? 1 : 0),
+        opp: withCourt.subs.opp + (sd === "OPP" ? 1 : 0),
+      },
+    });
+    setState(synced.state);
+    setArmed(null);
+    const nm2 = (pid: string) => players.get(pid)?.name ?? "Player";
+    flashAll([`⇄ Sub · ${nm2(inId)} on for ${nm2(outId)}`, synced.note]);
+  };
+
   // Season-record + milestone detection (both teams — everyone is real).
   const perMatchCount = (pid: string, ev: "SERVE_ACE" | "DIG_SUPER") =>
     store.db.events.filter((e) => e.matchId === matchId && e.playerId === pid && e.type === ev)
@@ -291,32 +468,47 @@ function LiveScreen({
   // What would the armed tap mean right now? The action type comes from the
   // current phase; block-vs-dig is resolved by the tapped player's own row on
   // THEIR side — so a surprise touch by either team is logged correctly.
-  const armedAction: ActionKind | null = useMemo(() => {
-    if (!armed || phase === "OVER") return null;
-    const aSide = sideOf(armed);
+  //
+  // Hoisted out of the memo below so a gesture can ask the same question about
+  // a player it never armed. Both callers must agree: the trio a drag commits
+  // has to mean exactly what the panel's buttons would have meant.
+  const actionFor = (playerId: string, aSide: Side): ActionKind | null => {
+    if (phase === "OVER") return null;
     const lib = liberoOf(aSide);
-    const front = armed !== lib && isFrontRow(lineupOf(aSide), armed);
+    const front = playerId !== lib && isFrontRow(lineupOf(aSide), playerId);
     return inferAction(phase, front);
+  };
+
+  const armedAction: ActionKind | null = useMemo(() => {
+    if (!armed) return null;
+    return actionFor(armed, sideOf(armed));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [armed, phase, side, usLineup, oppLineup]);
 
-  // ---- Core: one of the three buttons for the armed player ----
-  const commit = (trio: Trio) => {
-    if (phase === "OVER" || !armed || !armedAction) return;
-    // The acting side is whoever was tapped — the court is fully open, so this
+  // ---- Core: one answer for one player ----
+  //
+  // Takes the player rather than reading `armed`, because a hold-and-drag never
+  // arms anyone: the whole action is one gesture, so there is no intermediate
+  // state for it to leave behind and nothing for this to read if it tried.
+  const commitFor = (playerId: string, trio: Trio) => {
+    if (phase === "OVER") return;
+    // The acting side is whoever was touched — the court is fully open, so this
     // may differ from the phase's expected side (an unexpected touch or tip).
-    const aSide = sideOf(armed);
-    const res = resolveTrio(armedAction, aSide, trio);
+    const aSide = sideOf(playerId);
+    // The same inference armedAction memoises, for an arbitrary player.
+    const action = actionFor(playerId, aSide);
+    if (!action) return;
+    const res = resolveTrio(action, aSide, trio);
     const teamId = teamIdOf(aSide);
 
     let eventId: string | null = null;
     let assistUpgradeEventId: string | null = null;
 
     if (res.event) {
-      const e = store.addEvent(matchId, teamId, armed, state.set, res.event);
+      const e = store.addEvent(matchId, teamId, playerId, state.set, res.event);
       eventId = e.id;
 
-      // Assist attribution: a kill upgrades that side's preceding set.
+      // Assist attribution: a spike upgrades that side's preceding set.
       if (res.event === "SPIKE_POINT") {
         const priorSet = [...rally.current]
           .reverse()
@@ -332,14 +524,14 @@ function LiveScreen({
       // Milestone flashes — flag at 3/5/7, record breaks league-wide.
       if (res.event === "SERVE_ACE" || res.event === "DIG_SUPER") {
         const isAce = res.event === "SERVE_ACE";
-        const n = perMatchCount(armed, res.event); // includes the one just added
+        const n = perMatchCount(playerId, res.event); // includes the one just added
         const broke = breaksRecord(
           isAce ? "aces" : "superDigs",
           store.db.events.filter((e) => e.id !== eventId),
           matchId,
-          armed,
+          playerId,
         );
-        const first = players.get(armed)?.name ?? "Player";
+        const first = players.get(playerId)?.name ?? "Player";
         if (broke) showFlash(`🏆 SEASON RECORD · ${first}: ${n} ${isAce ? "aces" : "super digs"}!`, true);
         else if ([3, 5, 7].includes(n)) showFlash(`🔥 ${first}: ${n} ${isAce ? "aces" : "super digs"} this match`, true);
       }
@@ -347,9 +539,9 @@ function LiveScreen({
 
     const logged: LoggedAction = {
       eventId,
-      playerId: armed,
+      playerId,
       side: aSide,
-      action: armedAction,
+      action,
       phase,
     };
     const nextCurrent = [...rally.current, logged];
@@ -363,6 +555,39 @@ function LiveScreen({
       });
       setArmed(null);
     }
+  };
+
+  /** The panel's path in: one of the three buttons, for the armed player. */
+  const commit = (trio: Trio) => {
+    if (armed) commitFor(armed, trio);
+  };
+
+  /**
+   * What the three directions mean for this player, right now.
+   *
+   * Unlike the free-rally tracker the answer depends on who is being held: the
+   * phase says what is happening, and their own row settles the one genuine
+   * ambiguity in the flow — a front-row player meeting an attack is blocking,
+   * the same touch behind them is a dig.
+   */
+  const dragMenuFor = (playerId: string, side: Side): DragMenu | null => {
+    const action = actionFor(playerId, side);
+    if (!action) return null;
+    const what = ACTION_LABEL[action];
+    return {
+      left: { glyph: "✓", label: `${what} · won`, tone: "ok" },
+      up: { glyph: "O", label: `${what} · rally on`, tone: "azure" },
+      right: { glyph: "✗", label: `${what} · fail`, tone: "err" },
+    };
+  };
+
+  /**
+   * A drag released. Nothing here has a second question behind it — the trio IS
+   * the whole answer in this tracker — so every direction commits outright, and
+   * the ← Back button below the court is what a wrong flick reaches for.
+   */
+  const onDrag = (playerId: string, _side: Side, answer: DragAnswer) => {
+    commitFor(playerId, answer === "LEFT" ? "WIN" : answer === "RIGHT" ? "LOSE" : "CONT");
   };
 
   // ---- Scorer missed a contact: advance the flow, log nothing ----
@@ -389,11 +614,17 @@ function LiveScreen({
       serving: rally.serving,
       usLineup,
       oppLineup,
+      usLibero: state.usLibero,
+      oppLibero: state.oppLibero,
+      subs: state.subs,
       eventIds: current.map((a) => a.eventId).filter((x): x is string => !!x),
       assistUpgradeEventId,
     };
 
-    setState({
+    // ROTATE FIRST, THEN sync the liberos (substitution.ts ordering contract):
+    // rotation carries the libero one slot clockwise, so a returning Middle
+    // Blocker lands exactly where the rotation puts them.
+    const synced = syncLiberos({
       ...state,
       usScore,
       oppScore,
@@ -402,8 +633,12 @@ function LiveScreen({
       rally: openingRally(nextServing),
       history: [...state.history, snapshot],
     });
+    setState(synced.state);
     setArmed(null);
-    showFlash(`Point · ${teamName(winner)}${rotateWinner ? " · rotate ↻" : ""}`);
+    flashAll([
+      `Point · ${teamName(winner)}${rotateWinner ? " · rotate ↻" : ""}`,
+      synced.note,
+    ]);
   };
 
   // ---- Undo: last action within a rally, else the last completed rally ----
@@ -427,17 +662,23 @@ function LiveScreen({
     if (!prev) return;
     for (const eid of prev.eventIds) store.removeEvent(eid);
     if (prev.assistUpgradeEventId) store.removeEvent(prev.assistUpgradeEventId);
-    setState({
+    // The court rewinds whole: lineups AND libero placement. A substitution made
+    // during the undone rally rewinds with it — the honest reading of "undo".
+    const synced = syncLiberos({
       ...state,
       usScore: prev.usScore,
       oppScore: prev.oppScore,
       usLineup: prev.usLineup,
       oppLineup: prev.oppLineup,
+      usLibero: liberoStateFrom(prev.usLibero),
+      oppLibero: liberoStateFrom(prev.oppLibero),
+      subs: subCountFrom(prev.subs),
       rally: openingRally(prev.serving),
       history: state.history.slice(0, -1),
     });
+    setState(synced.state);
     setArmed(null);
-    showFlash("Undone");
+    flashAll(["Undone", synced.note]);
   };
 
   // ---- Back: undo exactly one step (a mis-tap) without losing the match ----
@@ -471,16 +712,17 @@ function LiveScreen({
   const confirmDecidingToss = () => {
     if (!dToss.winner || !dToss.choice) return;
     const toss: Toss = { winner: dToss.winner, choice: dToss.choice };
-    setState({
+    const synced = syncLiberos({
       ...state,
       decidingToss: toss,
-      usLineup: state.setup.us.lineup,
-      oppLineup: state.setup.opp.lineup,
+      // The deciding set opens on the rotation carried into it, not on set 1's.
+      ...openSetCourt(activeSetup),
       rally: openingRally(servingFromToss(toss)),
       history: [],
     });
+    setState(synced.state);
     setDToss({ winner: null, choice: null });
-    showFlash(`Deciding set - ${teamName(servingFromToss(toss))} serve`, true);
+    flashAll([`Deciding set - ${teamName(servingFromToss(toss))} serve`, synced.note], true);
   };
 
   const bankSet = () => {
@@ -491,7 +733,26 @@ function LiveScreen({
       homePoints: state.usScore,
       awayPoints: state.oppScore,
     });
-    const nextSet = Math.min(state.set + 1, match.totalSets);
+    const usSets = state.usSets + (setWinner === "US" ? 1 : 0);
+    const oppSets = state.oppSets + (setWinner === "OPP" ? 1 : 0);
+
+    // The set just banked may have taken the match. Best-of-N ends the moment a
+    // side holds the majority, so there is no set 3 to play at 2-0. Without
+    // this the collector would be parked on the rotation screen of a set that
+    // cannot happen — the free-rally tracker has always ended here, and this
+    // brings the two into line.
+    const decided = matchWinner(usSets, oppSets, match.totalSets);
+    if (decided) {
+      store.completeMatch(
+        matchId,
+        decided === "US" ? match.homeTeamId : match.awayTeamId,
+      );
+      setState(null); // clear the resumable rally session
+      router.push(`/console/matches/${matchId}/review`);
+      return;
+    }
+
+    const nextSet = state.set + 1;
     // FIVB 6.3.2/7.1: the deciding set needs a NEW toss. Entering it, we clear
     // any prior deciding toss so the UI prompts for a fresh one; firstServer
     // returns null until it is taken, so we hold the previous server as a
@@ -501,25 +762,98 @@ function LiveScreen({
     const serving =
       firstServerForSet(nextSet, match.totalSets, state.toss, nextDecidingToss) ??
       state.rally.serving;
-    setState({
-      ...state,
-      usSets: state.usSets + (setWinner === "US" ? 1 : 0),
-      oppSets: state.oppSets + (setWinner === "OPP" ? 1 : 0),
-      set: nextSet,
-      decidingToss: nextDecidingToss,
-      setScores: [...(state.setScores ?? []), { us: state.usScore, opp: state.oppScore }],
-      usScore: 0,
-      oppScore: 0,
-      // Fresh set: both teams return to their starting rotations.
-      usLineup: state.setup.us.lineup,
-      oppLineup: state.setup.opp.lineup,
-      rally: openingRally(serving),
-      history: [],
-    });
-    showFlash(`Set ${state.set}: ${teamName(setWinner)}`, true);
+    // Open the next set on the rotation carried forward from this one, then
+    // pause on `awaitingSetStart` so the rotation can be changed before the
+    // first serve. The court underneath is already coherent, so a session
+    // resumed here is playable whatever the screen does.
+    const nextSetup = setupForSet(nextSet, state.setup, state.setSetups);
+    const opened = syncCourt(
+      {
+        ...state,
+        usSets,
+        oppSets,
+        set: nextSet,
+        awaitingSetStart: true,
+        decidingToss: nextDecidingToss,
+        setScores: [...(state.setScores ?? []), { us: state.usScore, opp: state.oppScore }],
+        usScore: 0,
+        oppScore: 0,
+        ...openSetCourt(nextSetup),
+        rally: openingRally(serving),
+        history: [],
+      },
+      // The carried rotation's liberos, not the match's: sync must not reach for
+      // a libero the incoming set no longer designates.
+      { us: nextSetup.us.liberoId, opp: nextSetup.opp.liberoId },
+      isMiddleBlocker,
+    );
+    setState(opened.state);
+    flashAll(
+      [
+        `Set ${state.set}: ${teamName(setWinner)}`,
+        liberoNote(opened.events, (pid) => players.get(pid)?.name ?? "Player"),
+      ],
+      true,
+    );
+  };
+
+  /**
+   * The rotation for this set is confirmed — record it and let play begin.
+   *
+   * Recorded against THIS set only: every set before it keeps the rotation it
+   * was played with, and every set after it inherits this one until changed.
+   */
+  const startSet = (setup: MatchSetup) => {
+    const six = new Set([
+      ...Object.values(setup.us.lineup),
+      ...Object.values(setup.opp.lineup),
+    ]);
+    // Scoresheet detail: anyone who has started a set is a starter for the
+    // match. A player benched for set 2 still started it.
+    store.setRosters(
+      matchId,
+      match.rosters.map((r) => ({
+        ...r,
+        isStarter: r.isStarter || six.has(r.playerId),
+        isLibero:
+          r.isLibero ||
+          r.playerId === setup.us.liberoId ||
+          r.playerId === setup.opp.liberoId,
+      })),
+    );
+    const started = syncCourt(
+      {
+        ...state,
+        setSetups: withSetSetup(state.setSetups, state.set, setup),
+        awaitingSetStart: false,
+        ...openSetCourt(setup),
+      },
+      { us: setup.us.liberoId, opp: setup.opp.liberoId },
+      isMiddleBlocker,
+    );
+    setState(started.state);
+    flashAll(
+      [
+        `Set ${state.set} · ${teamName(started.state.rally.serving)} serve`,
+        liberoNote(started.events, (pid) => players.get(pid)?.name ?? "Player"),
+      ],
+      true,
+    );
   };
 
   const endMatch = () => {
+    // Bank the set in progress FIRST. Ending a match mid-set used to drop that
+    // set's score entirely, and a match that ended before its first set was
+    // banked completed with no set scores at all — which made it invisible to
+    // every season total while still counting as a completed match. That is
+    // the whole reason Season Analytics could read zero.
+    if (state.usScore > 0 || state.oppScore > 0) {
+      store.recordSetScore(matchId, {
+        setNo: state.set,
+        homePoints: state.usScore,
+        awayPoints: state.oppScore,
+      });
+    }
     const winnerTeamId =
       state.usSets === state.oppSets
         ? null
@@ -531,9 +865,11 @@ function LiveScreen({
     router.push(`/console/matches/${matchId}/review`);
   };
 
-  // ---- Live top performers (this match, both rosters) ----
+  // ---- Live top performers (both rosters, whole match or one set) ----
   const matchEvents = store.db.events.filter((e) => e.matchId === matchId);
-  const ls = lines(allRoster, matchEvents);
+  const scopedEvents =
+    scope === "ALL" ? matchEvents : matchEvents.filter((e) => e.setNo === scope);
+  const ls = lines(allRoster, scopedEvents);
   const topScorer = [...ls].sort((a, b) => b.points - a.points)[0];
   const topServer = [...ls].sort((a, b) => b.aces - a.aces)[0];
   const topDef = [...ls].sort((a, b) => b.superDigs + b.blocks - (a.superDigs + a.blocks))[0];
@@ -546,19 +882,41 @@ function LiveScreen({
   const serveLock = phase === "SERVE" ? new Set([serverId(lineupOf(rally.serving))]) : null;
   const tappableIds: Set<string> | null = phase === "OVER" ? new Set() : serveLock;
 
-  // Liberos are tappable on either side during any live (non-serve) phase — a
-  // libero can dig or receive a surprise ball regardless of whose "turn" it is.
+  // The libero is now placed by the automatic swap, so when they are ON they sit
+  // in a court slot and that TILE is the tappable thing; when they are OFF their
+  // team is serving and they are genuinely on the bench — untappable, but still
+  // shown so the collector can see the system tracking it.
   const liberos = (["US", "OPP"] as Side[])
     .map((s) => ({
       side: s,
       playerId: liberoOf(s) ?? "",
-      enabled: phase !== "SERVE" && phase !== "OVER",
+      enabled: false,
+      onCourt: (s === "US" ? state.usLibero : state.oppLibero).onCourt,
     }))
     .filter((l) => l.playerId);
 
   const armedName = armed ? players.get(armed)?.name : null;
 
   const dTossReady = Boolean(dToss.winner && dToss.choice);
+
+  // A set has been banked and the next one has not been lined up yet. Rotation
+  // changes between sets, so this is the moment to say how. It yields to the
+  // deciding-set toss below, because who serves first decides which libero
+  // walks on — and it runs after the set score is banked, so nothing is at risk.
+  if (state.awaitingSetStart && !needsDecidingToss) {
+    return (
+      <SetRotationGate
+        set={state.set}
+        homeTeam={homeTeam}
+        awayTeam={awayTeam}
+        homeRoster={homeRoster}
+        awayRoster={awayRoster}
+        current={activeSetup}
+        serving={state.rally.serving}
+        onStart={startSet}
+      />
+    );
+  }
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-3xl flex-col px-3 pb-4 pt-3">
@@ -644,6 +1002,21 @@ function LiveScreen({
             {awayTeam.shortName}
           </p>
         </div>
+        {/* Every set of the match, banked ones included — a finished set never
+            leaves the screen. Tap one to read the performer strip for it. */}
+        <div className="mt-2 flex justify-center">
+          <SetNavigator
+            sets={setEntries(match.setScores, {
+              setNo: state.set,
+              homePoints: state.usScore,
+              awayPoints: state.oppScore,
+            })}
+            scope={scope}
+            onScope={setScope}
+            homeShort={homeTeam.shortName}
+            awayShort={awayTeam.shortName}
+          />
+        </div>
       </header>
 
       {/* Set-won banner */}
@@ -653,7 +1026,15 @@ function LiveScreen({
           onClick={bankSet}
           className="btn-glow mb-3 flex min-h-12 w-full items-center justify-center rounded-2xl bg-accent text-sm font-extrabold uppercase tracking-wide text-accent-ink"
         >
-          Set point: bank set for {teamName(setWinner)} →
+          Set point: bank set for {teamName(setWinner)} ·{" "}
+          {matchWinner(
+            state.usSets + (setWinner === "US" ? 1 : 0),
+            state.oppSets + (setWinner === "OPP" ? 1 : 0),
+            match.totalSets,
+          )
+            ? "finish match"
+            : `line up set ${state.set + 1}`}{" "}
+          →
         </button>
       )}
 
@@ -679,6 +1060,8 @@ function LiveScreen({
         serving={rally.serving}
         armedId={armed}
         tappableIds={tappableIds}
+        onDrag={onDrag}
+        dragActions={dragMenuFor}
         onTap={(pid) => setArmed((a) => (a === pid ? null : pid))}
         liberos={liberos}
       />
@@ -689,9 +1072,9 @@ function LiveScreen({
           {armed && armedAction
             ? `${armedName} · ${ACTION_LABEL[armedAction]}`
             : phase === "SERVE"
-              ? `Tap the server to start`
+              ? `Hold the server and flick ✓ ← · O ↑ · ✗ →`
               : phase !== "OVER"
-                ? `Tap whoever touched the ball — any player, either side`
+                ? `Hold whoever touched the ball and flick — or tap, then choose`
                 : ""}
         </p>
         <div className="grid grid-cols-3 gap-2">
@@ -710,16 +1093,20 @@ function LiveScreen({
         </div>
       </div>
 
-      {/* Top performers strip */}
-      <div className="mt-3 grid grid-cols-3 gap-2">
+      {/* Top performers strip — scoped by the set navigator above */}
+      <p className="mt-3 text-center text-[10px] font-bold uppercase tracking-[0.2em] text-dim">
+        Top performers · {scopeLabel(scope)}
+      </p>
+      <div className="mt-1.5 grid grid-cols-3 gap-2">
         <MiniStat label="Top scorer" name={nm(topScorer?.playerId)} value={`${topScorer?.points ?? 0} pts`} />
         <MiniStat label="Aces" name={nm(topServer?.playerId)} value={`${topServer?.aces ?? 0}`} />
         <MiniStat label="Defence" name={nm(topDef?.playerId)} value={`${(topDef?.blocks ?? 0) + (topDef?.superDigs ?? 0)}`} />
       </div>
 
-      {/* Back + Save — always visible. Back fixes a mis-tap one step at a time;
+      {/* Back + Sub + Save — always visible. Back fixes a mis-tap one step at a
+          time; Sub is the coach's player management (the libero is automatic);
           Save checkpoints the shared session for hand-off / video analysis. */}
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-3 grid grid-cols-3 gap-2">
         <button
           type="button"
           onClick={undo}
@@ -728,6 +1115,25 @@ function LiveScreen({
         >
           ← Back {rally.current.length > 0 ? "(action)" : state.history.length > 0 ? "(point)" : ""}
         </button>
+        <SubControl
+          // FIVB 15.2.1: a substitution is requested with the ball out of play.
+          // Holding to that is also what keeps Back honest — the court a rally
+          // was played with never changes halfway through it.
+          disabled={rally.current.length > 0}
+          disabledReason="Ball is live — substitute when the rally ends"
+          homeName={homeTeam.name}
+          awayName={awayTeam.name}
+          usLineup={usLineup}
+          oppLineup={oppLineup}
+          usLibero={state.usLibero}
+          oppLibero={state.oppLibero}
+          usLiberoId={liberoIds.us}
+          oppLiberoId={liberoIds.opp}
+          homeRoster={homeRoster}
+          awayRoster={awayRoster}
+          subs={state.subs}
+          onSub={onSub}
+        />
         <button
           type="button"
           onClick={save}

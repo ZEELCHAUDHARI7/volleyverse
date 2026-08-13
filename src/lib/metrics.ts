@@ -78,11 +78,27 @@ const COUNTERS: Record<EventType, (l: PlayerLine) => void> = {
     l.spikeSuccesses++;
     l.points++;
   },
+  // A tool is a point exactly like a kill — the ball came off the block and
+  // stayed out. `points` and `spikeSuccesses` cannot tell them apart on
+  // purpose: every rate built on them (attack %, contribution) would otherwise
+  // fall the moment collectors started saying WHICH kind of point it was.
+  SPIKE_TOOL: (l) => {
+    l.spikeAttempts++;
+    l.spikeSuccesses++;
+    l.points++;
+  },
   SPIKE_IN: (l) => {
     l.spikeAttempts++;
     l.spikeSuccesses++;
   },
   SPIKE_ERR: (l) => {
+    l.spikeAttempts++;
+    l.errors++;
+  },
+  // Blocked is an attack error in the same sense SPIKE_ERR is: an attempt that
+  // conceded the point. Which of the two it was lives in spikes.ts, where the
+  // spiker screen needs the distinction; the league box score does not.
+  SPIKE_BLOCKED: (l) => {
     l.spikeAttempts++;
     l.errors++;
   },
@@ -123,6 +139,12 @@ const COUNTERS: Record<EventType, (l: PlayerLine) => void> = {
   BLOCK_MISS: (l) => {
     l.blockAttempts++;
     l.errors++;
+  },
+  // Deliberately NOT an error. Getting tooled is a duel lost, not a fault —
+  // the attacker earned that point, and no scoresheet in the sport charges the
+  // blocker for it. It grows the block denominator and nothing else.
+  BLOCK_TOOLED: (l) => {
+    l.blockAttempts++;
   },
   SERVE_ACE: (l) => {
     l.serveAttempts++;
@@ -173,6 +195,9 @@ function positionRate(line: PlayerLine, position: PlayerPosition | null): number
   switch (position) {
     case "OH":
     case "OPP":
+    case "U":
+      // A Universal is judged on the attack like the other hitters: it is the
+      // one job every club that uses the label agrees the role does.
       return pct(line.spikeSuccesses, line.spikeAttempts);
     case "S":
       return pct(line.setSuccesses, line.setAttempts);
@@ -310,6 +335,7 @@ export function sideTotals(events: StatEvent[], teamId: string): SideTotals {
     if (e.teamId !== teamId) continue;
     switch (e.type) {
       case "SPIKE_POINT":
+      case "SPIKE_TOOL":
         t.kills++;
         t.spikeAttempts++;
         t.earned++;
@@ -318,6 +344,7 @@ export function sideTotals(events: StatEvent[], teamId: string): SideTotals {
         t.spikeAttempts++;
         break;
       case "SPIKE_ERR":
+      case "SPIKE_BLOCKED":
         t.spikeAttempts++;
         t.errors++;
         break;
@@ -354,6 +381,10 @@ export function sideTotals(events: StatEvent[], teamId: string): SideTotals {
       case "BLOCK_MISS":
         t.blockAttempts++;
         t.errors++;
+        break;
+      // A beaten block, but not an error — see the COUNTERS note above.
+      case "BLOCK_TOOLED":
+        t.blockAttempts++;
         break;
       case "DIG_SUPER":
         t.saves++;
@@ -418,7 +449,9 @@ export interface SeasonRecord {
 const RECORD_EVENT: Record<RecordStat, EventType[]> = {
   aces: ["SERVE_ACE"],
   superDigs: ["DIG_SUPER"],
-  points: ["SPIKE_POINT"],
+  // Tools count towards the points record: they are points, and a night of
+  // clever hitting is as much a record as a night of powerful hitting.
+  points: ["SPIKE_POINT", "SPIKE_TOOL"],
   blocks: ["BLOCK_WIN"],
 };
 
