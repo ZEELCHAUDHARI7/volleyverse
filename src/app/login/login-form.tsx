@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Checkbox,
-  DemoModeNote,
   Notice,
   OrDivider,
   PasswordField,
@@ -13,8 +12,8 @@ import {
   SubmitButton,
   TextField,
 } from "@/components/auth-ui";
-import { APP_HOME, NEXT_PARAM, safeNext } from "@/lib/auth/routes";
-import { login } from "@/lib/auth/temporary-auth";
+import { APP_HOME, ERROR_PARAM, NEXT_PARAM, safeNext } from "@/lib/auth/routes";
+import { login, resetPassword, signInWithGoogle } from "@/lib/auth/temporary-auth";
 import {
   hasErrors,
   validateEmail,
@@ -25,18 +24,27 @@ import {
 
 type Status = "idle" | "submitting" | "success" | "error";
 
+const NOT_AUTHORIZED_MESSAGE =
+  "That account doesn't have console access yet. Ask a league admin to add you.";
+
 /**
  * The staff sign-in form.
  *
- * Authentication is a temporary stand-in (see src/lib/auth/temporary-auth.ts).
- * This component only ever calls `login()`; when a real provider lands, the
- * import changes and this file does not. Field markup is shared with the
+ * Calls the real Supabase-backed functions in src/lib/auth/temporary-auth.ts
+ * — the file name is unchanged from the temporary stand-in it replaced, but
+ * the bodies now talk to a real provider. Field markup is shared with the
  * fan account forms via @/components/auth-ui.
  */
 export function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = safeNext(params.get(NEXT_PARAM));
+  const errorCode = params.get(ERROR_PARAM);
+  const initialError = errorCode
+    ? errorCode === "not-authorized"
+      ? NOT_AUTHORIZED_MESSAGE
+      : errorCode
+    : null;
 
   const emailId = useId();
   const passwordId = useId();
@@ -47,7 +55,7 @@ export function LoginForm() {
   const [remember, setRemember] = useState(true);
   const [touched, setTouched] = useState({ email: false, password: false });
   const [errors, setErrors] = useState<FieldErrors>({});
-  const [formError, setFormError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(initialError);
   const [notice, setNotice] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("idle");
 
@@ -88,8 +96,29 @@ export function LoginForm() {
       router.refresh();
     } catch {
       setStatus("error");
-      setFormError("Something went wrong signing you in. Try again.");
+      setFormError("That email and password don't match an account.");
     }
+  }
+
+  async function requestReset() {
+    const emailError = validateEmail(email);
+    if (emailError) {
+      setErrors((e) => ({ ...e, email: emailError }));
+      setTouched((t) => ({ ...t, email: true }));
+      document.getElementById(emailId)?.focus();
+      return;
+    }
+    setFormError(null);
+    setNotice(null);
+    try {
+      await resetPassword(email);
+    } catch {
+      // Fall through to the same message below — never reveal whether
+      // the address has an account.
+    }
+    setNotice(
+      "If an account exists for that address, we've sent a link to reset the password.",
+    );
   }
 
   return (
@@ -150,11 +179,7 @@ export function LoginForm() {
               hint={
                 <button
                   type="button"
-                  onClick={() =>
-                    setNotice(
-                      "No password to reset yet. Sign-in is not connected to a provider, so any 8-character password works.",
-                    )
-                  }
+                  onClick={requestReset}
                   className="text-xs font-semibold text-accent underline underline-offset-4 transition-opacity hover:opacity-80"
                 >
                   Forgot password?
@@ -165,7 +190,7 @@ export function LoginForm() {
 
           <div className="mt-6">
             <Checkbox id={rememberId} checked={remember} onChange={setRemember}>
-              Keep me signed in for 30 days
+              Keep me signed in
             </Checkbox>
           </div>
 
@@ -181,41 +206,36 @@ export function LoginForm() {
 
           <OrDivider label="or continue with" />
           <SocialButtons
-            onPick={(provider) =>
-              setNotice(
-                `${provider} sign-in is not connected yet. Use your email and password for now.`,
-              )
-            }
+            onPick={(provider) => {
+              if (provider !== "Google") {
+                setNotice(`${provider} sign-in is not connected yet.`);
+                return;
+              }
+              signInWithGoogle(next || APP_HOME).catch(() => {
+                setFormError("Something went wrong starting Google sign-in. Try again.");
+              });
+            }}
           />
         </fieldset>
       </form>
 
       <p className="mt-8 border-t border-line pt-6 text-sm text-dim">
-        New to the console?{" "}
-        <button
-          type="button"
-          onClick={() =>
-            setNotice(
-              "No account needed yet. Sign-in is not connected to a provider, so any valid email and an 8-character password opens the console.",
-            )
-          }
-          className="font-semibold text-accent underline underline-offset-4 transition-opacity hover:opacity-80"
-        >
-          Create an account
-        </button>{" "}
-        Here for the scores instead?{" "}
+        New here?{" "}
         <Link
           href="/fans/join"
           className="font-semibold text-accent underline underline-offset-4 transition-opacity hover:opacity-80"
         >
-          Create a fan account
+          Create an account
+        </Link>
+        , then ask a league admin to add you as staff. Here for the scores
+        instead?{" "}
+        <Link
+          href="/fans/sign-in"
+          className="font-semibold text-accent underline underline-offset-4 transition-opacity hover:opacity-80"
+        >
+          Sign in as a fan
         </Link>
       </p>
-
-      <DemoModeNote>
-        sign-in is not connected to a provider yet. Any valid email and an
-        8-character password opens the console.
-      </DemoModeNote>
     </div>
   );
 }

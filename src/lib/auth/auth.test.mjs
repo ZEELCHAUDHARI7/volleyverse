@@ -1,7 +1,16 @@
 /**
- * Route-guard, session-encoding and form-validation tests. Run:
+ * Route-guard and form-validation tests, plus the fan display-name/
+ * initials helpers. Run:
  *   node --experimental-strip-types src/lib/auth/auth.test.mjs
  * No test framework. Tiny asserts, zero deps, same style as rally.test.mjs.
+ *
+ * What isn't here: anything that calls Supabase. temporary-auth.ts and
+ * temporary-fan-auth.ts are thin wrappers over supabase.auth.* now —
+ * there's no pure logic left in them worth asserting on without a live
+ * (or mocked) network call, which this zero-dependency runner doesn't
+ * do. Console-admin allowlisting and the RLS policies that enforce it
+ * are server-side SQL and are verified manually (see the migration's
+ * own smoke test and REALTIME_SYNC.md), not by this file.
  */
 import assert from "node:assert/strict";
 import {
@@ -9,27 +18,15 @@ import {
   requiresAccount,
   isAuthPage,
   safeNext,
+  buildCallbackUrl,
   LOGIN_PATH,
   APP_HOME,
   PUBLIC_HOME,
   FAN_SIGN_IN_PATH,
   FAN_JOIN_PATH,
+  AUTH_CALLBACK_PATH,
 } from "./routes.ts";
-import {
-  buildTemporaryUser,
-  displayNameFromEmail,
-  encodeSession,
-  decodeSession,
-  SESSION_COOKIE,
-} from "./temporary-auth.ts";
-import {
-  FAN_COOKIE,
-  buildTemporaryFan,
-  decodeFan,
-  encodeFan,
-  fanDisplayName,
-  fanInitials,
-} from "./temporary-fan-auth.ts";
+import { fanDisplayName, fanInitials } from "./temporary-fan-auth.ts";
 import {
   validateEmail,
   validatePassword,
@@ -115,24 +112,17 @@ check(
 );
 check("fan next offsite", safeNext("https://evil.example", PUBLIC_HOME), PUBLIC_HOME);
 
-// --- Temporary user shape: minimal, derived, no invented fields. ---
-deep("temp user", buildTemporaryUser("  Ana.Rivera@League.org "), {
-  id: "temp-user",
-  email: "ana.rivera@league.org",
-  name: "Ana Rivera",
-  role: "admin",
-});
-check("display name underscores", displayNameFromEmail("match_ops"), "Match Ops");
-check("display name plain", displayNameFromEmail("coach"), "Coach");
-check("display name empty", displayNameFromEmail("@league.org"), "League Staff");
-
-// --- Session cookie round-trip. ---
-const user = buildTemporaryUser("coach@league.org");
-deep("encode/decode round-trip", decodeSession(encodeSession(user)), user);
-check("decode empty", decodeSession(""), null);
-check("decode undefined", decodeSession(undefined), null);
-check("decode garbage", decodeSession("not-json"), null);
-check("decode wrong shape", decodeSession(encodeURIComponent('{"a":1}')), null);
+// --- Callback URL builder: always the shared route, next always encoded. ---
+check(
+  "callback url shape",
+  buildCallbackUrl("http://localhost:3000", APP_HOME),
+  `http://localhost:3000${AUTH_CALLBACK_PATH}?next=%2Fconsole`,
+);
+check(
+  "callback url encodes next",
+  buildCallbackUrl("http://localhost:3000", "/matches?f=live"),
+  `http://localhost:3000${AUTH_CALLBACK_PATH}?next=%2Fmatches%3Ff%3Dlive`,
+);
 
 // --- Field validation. ---
 check("email required", validateEmail("  "), "Enter your email address.");
@@ -153,31 +143,18 @@ check("valid pair has no errors", hasErrors(validateLogin("c@l.org", "password1"
 check("empty pair has errors", hasErrors(validateLogin("", "")), true);
 deep("both fields reported", Object.keys(validateLogin("", "")), ["email", "password"]);
 
-// --- Fan sessions: separate cookie, never a console key. ---
+// --- Fan display helpers: pure, still used to render user_metadata.name. ---
 check("fan sign-in not staff-gated", requiresAuth(FAN_SIGN_IN_PATH), false);
 check("fan join not staff-gated", requiresAuth(FAN_JOIN_PATH), false);
-check("fan cookie differs from staff", FAN_COOKIE === SESSION_COOKIE, false);
 
-deep("fan from name and email", buildTemporaryFan("  Ana.Rivera@Example.com ", " Ana Rivera "), {
-  id: "temp-fan",
-  email: "ana.rivera@example.com",
-  name: "Ana Rivera",
-});
-deep("fan falls back to email", buildTemporaryFan("match_ops@example.com"), {
-  id: "temp-fan",
-  email: "match_ops@example.com",
-  name: "Match Ops",
-});
-check("fan name fallback empty", fanDisplayName("", "@example.com"), "Fan");
+check("fan name from email underscores", fanDisplayName("", "match_ops@example.com"), "Match Ops");
+check("fan name from email plain", fanDisplayName("", "coach@example.com"), "Coach");
+check("fan name from email empty local", fanDisplayName("", "@example.com"), "Fan");
+check("fan name prefers given name", fanDisplayName(" Ana Rivera ", "a@b.org"), "Ana Rivera");
 check("fan initials two words", fanInitials("Ana Rivera"), "AR");
 check("fan initials one word", fanInitials("Ana"), "AN");
 check("fan initials three words", fanInitials("Ana Maria Rivera"), "AR");
 check("fan initials empty", fanInitials("   "), "F");
-
-const fan = buildTemporaryFan("fan@example.com", "Sam Fan");
-deep("fan cookie round-trip", decodeFan(encodeFan(fan)), fan);
-check("fan decode garbage", decodeFan("not-json"), null);
-check("fan decode empty", decodeFan(""), null);
 
 // --- Sign-up validation. ---
 check("name required", validateName("  "), "Enter your name.");

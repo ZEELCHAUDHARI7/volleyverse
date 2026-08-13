@@ -4,7 +4,6 @@ import { useId, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Checkbox,
-  DemoModeNote,
   Notice,
   OrDivider,
   PasswordField,
@@ -14,7 +13,10 @@ import {
   TextField,
 } from "@/components/auth-ui";
 import { NEXT_PARAM, PUBLIC_HOME, safeNext } from "@/lib/auth/routes";
-import { fanSignUp } from "@/lib/auth/temporary-fan-auth";
+import {
+  fanSignUp,
+  signInWithGoogleAsFan,
+} from "@/lib/auth/temporary-fan-auth";
 import {
   hasErrors,
   passwordStrength,
@@ -28,10 +30,7 @@ import {
 type Status = "idle" | "submitting" | "success" | "error";
 
 /**
- * Fan sign-up.
- *
- * Creates a temporary fan session and nothing else: no row is written,
- * no email is sent, no database is touched. See
+ * Fan sign-up. Creates a real Supabase Auth account — see
  * src/lib/auth/temporary-fan-auth.ts.
  */
 export function FanJoinForm() {
@@ -80,8 +79,14 @@ export function FanJoinForm() {
 
     setStatus("submitting");
     try {
-      await fanSignUp({ name, email, password });
+      const { confirmationRequired } = await fanSignUp({ name, email, password });
       setStatus("success");
+      if (confirmationRequired) {
+        setNotice(
+          "Check your email to confirm your account, then sign in.",
+        );
+        return;
+      }
       router.replace(next);
       router.refresh();
     } catch {
@@ -168,18 +173,17 @@ export function FanJoinForm() {
 
         <OrDivider label="or sign up with" />
         <SocialButtons
-          onPick={(provider) =>
-            setNotice(
-              `${provider} sign-up is not connected yet. Use the form above for now.`,
-            )
-          }
+          onPick={(provider) => {
+            if (provider !== "Google") {
+              setNotice(`${provider} sign-up is not connected yet.`);
+              return;
+            }
+            signInWithGoogleAsFan(next).catch(() => {
+              setFormError("Something went wrong starting Google sign-in. Try again.");
+            });
+          }}
         />
       </fieldset>
-
-      <DemoModeNote>
-        nothing is saved to a server. Creating an account only greets you by
-        name on this device until real accounts are built.
-      </DemoModeNote>
     </form>
   );
 }

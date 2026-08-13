@@ -4,7 +4,6 @@ import { useId, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Checkbox,
-  DemoModeNote,
   Notice,
   OrDivider,
   PasswordField,
@@ -12,8 +11,12 @@ import {
   SubmitButton,
   TextField,
 } from "@/components/auth-ui";
-import { NEXT_PARAM, PUBLIC_HOME, safeNext } from "@/lib/auth/routes";
-import { fanLogin } from "@/lib/auth/temporary-fan-auth";
+import { ERROR_PARAM, NEXT_PARAM, PUBLIC_HOME, safeNext } from "@/lib/auth/routes";
+import {
+  fanLogin,
+  resetFanPassword,
+  signInWithGoogleAsFan,
+} from "@/lib/auth/temporary-fan-auth";
 import {
   hasErrors,
   validateEmail,
@@ -25,10 +28,8 @@ import {
 type Status = "idle" | "submitting" | "success" | "error";
 
 /**
- * Fan sign-in.
- *
- * Fan accounts are a temporary stand-in (see
- * src/lib/auth/temporary-fan-auth.ts). The showcase is gated behind this
+ * Fan sign-in. Calls the real Supabase-backed functions in
+ * src/lib/auth/temporary-fan-auth.ts. The showcase is gated behind this
  * form, so a visitor with no account sees it before anything else.
  */
 export function FanSignInForm() {
@@ -37,6 +38,7 @@ export function FanSignInForm() {
   // The gate sends signed-out visitors here with ?next=, so a fan lands
   // back on whatever they were trying to read.
   const next = safeNext(params.get(NEXT_PARAM), PUBLIC_HOME);
+  const errorCode = params.get(ERROR_PARAM);
 
   const emailId = useId();
   const passwordId = useId();
@@ -48,7 +50,7 @@ export function FanSignInForm() {
   const [touched, setTouched] = useState({ email: false, password: false });
   const [errors, setErrors] = useState<FieldErrors>({});
   const [notice, setNotice] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(errorCode);
   const [status, setStatus] = useState<Status>("idle");
 
   const busy = status === "submitting" || status === "success";
@@ -82,8 +84,29 @@ export function FanSignInForm() {
       router.refresh();
     } catch {
       setStatus("error");
-      setFormError("Something went wrong signing you in. Try again.");
+      setFormError("That email and password don't match an account.");
     }
+  }
+
+  async function requestReset() {
+    const emailError = validateEmail(email);
+    if (emailError) {
+      setErrors((e) => ({ ...e, email: emailError }));
+      setTouched((t) => ({ ...t, email: true }));
+      document.getElementById(emailId)?.focus();
+      return;
+    }
+    setFormError(null);
+    setNotice(null);
+    try {
+      await resetFanPassword(email);
+    } catch {
+      // Fall through to the same message below — never reveal whether
+      // the address has an account.
+    }
+    setNotice(
+      "If an account exists for that address, we've sent a link to reset the password.",
+    );
   }
 
   return (
@@ -115,11 +138,7 @@ export function FanSignInForm() {
             hint={
               <button
                 type="button"
-                onClick={() =>
-                  setNotice(
-                    "No password to reset yet. Fan accounts are not connected to a provider, so any 8-character password works.",
-                  )
-                }
+                onClick={requestReset}
                 className="text-xs font-semibold text-accent underline underline-offset-4 transition-opacity hover:opacity-80"
               >
                 Forgot password?
@@ -146,18 +165,17 @@ export function FanSignInForm() {
 
         <OrDivider label="or continue with" />
         <SocialButtons
-          onPick={(provider) =>
-            setNotice(
-              `${provider} sign-in is not connected yet. Use your email and password for now.`,
-            )
-          }
+          onPick={(provider) => {
+            if (provider !== "Google") {
+              setNotice(`${provider} sign-in is not connected yet.`);
+              return;
+            }
+            signInWithGoogleAsFan(next).catch(() => {
+              setFormError("Something went wrong starting Google sign-in. Try again.");
+            });
+          }}
         />
       </fieldset>
-
-      <DemoModeNote>
-        fan accounts are not connected to a provider yet. Any valid email and
-        an 8-character password works, and nothing is stored on a server.
-      </DemoModeNote>
     </form>
   );
 }

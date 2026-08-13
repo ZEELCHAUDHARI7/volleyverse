@@ -1,195 +1,100 @@
 /**
- * TEMPORARY AUTHENTICATION LAYER (replace me).
- * ============================================
+ * Staff (console) session — a thin wrapper over Supabase Auth.
  *
- * The console currently has no real authentication. This module fakes a
- * session so the new login UI can hand the user through to the existing
- * application while we decide what the real auth architecture should be.
+ * Every staff account is a regular Supabase Auth user; there is no
+ * separate staff account system. What makes someone "staff" is whether
+ * their email appears in the `console_admins` table — checked server-side
+ * in src/middleware.ts, not here. This module only ever answers "who is
+ * signed in", never "are they allowed into the console".
  *
- * Everything fake lives here and nowhere else. The login screen, the
- * nav and the middleware all talk to this surface only:
+ * The login screen, the nav and middleware all talk to this surface only:
  *
- *   login()            : mint a temporary session
- *   logout()           : clear it
- *   isAuthenticated()  : is there a session?
- *   getTemporaryUser() : who is it?
+ *   login()             : sign in with email + password
+ *   logout()             : sign out
+ *   getTemporaryUser()   : who is it? (null if signed out)
+ *   onAuthChange()       : subscribe to sign-in/out
+ *   resetPassword()      : email a password-reset link
+ *   signInWithGoogle()   : start the Google OAuth flow
  *
- * SWAPPING IN REAL AUTH
- * ---------------------
- * Keep the four function signatures and re-implement the bodies against
- * Supabase Auth (or whatever we choose). The login screen calls
- * `login({ email, password, remember })` and awaits it, so a real
- * `supabase.auth.signInWithPassword()` drops straight in. Middleware
- * reads `SESSION_COOKIE`; point it at the real session cookie / a
- * `getClaims()` check instead. No UI needs rebuilding.
- *
- * NOTE: this is a development stand-in, not a security boundary. The
- * cookie is unsigned and trivially forgeable, and it must not be used to
- * protect anything sensitive. It exists so the app is navigable.
+ * File name and export names are unchanged from the temporary stand-in
+ * this replaced, so no call site needed to change beyond what a real
+ * session shape requires (async reads, a user object with no invented
+ * fields).
  */
+import { APP_HOME, buildCallbackUrl } from "./routes.ts";
+import { getSupabase } from "../providers/supabase-client.ts";
 
 /** The minimal user shape the console UI needs, nothing more. */
 export type TemporaryUser = {
   id: string;
   email: string;
-  name: string;
-  role: string;
 };
 
-/** Credentials the login form collects. */
+/** Credentials the login form collects. `remember` has no effect today —
+ *  Supabase's own session lifetime governs how long sign-in lasts. */
 export type LoginInput = {
   email: string;
   password: string;
   remember?: boolean;
 };
 
-/**
- * Cookie rather than localStorage so the Next.js middleware can gate
- * /console on the server, so there is no flash of console UI before a
- * redirect, and it is the same mechanism real auth will use.
- */
-export const SESSION_COOKIE = "vv_temp_session";
-
-/** Remembered sessions last 30 days; otherwise it's a browser session. */
-const REMEMBER_MAX_AGE = 60 * 60 * 24 * 30;
-
-/** How long the fake network round-trip takes, in ms. */
-const FAKE_LATENCY_MS = 900;
-
-/** Derives a presentable display name from an email local part. */
-export function displayNameFromEmail(email: string): string {
-  const local = email.split("@")[0] ?? "";
-  const words = local.split(/[._\-+]+/).filter(Boolean);
-  if (words.length === 0) return "League Staff";
-  return words
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(" ");
+export async function login({ email, password }: LoginInput): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("Sign-in is not available right now.");
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
 }
 
-/** Builds the stand-in user for an email. Pure, so it is safe to unit test. */
-export function buildTemporaryUser(email: string): TemporaryUser {
-  const normalised = email.trim().toLowerCase();
-  return {
-    id: "temp-user",
-    email: normalised,
-    name: displayNameFromEmail(normalised),
-    role: "admin",
-  };
+export async function logout(): Promise<void> {
+  await getSupabase()?.auth.signOut();
 }
 
-/** Cookie-safe encoding. Percent-encoding works identically everywhere. */
-export function encodeSession(user: TemporaryUser): string {
-  return encodeURIComponent(JSON.stringify(user));
+export async function getTemporaryUser(): Promise<TemporaryUser | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getUser();
+  if (!data.user?.email) return null;
+  return { id: data.user.id, email: data.user.email };
 }
 
-/** Inverse of {@link encodeSession}. Returns null on anything malformed. */
-export function decodeSession(raw: string | undefined | null): TemporaryUser | null {
-  if (!raw) return null;
-  try {
-    const parsed: unknown = JSON.parse(decodeURIComponent(raw));
-    if (!parsed || typeof parsed !== "object") return null;
-    const u = parsed as Partial<TemporaryUser>;
-    if (typeof u.id !== "string" || typeof u.email !== "string") return null;
-    return {
-      id: u.id,
-      email: u.email,
-      name: typeof u.name === "string" ? u.name : displayNameFromEmail(u.email),
-      role: typeof u.role === "string" ? u.role : "admin",
-    };
-  } catch {
-    return null;
-  }
+export async function isAuthenticated(): Promise<boolean> {
+  return (await getTemporaryUser()) !== null;
 }
 
-/* ---------------------------------------------------------------- *
- * Browser-side session storage                                      *
- * ---------------------------------------------------------------- *
- *
- * These few cookie helpers are duplicated in the fan auth module on
- * purpose. Each temporary layer stays dependency-free so it can be
- * deleted or replaced on its own, and the test runner can strip types
- * from this file without resolving a shared import.
- */
-
-function readCookie(name: string): string | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie
-    .split("; ")
-    .find((row) => row.startsWith(`${name}=`));
-  return match ? match.slice(name.length + 1) : null;
+/** Subscribes to session changes. The listener receives the current user
+ *  directly (or null) — no separate re-fetch needed. */
+export function onAuthChange(
+  listener: (user: TemporaryUser | null) => void,
+): () => void {
+  const supabase = getSupabase();
+  if (!supabase) return () => {};
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange((_event, session) => {
+    const user = session?.user;
+    listener(user?.email ? { id: user.id, email: user.email } : null);
+  });
+  return () => subscription.unsubscribe();
 }
 
-function writeCookie(name: string, value: string, maxAge?: number) {
-  if (typeof document === "undefined") return;
-  const parts = [`${name}=${value}`, "path=/", "SameSite=Lax"];
-  if (typeof maxAge === "number") parts.push(`max-age=${maxAge}`);
-  if (typeof location !== "undefined" && location.protocol === "https:") {
-    parts.push("Secure");
-  }
-  document.cookie = parts.join("; ");
+/** Always resolves, regardless of whether the address has an account —
+ *  Supabase itself never reveals that, and neither does this. */
+export async function resetPassword(email: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("Sign-in is not available right now.");
+  await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: buildCallbackUrl(window.location.origin, APP_HOME),
+  });
 }
 
-function clearCookie(name: string) {
-  if (typeof document === "undefined") return;
-  document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
-}
-
-/** Same-tab pub/sub so nav bars re-read the session the moment it changes. */
-function announce(event: string) {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new Event(event));
-}
-
-function subscribe(event: string, listener: () => void): () => void {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener(event, listener);
-  return () => window.removeEventListener(event, listener);
-}
-
-/** Event name broadcast when the staff session changes. */
-const AUTH_EVENT = "vv:temp-auth";
-
-/* ---------------------------------------------------------------- *
- * Public API                                                        *
- * ---------------------------------------------------------------- */
-
-/**
- * Simulates signing in. Credentials are NOT verified: any syntactically
- * valid pair succeeds. The delay exists so the UI's loading state is
- * exercised the way it will be against a real provider.
- */
-export async function login({
-  email,
-  remember = false,
-}: LoginInput): Promise<TemporaryUser> {
-  await new Promise((resolve) => setTimeout(resolve, FAKE_LATENCY_MS));
-  const user = buildTemporaryUser(email);
-  writeCookie(
-    SESSION_COOKIE,
-    encodeSession(user),
-    remember ? REMEMBER_MAX_AGE : undefined,
-  );
-  announce(AUTH_EVENT);
-  return user;
-}
-
-/** Clears the temporary session. No provider call, because there isn't one yet. */
-export function logout(): void {
-  clearCookie(SESSION_COOKIE);
-  announce(AUTH_EVENT);
-}
-
-/** The signed-in stand-in user, or null. */
-export function getTemporaryUser(): TemporaryUser | null {
-  return decodeSession(readCookie(SESSION_COOKIE));
-}
-
-/** Whether a temporary session exists. */
-export function isAuthenticated(): boolean {
-  return getTemporaryUser() !== null;
-}
-
-/** Subscribes to session changes in this tab. Returns an unsubscribe fn. */
-export function onAuthChange(listener: () => void): () => void {
-  return subscribe(AUTH_EVENT, listener);
+/** Starts the Google OAuth redirect. The browser navigates away on
+ *  success, so nothing meaningful runs after this call returns. */
+export async function signInWithGoogle(next: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("Sign-in is not available right now.");
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: buildCallbackUrl(window.location.origin, next) },
+  });
+  if (error) throw error;
 }

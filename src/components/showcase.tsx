@@ -257,11 +257,19 @@ function FanControls({ onAccountPage }: { onAccountPage: boolean }) {
   const [fan, setFan] = useState<TemporaryFan | null>(null);
 
   useEffect(() => {
-    // Read after mount: the cookie is unavailable during SSR, and reading
+    // Read after mount: the session is unavailable during SSR, and reading
     // it here keeps the server and client markup identical.
-    const sync = () => setFan(getTemporaryFan());
-    sync();
-    return onFanAuthChange(sync);
+    let active = true;
+    getTemporaryFan().then((f) => {
+      if (active) setFan(f);
+    });
+    const unsubscribe = onFanAuthChange((f) => {
+      if (active) setFan(f);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   if (!fan) {
@@ -305,9 +313,17 @@ function StaffLink({ onAccountPage }: { onAccountPage: boolean }) {
   const [staffed, setStaffed] = useState(false);
 
   useEffect(() => {
-    const sync = () => setStaffed(isAuthenticated());
-    sync();
-    return onAuthChange(sync);
+    let active = true;
+    isAuthenticated().then((v) => {
+      if (active) setStaffed(v);
+    });
+    const unsubscribe = onAuthChange((u) => {
+      if (active) setStaffed(u !== null);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   // On the account pages the two sign-in routes already sit side by side

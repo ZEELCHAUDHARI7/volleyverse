@@ -34,11 +34,26 @@ export const PUBLIC_HOME = "/";
 /** Query param used to bounce the user back to where they were headed. */
 export const NEXT_PARAM = "next";
 
-/** The only routes reachable with no session at all. */
+/** Query param carrying a sanitised message back to a sign-in form. */
+export const ERROR_PARAM = "error";
+
+/** Where Supabase auth links (OAuth, email confirmation, password reset) land. */
+export const AUTH_CALLBACK_PATH = "/auth/callback";
+
+/** Builds the redirect target passed to Supabase for any auth link it sends. */
+export function buildCallbackUrl(origin: string, next: string): string {
+  return `${origin}${AUTH_CALLBACK_PATH}?${NEXT_PARAM}=${encodeURIComponent(next)}`;
+}
+
+/** The only routes reachable with no session at all. AUTH_CALLBACK_PATH
+ *  belongs here too: it's how a signed-out visitor gets a session in the
+ *  first place (email confirmation, password recovery, OAuth) — gating
+ *  it would strand every one of those links before the route ever runs. */
 export const AUTH_PAGES: readonly string[] = [
   LOGIN_PATH,
   FAN_SIGN_IN_PATH,
   FAN_JOIN_PATH,
+  AUTH_CALLBACK_PATH,
 ];
 
 /** True for the sign-in and sign-up pages, which must never be gated. */

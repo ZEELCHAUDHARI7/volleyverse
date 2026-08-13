@@ -33,17 +33,25 @@ function AccountControls() {
   const [user, setUser] = useState<TemporaryUser | null>(null);
 
   useEffect(() => {
-    // Read after mount: the cookie is not available during SSR, and
+    // Read after mount: the session is not available during SSR, and
     // reading it here keeps server and client markup identical.
-    const sync = () => setUser(getTemporaryUser());
-    sync();
-    return onAuthChange(sync);
+    let active = true;
+    getTemporaryUser().then((u) => {
+      if (active) setUser(u);
+    });
+    const unsubscribe = onAuthChange((u) => {
+      if (active) setUser(u);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   if (!user) return null;
 
-  function signOut() {
-    logout();
+  async function signOut() {
+    await logout();
     router.replace(LOGIN_PATH);
     router.refresh();
   }
