@@ -118,7 +118,7 @@ export function SetupWizard({
     <div className="mx-auto flex min-h-dvh max-w-3xl flex-col px-4 pb-32 pt-4">
       <header className="mb-5 flex items-center justify-between">
         <Link
-          href={`/console/matches/${match.id}`}
+          href="/console/matches"
           className="flex min-h-12 items-center rounded-xl border border-line px-4 text-sm font-semibold text-dim"
         >
           ← Exit
