@@ -565,8 +565,21 @@ export function useSupabaseBackend(): DataProvider {
           const p = patch as Partial<Player>;
           const person = M.playerPersonToRow(p);
           const reg = M.playerRegistrationToRow(p);
-          if (Object.keys(reg).length)
-            enqueue({ kind: "upsert", table: "team_players", row: { id, ...reg } });
+          if (Object.keys(reg).length) {
+            const existing = dbRef.current.players.find((r) => r.id === id);
+            void resolvePersonId(id).then((personId) => {
+              enqueue({
+                kind: "upsert",
+                table: "team_players",
+                row: {
+                  id,
+                  ...(existing?.teamId ? { team_id: existing.teamId } : {}),
+                  ...(personId ? { player_id: personId } : {}),
+                  ...reg,
+                },
+              });
+            });
+          }
           if (Object.keys(person).length) {
             // Person fields live in players, keyed by person_id — resolve it
             // from the current snapshot's roster (person_id is not on Player).
