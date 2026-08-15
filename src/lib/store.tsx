@@ -17,6 +17,7 @@ import type {
 } from "./types";
 import { EMPTY_DB } from "./types";
 import type { Collection, DataProvider } from "./repository";
+import { seedU21IntoDb } from "./seed/u21-guardians-trophy";
 import { isSupabaseConfigured } from "./providers/supabase-client";
 import { useSupabaseBackend } from "./providers/supabase-store";
 
@@ -27,14 +28,22 @@ import { useSupabaseBackend } from "./providers/supabase-store";
  * SupabaseProvider later means replacing load/persist with queries and
  * the storage event with realtime channels. No screen changes.
  *
- * The database starts EMPTY. All leagues, teams, players, venues and
- * matches are created through the console — there is no seed data.
+ * The database starts EMPTY, and everything in it is created through the
+ * console. The one exception is FIRST RUN: see `autoSeed` below.
  */
 
 // v3: league-platform data model (two real teams per match, persisted
 // set scores, standard positions). Bump intentionally discards v2
 // prototype data — see REFACTOR_AUDIT.md, risk #2.
 const KEY = "volleyverse:db:v3";
+
+/**
+ * Records that this browser has already been offered the first-run dataset.
+ * Separate from the data itself on purpose: it must survive the operator
+ * deleting every team. Without it, a deliberately emptied registry would
+ * refill on the next reload and there would be no way to keep it empty.
+ */
+const SEEDED_KEY = "volleyverse:seeded:v1";
 
 function load(): Db {
   if (typeof window === "undefined") return EMPTY_DB;
@@ -52,6 +61,45 @@ function persist(db: Db) {
     window.localStorage.setItem(KEY, JSON.stringify(db));
   } catch {
     // storage full/unavailable — data stays in memory for the session
+  }
+}
+
+/**
+ * FIRST RUN — put the Guardians Trophy U21 league in an empty offline store.
+ *
+ * Why this exists: offline, every browser is its own database. Sharing a
+ * build with someone meant they opened it to a blank registry and had to know
+ * to go and press "Load U21 league" in League Setup. Nobody should have to be
+ * told that to see the tournament.
+ *
+ * Deliberately narrow, because auto-seeding is easy to get wrong:
+ *
+ *  - LOCAL PROVIDER ONLY. This function is not called on the Supabase path.
+ *    There, everyone shares one database, so it only needs seeding once, by
+ *    hand, and a client-side "seed if empty" would race: two people opening
+ *    the site before the first write lands would both see an empty registry
+ *    and both seed it, giving the tournament 14 teams.
+ *  - ONLY WHEN GENUINELY EMPTY. A store with any team in it is somebody's
+ *    work and is never touched.
+ *  - ONCE PER BROWSER, remembered in `SEEDED_KEY`, so deleting the teams on
+ *    purpose keeps them deleted.
+ *  - OPT-OUT with NEXT_PUBLIC_AUTOSEED=off, because the platform is meant to
+ *    be reusable by another league and they should be able to start clean.
+ */
+function autoSeed(db: Db): Db {
+  if (process.env.NEXT_PUBLIC_AUTOSEED === "off") return db;
+  if (db.teams.length > 0) return db;
+  try {
+    if (window.localStorage.getItem(SEEDED_KEY)) return db;
+    const seeded = seedU21IntoDb(db);
+    persist(seeded);
+    window.localStorage.setItem(SEEDED_KEY, new Date().toISOString());
+    return seeded;
+  } catch {
+    // Storage unavailable (private mode, quota). Seeding in memory anyway
+    // would re-run on every reload and look like data appearing twice, so
+    // the honest fallback is the empty registry plus the console button.
+    return db;
   }
 }
 
@@ -89,7 +137,7 @@ function LocalStoreProvider({ children }: { children: React.ReactNode }) {
   const idCounter = useRef(0);
 
   useEffect(() => {
-    setDb(load());
+    setDb(autoSeed(load()));
     setReady(true);
   }, []);
 
