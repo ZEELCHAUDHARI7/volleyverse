@@ -4,8 +4,16 @@ import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { loadPvl2025 } from "@/lib/seed/pvl-2025";
 import {
+  U21_LEAGUE_NAME,
+  U21_SEASON_NAME,
+  loadU21GuardiansTrophy,
+  previewU21Replace,
+  type U21SeedResult,
+} from "@/lib/seed/u21-guardians-trophy";
+import {
   Button,
   Card,
+  ConfirmDialog,
   LinkButton,
   PageSkeleton,
   SectionHeading,
@@ -490,6 +498,111 @@ function VenuesSection() {
 // Teams, staff & players
 // ---------------------------------------------------------------------
 
+/** "1 player" / "3 players" — the confirm dialog has to read as prose. */
+function count(n: number, one: string, many = `${one}s`) {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * Guardians Trophy U21 quick-start.
+ *
+ * Unlike the PVL loader next to it, this one DELETES. All seven U21 clubs
+ * share a name with a PVL 2025 franchise, and one name cannot hold two
+ * squads, so loading rebuilds those teams — taking their players, staff and
+ * played matches with them, and with the matches every statistic derived from
+ * them. The operator sees the real counts from `previewU21Replace` before
+ * anything is touched: "are you sure?" without a blast radius is not a
+ * decision, it is a shrug.
+ */
+function U21LoaderCard() {
+  const store = useStore();
+  const [asking, setAsking] = useState(false);
+  const [result, setResult] = useState<U21SeedResult | null>(null);
+
+  // Cheap enough to recompute per render (a few filters over the registry),
+  // and it must never be stale — it is the number a human decides on.
+  const impact = previewU21Replace(store);
+  const destructive = impact.teams.length > 0;
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-line bg-surface2/50 px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-ink">Load Guardians Trophy U21</p>
+          <p className="mt-0.5 text-xs text-dim">
+            Sets up the {U21_LEAGUE_NAME} league and its {U21_SEASON_NAME} season as a
+            round-robin, then adds 7 clubs and 82 players from the organisers&rsquo;
+            team sheets. Those sheets give squad numbers and liberos only, so every
+            other position shows as &ldquo;Not listed&rdquo;.
+          </p>
+          {destructive && (
+            <p className="mt-1 text-xs font-semibold text-err">
+              Replaces {count(impact.teams.length, "existing team")} of the same name —
+              you&rsquo;ll see exactly what that deletes before it happens.
+            </p>
+          )}
+          {result && (
+            <p className="mt-1 text-xs font-semibold text-accent">
+              Loaded {count(result.teamsAdded, "team")} and{" "}
+              {count(result.playersAdded, "player")}
+              {result.removed.teams.length > 0
+                ? `, replacing ${count(result.removed.teams.length, "team")} and deleting ${count(result.removed.matches, "match", "matches")}.`
+                : "."}
+            </p>
+          )}
+        </div>
+        <Button
+          variant={destructive ? "danger" : "ghost"}
+          className="shrink-0"
+          onClick={() => {
+            setResult(null);
+            setAsking(true);
+          }}
+        >
+          Load U21 league
+        </Button>
+      </div>
+
+      <ConfirmDialog
+        open={asking}
+        tone={destructive ? "danger" : "primary"}
+        title={destructive ? "Replace existing teams?" : "Load U21 league?"}
+        confirmLabel={destructive ? "Replace and load" : "Load"}
+        message={
+          destructive ? (
+            <>
+              <p>
+                {impact.teams.join(", ")} already exist. Loading rebuilds them from
+                the U21 sheets, which permanently deletes:
+              </p>
+              <ul className="mt-2 list-disc space-y-0.5 pl-5">
+                <li>{count(impact.players, "player")} on those teams</li>
+                {impact.staff > 0 && <li>{count(impact.staff, "staff member")}</li>}
+                <li>
+                  {count(impact.matches, "match", "matches")} they played, and the{" "}
+                  {count(impact.events, "recorded stat")} behind them — every score,
+                  statistic and analytic derived from those matches goes too
+                </li>
+              </ul>
+              <p className="mt-2">This cannot be undone.</p>
+            </>
+          ) : (
+            <>
+              Creates the {U21_LEAGUE_NAME} league with 7 teams and 82 players.
+              Nothing already in the registry is affected.
+            </>
+          )
+        }
+        onConfirm={() => {
+          setResult(loadU21GuardiansTrophy(store));
+          setAsking(false);
+        }}
+        onCancel={() => setAsking(false)}
+      />
+    </>
+  );
+}
+
 function TeamsSection() {
   const store = useStore();
   const { db, insert, remove, update } = store;
@@ -540,6 +653,9 @@ function TeamsSection() {
             Load roster
           </Button>
         </div>
+
+        {/* Quick-start: the U21 competition — league, season, tournament and squads. */}
+        <U21LoaderCard />
 
         {db.teams.length >= 2 && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-accent/30 bg-accent/5 px-4 py-3">
