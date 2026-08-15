@@ -31,7 +31,13 @@ import {
 /**
  * LEAGUE SETUP — the registry console: league → season → tournaments,
  * venues & courts, teams with staff and players. Everything the match
- * screens consume is created here; nothing on the platform is seeded.
+ * screens consume is created here.
+ *
+ * The one thing not created here is the offline first-run dataset: an empty
+ * localStorage store seeds itself with the U21 league so a shared build opens
+ * with the tournament already in it (see `autoSeed` in src/lib/store.tsx).
+ * The loaders below stay, because they are how you reload it, load a
+ * different dataset, or seed a shared Supabase database the first time.
  */
 
 const inputCls =

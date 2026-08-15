@@ -17,6 +17,7 @@ import {
   U21_TOURNAMENT_NAME,
   loadU21GuardiansTrophy,
   previewU21Replace,
+  seedU21IntoDb,
 } from "./u21-guardians-trophy.ts";
 
 const qa = createRunner({
@@ -313,6 +314,89 @@ t("loading into an empty store destroys nothing", () => {
   assert.equal(r.removed.players, 0);
   assert.equal(r.removed.matches, 0);
   assert.equal(r.removed.events, 0);
+});
+
+// ---------------------------------------------------------------------
+// seedU21IntoDb — the offline first-run path, which runs before React and
+// therefore has no provider to lean on.
+// ---------------------------------------------------------------------
+
+qa.suite("First-run seed (plain Db)");
+
+/** The shape store.tsx starts from. */
+const emptyDb = () => ({
+  leagues: [],
+  seasons: [],
+  divisions: [],
+  tournaments: [],
+  groups: [],
+  venues: [],
+  courts: [],
+  teams: [],
+  staff: [],
+  players: [],
+  matches: [],
+  events: [],
+});
+
+t("fills an empty Db with the whole competition", () => {
+  const db = seedU21IntoDb(emptyDb());
+  assert.equal(db.teams.length, 7);
+  assert.equal(db.players.length, 82);
+  assert.equal(db.leagues.length, 1);
+  assert.equal(db.leagues[0].name, U21_LEAGUE_NAME);
+  assert.equal(db.seasons.length, 1);
+  assert.equal(db.tournaments.length, 1);
+});
+
+t("does not mutate the input — the caller can still fall back to it", () => {
+  const before = emptyDb();
+  seedU21IntoDb(before);
+  assert.equal(before.teams.length, 0);
+  assert.equal(before.players.length, 0);
+  assert.equal(before.leagues.length, 0);
+});
+
+t("every row gets a distinct id", () => {
+  const db = seedU21IntoDb(emptyDb());
+  const ids = [
+    ...db.teams,
+    ...db.players,
+    ...db.leagues,
+    ...db.seasons,
+    ...db.tournaments,
+  ].map((r) => r.id);
+  assert.equal(new Set(ids).size, ids.length, "id collision would merge rows");
+  for (const id of ids) assert.ok(id, "every row needs an id");
+});
+
+t("players point at teams that exist in the same Db", () => {
+  const db = seedU21IntoDb(emptyDb());
+  const teamIds = new Set(db.teams.map((t) => t.id));
+  for (const p of db.players) assert.ok(teamIds.has(p.teamId), p.fullName);
+  // And the chain hangs together end to end.
+  assert.equal(db.seasons[0].leagueId, db.leagues[0].id);
+  assert.equal(db.tournaments[0].seasonId, db.seasons[0].id);
+});
+
+t("seeding twice is the caller's bug to prevent, not a silent doubling", () => {
+  // store.tsx guards with SEEDED_KEY. If that guard ever fails, the second
+  // pass must still REPLACE rather than stack up two of every team.
+  const once = seedU21IntoDb(emptyDb());
+  const twice = seedU21IntoDb(once);
+  assert.equal(twice.teams.length, 7, "would be 14 if replace stopped working");
+  assert.equal(twice.players.length, 82);
+  assert.equal(twice.leagues.length, 1);
+});
+
+t("an existing registry is left alone — unrelated teams survive", () => {
+  const db = emptyDb();
+  db.teams.push({ id: "t_keep", name: "Calicut Heroes", shortName: "CAL" });
+  db.players.push({ id: "p_keep", fullName: "Haris PP", teamId: "t_keep" });
+  const out = seedU21IntoDb(db);
+  assert.ok(out.teams.find((t) => t.id === "t_keep"));
+  assert.ok(out.players.find((p) => p.id === "p_keep"));
+  assert.equal(out.teams.length, 8, "7 seeded + 1 kept");
 });
 
 qa.finish();

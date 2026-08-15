@@ -2,9 +2,12 @@
  * Guardians Trophy U21 seed data — the seven squads circulated by the
  * organisers on 14 Aug 2026.
  *
- * Like `pvl-2025.ts`, this lives outside the core platform on purpose: the
- * product ships empty and reusable, and this module is one opt-in dataset a
- * league can load.
+ * Like `pvl-2025.ts`, this lives outside the core platform on purpose — the
+ * product is reusable by any league and this is one dataset it can load.
+ * Unlike the PVL seed, it is also the OFFLINE FIRST-RUN dataset: an empty
+ * localStorage store seeds itself from here via `seedU21IntoDb`, so someone
+ * opening a shared build sees the tournament instead of a blank registry.
+ * That path is local-only and opt-out — see `autoSeed` in ../store.tsx.
  *
  * SOURCE: seven team sheets shared over WhatsApp — three as images (Goa's
  * chest-number list, Bengaluru's kit-details table, Delhi's handwritten sheet)
@@ -42,7 +45,20 @@
  */
 
 import type { DataProvider } from "../repository";
-import type { Player, Team } from "../types";
+import type { Db, Player, Team } from "../types";
+
+/**
+ * The slice of the repository this dataset actually writes through.
+ *
+ * Narrower than `DataProvider` on purpose. A real provider satisfies it, and
+ * so does a plain object over a `Db` document — which is what lets the same
+ * tested code path seed a store before React has mounted (`seedU21IntoDb`)
+ * as well as behind the console button.
+ */
+export type SeedTarget = Pick<
+  DataProvider,
+  "db" | "insert" | "remove" | "deleteMatch"
+>;
 
 type SeedPlayer = Omit<Player, "id" | "teamId">;
 type SeedTeam = { team: Omit<Team, "id">; players: SeedPlayer[] };
@@ -212,7 +228,7 @@ export interface U21ReplaceImpact {
 }
 
 /** Teams currently in the store whose name collides with this dataset. */
-function collidingTeams(store: DataProvider) {
+function collidingTeams(store: Pick<SeedTarget, "db">) {
   const wanted = new Set(
     U21_GUARDIANS_TROPHY.map((s) => s.team.name.toLowerCase()),
   );
@@ -220,7 +236,7 @@ function collidingTeams(store: DataProvider) {
 }
 
 /** Dry run: what `loadU21GuardiansTrophy` would remove, without removing it. */
-export function previewU21Replace(store: DataProvider): U21ReplaceImpact {
+export function previewU21Replace(store: Pick<SeedTarget, "db">): U21ReplaceImpact {
   const doomed = collidingTeams(store);
   const ids = new Set(doomed.map((t) => t.id));
   const matches = store.db.matches.filter(
@@ -264,7 +280,7 @@ export interface U21SeedResult {
  *
  * Provider-agnostic — the same code path works on localStorage and Supabase.
  */
-export function loadU21GuardiansTrophy(store: DataProvider): U21SeedResult {
+export function loadU21GuardiansTrophy(store: SeedTarget): U21SeedResult {
   const removed = previewU21Replace(store);
 
   // --- 1. Clear the colliding franchises, deepest dependency first. ---
@@ -350,4 +366,53 @@ export function loadU21GuardiansTrophy(store: DataProvider): U21SeedResult {
     teamsAdded,
     playersAdded,
   };
+}
+
+/**
+ * Apply the dataset to a plain `Db` document, with no provider and no React.
+ *
+ * This is the first-run path: the offline store seeds itself from here before
+ * the first render, so a friend who opens the app has the league already
+ * there instead of an empty registry and a button to find. Returns a NEW Db —
+ * the input is not touched, so a caller can still fall back to it.
+ *
+ * It runs the same `loadU21GuardiansTrophy` the console button runs. A second
+ * seeding implementation would be a second thing to keep correct.
+ */
+export function seedU21IntoDb(input: Db): Db {
+  const db: Db = {
+    ...input,
+    leagues: [...input.leagues],
+    seasons: [...input.seasons],
+    tournaments: [...input.tournaments],
+    teams: [...input.teams],
+    staff: [...input.staff],
+    players: [...input.players],
+    matches: [...input.matches],
+    events: [...input.events],
+  };
+
+  let n = 0;
+  // Ids carry a `seed` marker so a row that came from this dataset stays
+  // recognisable in stored data — useful the day someone reports a duplicate.
+  const rows = (c: keyof Db) => db[c] as unknown as { id: string }[];
+  const target = {
+    db,
+    insert(c: keyof Db, row: object) {
+      const withId = { ...row, id: `${c.slice(0, 2)}_seed_${++n}` };
+      rows(c).push(withId);
+      return withId;
+    },
+    remove(c: keyof Db, id: string) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (db as any)[c] = rows(c).filter((r) => r.id !== id);
+    },
+    deleteMatch(matchId: string) {
+      db.matches = db.matches.filter((m) => m.id !== matchId);
+      db.events = db.events.filter((e) => e.matchId !== matchId);
+    },
+  } as unknown as SeedTarget; // structurally correct; the generics don't survive erasure
+
+  loadU21GuardiansTrophy(target);
+  return db;
 }

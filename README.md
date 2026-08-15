@@ -22,8 +22,14 @@ showcase.
   players (`roster_view`), matches, officials, match_sets,
   match_rosters, stat_events — plus derived `match_statistics` and
   `standings` views and RLS policies for the publish boundary.
-- **No seed data.** The platform starts empty; everything is created in
-  the console under **League Setup**.
+- **No seed data in the platform itself.** Everything is created in the
+  console under **League Setup**. The one exception is first run offline:
+  an empty localStorage store seeds itself with the Guardians Trophy U21
+  league (`src/lib/seed/u21-guardians-trophy.ts`) so a shared build opens
+  with a tournament in it rather than a blank registry. It happens once per
+  browser, never when a team already exists, and never on the Supabase path
+  — a shared database is seeded once, by hand, from League Setup. Set
+  `NEXT_PUBLIC_AUTOSEED=off` to start clean.
 
 ## App structure
 
