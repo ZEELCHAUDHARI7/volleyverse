@@ -739,7 +739,18 @@ function TeamsSection() {
           open={openTeam === t.id}
           onToggle={() => setOpenTeam(openTeam === t.id ? null : t.id)}
           onRemove={() => {
-            // Cascade locally: players & staff of the team go too.
+            const linkedMatches = db.matches.filter(
+              (m) => m.homeTeamId === t.id || m.awayTeamId === t.id,
+            );
+            if (linkedMatches.length > 0) {
+              const count = linkedMatches.length;
+              const confirmDelete = window.confirm(
+                `"${t.name}" has ${count} match${count === 1 ? "" : "es"} scheduled. Deleting this team will also delete those matches. Do you still want to proceed?`,
+              );
+              if (!confirmDelete) return;
+            }
+            // Cascade locally: matches, players & staff of the team go too.
+            linkedMatches.forEach((m) => remove("matches", m.id));
             db.players.filter((p) => p.teamId === t.id).forEach((p) => remove("players", p.id));
             db.staff.filter((s) => s.teamId === t.id).forEach((s) => remove("staff", s.id));
             remove("teams", t.id);
