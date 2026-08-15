@@ -21,6 +21,7 @@ type Row = Record<string, unknown>;
 /** A durable, serialisable write. Queued when offline; flushed on reconnect. */
 type PendingOp =
   | { kind: "upsert"; table: string; row: Row; onConflict?: string }
+  | { kind: "update"; table: string; id: string; row: Row }
   | { kind: "delete"; table: string; match: Row };
 
 const QUEUE_KEY = "volleyverse:sync-queue:v1";
@@ -53,7 +54,12 @@ function isRefusedByDatabase(err: unknown): boolean {
 /** Turn a PostgREST error into something a courtside human can act on. */
 function describe(op: PendingOp, err: unknown): string {
   const e = err as { code?: string; message?: string; details?: string } | null;
-  const what = op.kind === "upsert" ? `write to ${op.table}` : `delete from ${op.table}`;
+  const what =
+    op.kind === "upsert"
+      ? `write to ${op.table}`
+      : op.kind === "update"
+        ? `update to ${op.table}`
+        : `delete from ${op.table}`;
   const code = e?.code ?? "";
   const base = e?.message ?? String(err ?? "unknown error");
   if (code === "23514")
@@ -162,6 +168,9 @@ export function useSupabaseBackend(): DataProvider {
         const { error } = await supabase
           .from(op.table)
           .upsert(op.row, op.onConflict ? { onConflict: op.onConflict } : undefined);
+        if (error) throw error;
+      } else if (op.kind === "update") {
+        const { error } = await supabase.from(op.table).update(op.row).eq("id", op.id);
         if (error) throw error;
       } else {
         const { error } = await supabase.from(op.table).delete().match(op.match);
@@ -566,34 +575,23 @@ export function useSupabaseBackend(): DataProvider {
           const person = M.playerPersonToRow(p);
           const reg = M.playerRegistrationToRow(p);
           if (Object.keys(reg).length) {
-            const existing = dbRef.current.players.find((r) => r.id === id);
-            void resolvePersonId(id).then((personId) => {
-              enqueue({
-                kind: "upsert",
-                table: "team_players",
-                row: {
-                  id,
-                  ...(existing?.teamId ? { team_id: existing.teamId } : {}),
-                  ...(personId ? { player_id: personId } : {}),
-                  ...reg,
-                },
-              });
-            });
+            enqueue({ kind: "update", table: "team_players", id, row: reg });
           }
           if (Object.keys(person).length) {
             // Person fields live in players, keyed by person_id — resolve it
             // from the current snapshot's roster (person_id is not on Player).
             void resolvePersonId(id).then((personId) => {
               if (personId)
-                enqueue({ kind: "upsert", table: "players", row: { id: personId, ...person } });
+                enqueue({ kind: "update", table: "players", id: personId, row: person });
             });
           }
         } else {
           const table = M.TABLE_FOR_COLLECTION[collection];
           enqueue({
-            kind: "upsert",
+            kind: "update",
             table,
-            row: { id, ...toRow(collection, { ...patch, id } as unknown as Row) },
+            id,
+            row: toRow(collection, patch as unknown as Row),
           });
         }
         patchDb((prev) => ({
