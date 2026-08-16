@@ -1000,8 +1000,10 @@ function TeamCard({
                     </button>
                     <RemoveButton
                       onClick={() => {
-                        const hasStats = db.statEvents?.some((e) => e.playerId === p.id);
-                        const hasRosters = db.matchRosters?.some((r) => r.playerId === p.id);
+                        const hasStats = db.events?.some((e) => e.playerId === p.id);
+                        const hasRosters = db.matches.some((m) =>
+                          m.rosters?.some((r) => r.playerId === p.id),
+                        );
                         if (hasStats || hasRosters) {
                           const confirmDelete = window.confirm(
                             `"${p.fullName}" has recorded match stats. Deleting this player will remove their stats from those matches. Do you still want to proceed?`,
