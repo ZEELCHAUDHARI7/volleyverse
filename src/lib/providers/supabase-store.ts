@@ -628,7 +628,7 @@ export function useSupabaseBackend(): DataProvider {
       },
 
       startMatch: (matchId) => {
-        enqueue({ kind: "upsert", table: "matches", row: { id: matchId, status: "live" } });
+        enqueue({ kind: "update", table: "matches", id: matchId, row: { status: "live" } });
         patchMatch(matchId, (m) => ({ ...m, status: "live" }));
       },
 
@@ -679,9 +679,10 @@ export function useSupabaseBackend(): DataProvider {
 
       completeMatch: (matchId, winnerTeamId) => {
         enqueue({
-          kind: "upsert",
+          kind: "update",
           table: "matches",
-          row: { id: matchId, status: "completed", winner_team_id: winnerTeamId },
+          id: matchId,
+          row: { status: "completed", winner_team_id: winnerTeamId },
         });
         patchMatch(matchId, (m) => ({ ...m, status: "completed", winnerTeamId }));
       },
@@ -698,7 +699,7 @@ export function useSupabaseBackend(): DataProvider {
       },
 
       setPublished: (matchId, published) => {
-        enqueue({ kind: "upsert", table: "matches", row: { id: matchId, published } });
+        enqueue({ kind: "update", table: "matches", id: matchId, row: { published } });
         patchMatch(matchId, (m) => ({ ...m, published }));
       },
 
