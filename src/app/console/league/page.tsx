@@ -998,7 +998,19 @@ function TeamCard({
                     >
                       {p.isCaptain ? "Unset captain" : "Make captain"}
                     </button>
-                    <RemoveButton onClick={() => remove("players", p.id)} />
+                    <RemoveButton
+                      onClick={() => {
+                        const hasStats = db.statEvents?.some((e) => e.playerId === p.id);
+                        const hasRosters = db.matchRosters?.some((r) => r.playerId === p.id);
+                        if (hasStats || hasRosters) {
+                          const confirmDelete = window.confirm(
+                            `"${p.fullName}" has recorded match stats. Deleting this player will remove their stats from those matches. Do you still want to proceed?`,
+                          );
+                          if (!confirmDelete) return;
+                        }
+                        remove("players", p.id);
+                      }}
+                    />
                   </span>
                 </div>
               ))}
