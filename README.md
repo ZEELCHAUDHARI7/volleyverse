@@ -93,9 +93,47 @@ npm install
 npm run dev
 ```
 
-First run: open `/console/league`, create your league, season, a
-tournament, venues, at least two teams with 6+ players each — then
-schedule a match from Match Day.
+First run: sign in at `/login` (see below), then open `/console/league`,
+create your league, season, a tournament, venues, at least two teams with
+6+ players each, then schedule a match from Match Day.
+
+## Authentication (temporary)
+
+`/console/*` is gated by a **temporary, UI-only** sign-in while the real
+auth architecture is being decided. Any valid email plus an 8-character
+password opens the console. Credentials are never checked against a
+provider.
+
+All of the stand-in logic lives in `src/lib/auth/temporary-auth.ts`
+(`login` / `logout` / `isAuthenticated` / `getTemporaryUser`), the guard
+predicate in `src/lib/auth/routes.ts`, and the cookie check in
+`src/middleware.ts`. Replacing those bodies with a real provider is the
+whole migration. The login UI at `src/app/login/` does not change.
+
+The session cookie is unsigned and trivially forgeable. It exists so the
+app routes correctly; it is **not** a security boundary and must not ship
+as one.
+
+### Fan accounts (also temporary)
+
+The showcase is gated too. Visitors need an account before any content,
+so `/`, `/live`, `/matches`, `/team` and player pages all redirect to
+`/fans/sign-in?next=...` when signed out. Fans sign in there or create an
+account at `/fans/join`, backed by `src/lib/auth/temporary-fan-auth.ts`
+and a separate `vv_temp_fan` cookie.
+
+A console session counts on the public side, so staff never create a
+second account. A fan session never opens the console. Keeping the two
+cookies apart means either layer can move to real auth first.
+
+Gate summary, all of it in `src/middleware.ts` and
+`src/lib/auth/routes.ts`:
+
+| Route | Needs |
+| --- | --- |
+| `/login`, `/fans/sign-in`, `/fans/join` | nothing |
+| `/console/*` | staff session |
+| everything else | staff or fan session |
 
 ## Backend integration (next step)
 
