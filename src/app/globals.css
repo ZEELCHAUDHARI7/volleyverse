@@ -779,3 +779,31 @@ a.card-premium:hover,
     display: none !important;
   }
 }
+
+/* ---------- Sign-in (/login) ---------- */
+/* Field shell: the border colour is set by utility classes per validation
+   state; the shell owns the lift, glow and transition. */
+.auth-field {
+  transition:
+    border-color 200ms ease,
+    box-shadow 220ms ease,
+    background-color 200ms ease;
+}
+.auth-field:focus-within {
+  background: var(--brand-surface-2);
+  box-shadow: 0 0 0 4px rgba(255, 196, 0, 0.12);
+}
+/* The inner input owns the visible focus, so suppress the global ring
+   that would otherwise draw a second outline inside the shell. */
+.auth-field input:focus-visible {
+  outline: none;
+}
+
+/* Remember-me checkbox: appearance:none base, tick drawn here. */
+.auth-check:checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23171200' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5 6.5 11.5 12.5 4.5'/%3E%3C/svg%3E");
+  background-size: 100% 100%;
+}
+.auth-check:hover:not(:checked) {
+  border-color: color-mix(in srgb, var(--brand-accent) 45%, transparent);
+}

@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { StoreProvider } from "@/lib/store";
 import { SyncIndicator } from "@/components/sync-indicator";
 import { ConsoleNav } from "./console-nav";
-import { ConsoleMain } from "./console-main";
 
 export const metadata: Metadata = {
   title: "Console | VolleyVerse",
@@ -34,7 +33,9 @@ export default function ConsoleLayout({
           <div className="orb orb-violet bottom-[-14%] left-[28%] h-[360px] w-[360px]" />
         </div>
         <ConsoleNav />
-        <ConsoleMain>{children}</ConsoleMain>
+        <main className="relative mx-auto w-full max-w-6xl px-4 pb-20 pt-8 sm:px-6">
+          {children}
+        </main>
         <SyncIndicator />
       </div>
     </StoreProvider>
