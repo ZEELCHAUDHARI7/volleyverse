@@ -24,24 +24,15 @@ on conflict (email) do update set role = 'super_admin';
 
 -- 4. RLS Policies on user_roles
 drop policy if exists "allow read own or super admin read all" on user_roles;
+drop policy if exists "super admin full write user_roles" on user_roles;
 drop policy if exists "read user roles" on user_roles;
+drop policy if exists "write user roles" on user_roles;
+
 create policy "read user roles" on user_roles for select using (true);
 
-drop policy if exists "super admin full write user_roles" on user_roles;
-create policy "super admin full write user_roles"
-  on user_roles for all
-  using (
-    exists (
-      select 1 from user_roles ur 
-      where ur.email = auth.jwt() ->> 'email' and ur.role = 'super_admin'
-    )
-  )
-  with check (
-    exists (
-      select 1 from user_roles ur 
-      where ur.email = auth.jwt() ->> 'email' and ur.role = 'super_admin'
-    )
-  );
+create policy "write user roles" on user_roles for all
+  using (is_super_admin())
+  with check (is_super_admin());
 
 -- 5. Helper Functions
 create or replace function is_super_admin() returns boolean
