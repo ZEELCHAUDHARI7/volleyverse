@@ -92,8 +92,7 @@ export function LoginForm() {
     try {
       await login({ email, password, remember });
       setStatus("success");
-      router.replace(next || APP_HOME);
-      router.refresh();
+      window.location.href = next || APP_HOME;
     } catch (err: unknown) {
       setStatus("error");
       const msg =
