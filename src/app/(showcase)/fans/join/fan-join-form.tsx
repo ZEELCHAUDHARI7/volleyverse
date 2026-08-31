@@ -89,9 +89,13 @@ export function FanJoinForm() {
       }
       router.replace(next);
       router.refresh();
-    } catch {
+    } catch (err: unknown) {
       setStatus("error");
-      setFormError("Something went wrong creating your account. Try again.");
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "Something went wrong creating your account. Try again.";
+      setFormError(msg);
     }
   }
 

@@ -94,9 +94,13 @@ export function LoginForm() {
       setStatus("success");
       router.replace(next || APP_HOME);
       router.refresh();
-    } catch {
+    } catch (err: unknown) {
       setStatus("error");
-      setFormError("That email and password don't match an account.");
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "That email and password don't match an account.";
+      setFormError(msg);
     }
   }
 
