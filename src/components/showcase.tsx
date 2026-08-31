@@ -213,9 +213,10 @@ export function SectionLabel({ children }: { children: React.ReactNode }) {
 
 // ---- Scroll-aware public navigation (glass on scroll) ----
 const NAV_LINKS = [
-  { href: "/live", label: "Live" },
+  { href: "/players", label: "Players" },
   { href: "/team", label: "Teams" },
   { href: "/matches", label: "Matches" },
+  { href: "/live", label: "Live" },
 ];
 
 /** League wordmark, split for the two-tone treatment. Data-driven —

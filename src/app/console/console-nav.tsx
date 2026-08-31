@@ -19,6 +19,7 @@ const LINKS = [
   { href: "/console/league", label: "League Setup", exact: false },
   { href: "/console/matches/new", label: "Start Match", exact: false },
   { href: "/console/analytics", label: "Analytics", exact: false },
+  { href: "/admin", label: "👑 Super Admin", exact: false },
 ];
 
 /**
