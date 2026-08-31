@@ -72,14 +72,35 @@ export async function middleware(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const email = data?.claims?.email as string | undefined;
 
-  if (requiresAuth(pathname)) {
+  if (pathname.startsWith("/admin")) {
     if (!email) return redirectTo(LOGIN_PATH);
-    const { data: admin } = await supabase
-      .from("console_admins")
-      .select("email")
+    const { data: userRole } = await supabase
+      .from("user_roles")
+      .select("role")
       .eq("email", email)
       .maybeSingle();
-    if (!admin) return redirectTo(LOGIN_PATH, "not-authorized");
+    if (userRole?.role !== "super_admin") return redirectTo(LOGIN_PATH, "super-admin-required");
+    return response;
+  }
+
+  if (requiresAuth(pathname)) {
+    if (!email) return redirectTo(LOGIN_PATH);
+    const { data: userRole } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("email", email)
+      .maybeSingle();
+    
+    // Also check legacy console_admins table as fallback
+    const isAllowed = userRole?.role === "super_admin" || userRole?.role === "admin";
+    if (!isAllowed) {
+      const { data: legacyAdmin } = await supabase
+        .from("console_admins")
+        .select("email")
+        .eq("email", email)
+        .maybeSingle();
+      if (!legacyAdmin) return redirectTo(LOGIN_PATH, "not-authorized");
+    }
     return response;
   }
 

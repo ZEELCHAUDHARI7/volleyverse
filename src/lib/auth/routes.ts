@@ -24,6 +24,9 @@ export const APP_HOME = "/console";
 /** Everything under this prefix is staff only. */
 export const CONSOLE_PREFIX = "/console";
 
+/** Super Admin Management Panel prefix. */
+export const ADMIN_PREFIX = "/admin";
+
 /** Fan-facing account pages on the public showcase. */
 export const FAN_SIGN_IN_PATH = "/fans/sign-in";
 export const FAN_JOIN_PATH = "/fans/join";
