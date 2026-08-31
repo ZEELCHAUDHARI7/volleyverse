@@ -19,7 +19,6 @@ const LINKS = [
   { href: "/console/league", label: "League Setup", exact: false },
   { href: "/console/matches/new", label: "Start Match", exact: false },
   { href: "/console/analytics", label: "Analytics", exact: false },
-  { href: "/admin", label: "👑 Super Admin", exact: false },
 ];
 
 /**
@@ -94,13 +93,13 @@ export function ConsoleNav() {
           </span>
         </Link>
 
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1 overflow-x-auto no-scrollbar">
           {LINKS.map((l) => (
             <Link
               key={l.href}
               href={l.href}
               data-active={active(l)}
-              className={`nav-link rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wider transition-colors ${
+              className={`nav-link rounded-lg px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors ${
                 active(l) ? "text-ink" : "text-dim hover:text-ink"
               }`}
             >
@@ -108,8 +107,14 @@ export function ConsoleNav() {
             </Link>
           ))}
           <Link
+            href="/admin"
+            className="ml-1 inline-flex items-center gap-1 rounded-lg bg-amber-500/15 border border-amber-500/30 px-2.5 py-1.5 text-xs font-extrabold uppercase tracking-wider text-amber-400 hover:bg-amber-500/25 transition-all whitespace-nowrap shrink-0"
+          >
+            <span>👑</span> Admin Panel
+          </Link>
+          <Link
             href="/"
-            className="ml-2 hidden rounded-lg border border-line px-3 py-2 text-xs font-bold uppercase tracking-wider text-dim transition-colors hover:border-accent/40 hover:text-ink sm:block"
+            className="ml-1 hidden rounded-lg border border-line px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider text-dim transition-colors hover:border-accent/40 hover:text-ink whitespace-nowrap sm:block"
           >
             Public site ↗
           </Link>
