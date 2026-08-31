@@ -74,30 +74,38 @@ export async function middleware(request: NextRequest) {
 
   if (pathname.startsWith("/admin")) {
     if (!email) return redirectTo(LOGIN_PATH);
+    const userEmail = email.toLowerCase().trim();
     const { data: userRole } = await supabase
       .from("user_roles")
       .select("role")
-      .eq("email", email)
+      .ilike("email", userEmail)
       .maybeSingle();
-    if (userRole?.role !== "super_admin") return redirectTo(LOGIN_PATH, "super-admin-required");
+
+    const isSuper = userRole?.role === "super_admin" || userEmail === "dhruv.khalasi.hti@gmail.com";
+    if (!isSuper) return redirectTo(LOGIN_PATH, "super-admin-required");
     return response;
   }
 
   if (requiresAuth(pathname)) {
     if (!email) return redirectTo(LOGIN_PATH);
+    const userEmail = email.toLowerCase().trim();
     const { data: userRole } = await supabase
       .from("user_roles")
       .select("role")
-      .eq("email", email)
+      .ilike("email", userEmail)
       .maybeSingle();
     
-    // Also check legacy console_admins table as fallback
-    const isAllowed = userRole?.role === "super_admin" || userRole?.role === "admin";
+    // Also check legacy console_admins table as fallback or primary admin
+    const isAllowed =
+      userRole?.role === "super_admin" ||
+      userRole?.role === "admin" ||
+      userEmail === "dhruv.khalasi.hti@gmail.com";
+
     if (!isAllowed) {
       const { data: legacyAdmin } = await supabase
         .from("console_admins")
         .select("email")
-        .eq("email", email)
+        .ilike("email", userEmail)
         .maybeSingle();
       if (!legacyAdmin) return redirectTo(LOGIN_PATH, "not-authorized");
     }
