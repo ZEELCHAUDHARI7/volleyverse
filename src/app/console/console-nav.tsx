@@ -11,8 +11,7 @@ import {
   type TemporaryUser,
 } from "@/lib/auth/temporary-auth";
 
-/** Console shell nav — glass bar with brand mark, section links, the
- *  signed-in account and a route back to the public site. */
+/** Console shell nav — two-tier layout with brand mark, controls, and section sub-nav */
 
 const LINKS = [
   { href: "/console", label: "Dashboard", exact: true },
@@ -21,20 +20,11 @@ const LINKS = [
   { href: "/console/analytics", label: "Analytics", exact: false },
 ];
 
-/**
- * Signed-in identity + sign-out.
- *
- * Reads the TEMPORARY session (src/lib/auth/temporary-auth.ts). When real
- * auth lands, swap those two calls for the provider's user/subscribe API.
- * The markup below is unaffected.
- */
 function AccountControls() {
   const router = useRouter();
   const [user, setUser] = useState<TemporaryUser | null>(null);
 
   useEffect(() => {
-    // Read after mount: the session is not available during SSR, and
-    // reading it here keeps server and client markup identical.
     let active = true;
     getTemporaryUser().then((u) => {
       if (active) setUser(u);
@@ -57,17 +47,17 @@ function AccountControls() {
   }
 
   return (
-    <div className="ml-2 flex items-center gap-2 border-l border-line pl-2">
+    <div className="flex items-center gap-2 border-l border-line/60 pl-3">
       <span
         title={user.email}
-        className="hidden max-w-[12rem] truncate text-xs font-semibold text-dim sm:block"
+        className="hidden max-w-[11rem] truncate text-xs font-medium text-dim lg:block"
       >
         {user.email}
       </span>
       <button
         type="button"
         onClick={signOut}
-        className="rounded-lg border border-line px-3 py-2 text-xs font-bold uppercase tracking-wider text-dim transition-colors hover:border-accent/40 hover:text-ink"
+        className="rounded-lg border border-line/80 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-dim transition-colors hover:border-accent/40 hover:text-ink whitespace-nowrap"
       >
         Sign out
       </button>
@@ -81,46 +71,64 @@ export function ConsoleNav() {
     l.exact ? pathname === l.href : pathname.startsWith(l.href);
 
   return (
-    <nav className="glass sticky top-0 z-50">
-      <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-2 px-4 sm:px-6">
-        <Link href="/" className="flex min-w-0 items-center gap-2">
-          <span aria-hidden className="text-base leading-none">🏐</span>
-          <span className="stat-display truncate text-sm font-extrabold uppercase tracking-widest text-ink">
-            VolleyVerse
-          </span>
-          <span className="rounded-md bg-accent/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-accent ring-1 ring-accent/25">
-            Console
-          </span>
-        </Link>
+    <header className="sticky top-0 z-50 border-b border-line bg-bg/90 backdrop-blur-md">
+      {/* TIER 1: Top Brand & System Controls Bar */}
+      <div className="border-b border-line/50 bg-[#070d19]/80">
+        <div className="mx-auto flex h-12 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
+          {/* Logo & Console Tag */}
+          <Link href="/" className="flex items-center gap-2">
+            <span aria-hidden className="text-base leading-none">🏐</span>
+            <span className="stat-display text-sm font-extrabold uppercase tracking-widest text-ink">
+              VolleyVerse
+            </span>
+            <span className="rounded-md bg-accent/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-accent ring-1 ring-accent/25">
+              Console
+            </span>
+          </Link>
 
-        <div className="ml-auto flex items-center gap-1 overflow-x-auto no-scrollbar">
-          {LINKS.map((l) => (
+          {/* Right System Controls */}
+          <div className="flex items-center gap-2">
             <Link
-              key={l.href}
-              href={l.href}
-              data-active={active(l)}
-              className={`nav-link rounded-lg px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors ${
-                active(l) ? "text-ink" : "text-dim hover:text-ink"
-              }`}
+              href="/admin"
+              className="inline-flex items-center gap-1 rounded-lg bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider text-amber-400 hover:bg-amber-500/25 transition-all whitespace-nowrap"
             >
-              {l.label}
+              <span>👑</span> Admin Panel
             </Link>
-          ))}
-          <Link
-            href="/admin"
-            className="ml-1 inline-flex items-center gap-1 rounded-lg bg-amber-500/15 border border-amber-500/30 px-2.5 py-1.5 text-xs font-extrabold uppercase tracking-wider text-amber-400 hover:bg-amber-500/25 transition-all whitespace-nowrap shrink-0"
-          >
-            <span>👑</span> Admin Panel
-          </Link>
-          <Link
-            href="/"
-            className="ml-1 hidden rounded-lg border border-line px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider text-dim transition-colors hover:border-accent/40 hover:text-ink whitespace-nowrap sm:block"
-          >
-            Public site ↗
-          </Link>
-          <AccountControls />
+
+            <Link
+              href="/"
+              className="hidden rounded-lg border border-line/80 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-dim transition-colors hover:border-accent/40 hover:text-ink whitespace-nowrap sm:block"
+            >
+              Public site ↗
+            </Link>
+
+            <AccountControls />
+          </div>
         </div>
       </div>
-    </nav>
+
+      {/* TIER 2: Operational Section Navigation Bar */}
+      <div className="bg-[#0b1428]/60">
+        <div className="mx-auto flex h-10 w-full max-w-6xl items-center gap-1 px-4 sm:px-6 overflow-x-auto no-scrollbar">
+          {LINKS.map((l) => {
+            const isActive = active(l);
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={`relative px-3.5 py-2 text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors ${
+                  isActive ? "text-ink font-extrabold" : "text-dim hover:text-ink"
+                }`}
+              >
+                {l.label}
+                {isActive && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent shadow-sm shadow-accent/50 rounded-full" />
+                )}
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+    </header>
   );
 }
