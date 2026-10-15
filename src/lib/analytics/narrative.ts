@@ -42,6 +42,18 @@ function marginPhrase(homeSets: number, awaySets: number): string {
 /** A 2–4 sentence auto-generated match summary. */
 export function generateSummary(a: MatchAnalytics, names: Names): string {
   const { result } = a;
+  if (result.progress === "not-played") {
+    return `${names.home} and ${names.away} have not played yet. Analytics appear here once the match has recorded play.`;
+  }
+  if (result.progress === "in-progress") {
+    const sofar =
+      result.homeSetsWon === result.awaySetsWon
+        ? `${names.home} and ${names.away} are level at ${result.scoreline} on sets so far.`
+        : result.homeSetsWon > result.awaySetsWon
+          ? `${names.home} lead ${names.away} ${result.homeSetsWon}–${result.awaySetsWon} on sets so far.`
+          : `${names.away} lead ${names.home} ${result.awaySetsWon}–${result.homeSetsWon} on sets so far.`;
+    return `${sofar} The match is still in progress, so nothing here is a final result.`;
+  }
   if (result.winner === null) {
     return `${names.home} and ${names.away} finished level at ${result.scoreline} on the available data. Not enough was recorded to call a decisive story — the box score below carries what was logged.`;
   }
