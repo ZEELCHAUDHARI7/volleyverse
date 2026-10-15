@@ -195,6 +195,9 @@ export function CourtBoard({
     side: Side,
   ) => {
     const el = e.currentTarget;
+    // `disabled` stops click, not pointer events: without this a faded player
+    // at serve time, or a libero on the bench, could still be armed or flicked.
+    if (el.disabled) return;
     const r = el.getBoundingClientRect();
     // Capture so the finger can leave the tile — it has to, since every answer
     // lives outside it — and still deliver move and up to this handler.
