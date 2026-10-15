@@ -46,6 +46,7 @@ import {
   syncCourt,
 } from "@/lib/substitution";
 import { planEndMatch } from "@/lib/end-match";
+import { trackerView } from "@/lib/tracker-view";
 import {
   CourtBoard,
   type CourtPlayer,
@@ -54,6 +55,7 @@ import {
 } from "@/components/court-board";
 import { SetupWizard } from "@/components/court-setup";
 import { EndMatchConfirm } from "@/components/end-match-confirm";
+import { ScoredElsewhere } from "@/components/scored-elsewhere";
 import { SetRotationGate } from "@/components/set-rotation";
 import { SubControl } from "@/components/sub-sheet";
 import {
@@ -126,6 +128,8 @@ export default function RallyTracker() {
 
   const [state, setState] = useState<MatchState | null>(null);
   const [loaded, setLoaded] = useState(false);
+  /** Live match scored elsewhere: set once the scorer chooses to restart here. */
+  const [scoreHere, setScoreHere] = useState(false);
 
   // Resume an in-progress match from localStorage (offline-safe).
   useEffect(() => {
@@ -226,7 +230,8 @@ export default function RallyTracker() {
   // match invites someone to overwrite a played scoresheet. Send them to the
   // report instead. (Reached most often straight after banking the final set,
   // while the push to /review is still in flight.)
-  if (!state && match.status === "completed") {
+  const view = trackerView(match.status, state !== null);
+  if (view === "report") {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-4 text-center">
         <p className="stat-display text-xl font-extrabold uppercase text-ink">
@@ -239,6 +244,16 @@ export default function RallyTracker() {
           Open the match report →
         </Link>
       </div>
+    );
+  }
+
+  if (view === "elsewhere" && !scoreHere) {
+    return (
+      <ScoredElsewhere
+        homeName={homeTeam.name}
+        awayName={awayTeam.name}
+        onScoreHere={() => setScoreHere(true)}
+      />
     );
   }
 

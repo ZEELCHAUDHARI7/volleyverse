@@ -11,7 +11,9 @@ import {
 } from "@/components/court-board";
 import { SetupWizard } from "@/components/court-setup";
 import { EndMatchConfirm } from "@/components/end-match-confirm";
+import { ScoredElsewhere } from "@/components/scored-elsewhere";
 import { planEndMatch } from "@/lib/end-match";
+import { trackerView } from "@/lib/tracker-view";
 import { SpikeChartGrid } from "@/components/spike-charts";
 import { BlockChartGrid, BlockerCards } from "@/components/block-charts";
 import { Button, EmptyState, LinkButton, PageSkeleton } from "@/components/ui";
@@ -292,6 +294,8 @@ export default function FreeRallyTracker() {
   const [asking, setAsking] = useState<Outcome | null>(null);
   const [duel, setDuel] = useState<DuelKind | null>(null);
   const [ending, setEnding] = useState(false);
+  /** Live match scored elsewhere: set once the scorer chooses to restart here. */
+  const [scoreHere, setScoreHere] = useState(false);
   /** Last automatic libero swap, shown under the court until the next point. */
   const [notice, setNotice] = useState<string | null>(null);
   /**
@@ -412,6 +416,103 @@ export default function FreeRallyTracker() {
           action={<LinkButton href="/console">Back to console</LinkButton>}
         />
       </div>
+    );
+  }
+
+  const allPlayers = [...homeRoster, ...awayRoster];
+  const view = trackerView(match.status, state !== null);
+
+  // Finished match: the winner, the set scores, and the four charts in full.
+  // None of it needs this browser's scoring session, so every device gets it.
+  if (view === "report") {
+    const winner = match.winnerTeamId
+      ? match.winnerTeamId === homeTeam.id
+        ? homeTeam.name
+        : awayTeam.name
+      : null;
+    // Sets taken, read back off the recorded set scores rather than live state,
+    // so the report is right even when reopened in another browser.
+    const setsWon = match.setScores.reduce(
+      (n, s) => ({
+        us: n.us + (s.homePoints > s.awayPoints ? 1 : 0),
+        opp: n.opp + (s.awayPoints > s.homePoints ? 1 : 0),
+      }),
+      { us: 0, opp: 0 },
+    );
+    return (
+      <div className="mx-auto max-w-3xl space-y-5 px-4 pb-24 pt-6">
+        <header className="card-premium rounded-2xl p-6 text-center">
+          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-accent">
+            Match complete
+          </p>
+          <p className="stat-display mt-2 text-3xl font-extrabold uppercase text-ink">
+            {winner ? `🏆 ${winner}` : "Drawn"}
+          </p>
+          <p className="stat-display tnum mt-3 text-2xl font-extrabold">
+            <span className="text-accent">{homeTeam.shortName} {setsWon.us}</span>
+            <span className="mx-3 text-dim">–</span>
+            <span className="text-azure">{setsWon.opp} {awayTeam.shortName}</span>
+          </p>
+          <p className="mt-1 text-xs text-dim">sets</p>
+          {/* Tap a set to read the match one set at a time. */}
+          <div className="mt-4 flex justify-center">
+            <SetNavigator
+              sets={setEntries(match.setScores, null)}
+              scope={scope}
+              onScope={setScope}
+              homeShort={homeTeam.shortName}
+              awayShort={awayTeam.shortName}
+            />
+          </div>
+          <div className="mt-5">
+            <LinkButton href="/console">Back to console</LinkButton>
+          </div>
+        </header>
+
+        <h2 className="stat-display text-lg font-bold uppercase tracking-wide text-ink">
+          Spiker performance
+          <span className="ml-2 text-xs font-semibold normal-case tracking-normal text-dim">
+            {scopeLabel(scope)}
+          </span>
+        </h2>
+        <SpikeChartGrid
+          players={allPlayers}
+          events={inScope(events)}
+          homeTeamId={homeTeam.id}
+          homeLabel={homeTeam.name}
+          awayLabel={awayTeam.name}
+        />
+
+        <h2 className="stat-display text-lg font-bold uppercase tracking-wide text-ink">
+          Blocking
+          <span className="ml-2 text-xs font-semibold normal-case tracking-normal text-dim">
+            {scopeLabel(scope)}
+          </span>
+        </h2>
+        <BlockerCards
+          players={allPlayers}
+          events={inScope(events)}
+          homeTeamId={homeTeam.id}
+          seasonEvents={store.db.events}
+        />
+        <BlockChartGrid
+          players={allPlayers}
+          events={inScope(events)}
+          homeTeamId={homeTeam.id}
+          homeLabel={homeTeam.name}
+          awayLabel={awayTeam.name}
+        />
+      </div>
+    );
+  }
+
+  if (view === "elsewhere" && !scoreHere) {
+    return (
+      <ScoredElsewhere
+        homeName={homeTeam.name}
+        awayName={awayTeam.name}
+        onScoreHere={() => setScoreHere(true)}
+      />
     );
   }
 
@@ -862,8 +963,6 @@ export default function FreeRallyTracker() {
   const decidesMatch =
     matchWinner(setsAfterThis.us, setsAfterThis.opp, match.totalSets) !== null;
 
-  const allPlayers = [...homeRoster, ...awayRoster];
-
   const endPlan = planEndMatch(state);
 
   const onEndMatch = () => {
@@ -872,89 +971,6 @@ export default function FreeRallyTracker() {
     setEnding(false);
     disarm();
   };
-
-  // Finished match: the winner, the set scores, and the four charts in full.
-  if (match.status === "completed") {
-    const winner = match.winnerTeamId
-      ? match.winnerTeamId === homeTeam.id
-        ? homeTeam.name
-        : awayTeam.name
-      : null;
-    // Sets taken, read back off the recorded set scores rather than live state,
-    // so the report is right even when reopened in another browser.
-    const setsWon = match.setScores.reduce(
-      (n, s) => ({
-        us: n.us + (s.homePoints > s.awayPoints ? 1 : 0),
-        opp: n.opp + (s.awayPoints > s.homePoints ? 1 : 0),
-      }),
-      { us: 0, opp: 0 },
-    );
-    return (
-      <div className="mx-auto max-w-3xl space-y-5 px-4 pb-24 pt-6">
-        <header className="card-premium rounded-2xl p-6 text-center">
-          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-accent">
-            Match complete
-          </p>
-          <p className="stat-display mt-2 text-3xl font-extrabold uppercase text-ink">
-            {winner ? `🏆 ${winner}` : "Drawn"}
-          </p>
-          <p className="stat-display tnum mt-3 text-2xl font-extrabold">
-            <span className="text-accent">{homeTeam.shortName} {setsWon.us}</span>
-            <span className="mx-3 text-dim">–</span>
-            <span className="text-azure">{setsWon.opp} {awayTeam.shortName}</span>
-          </p>
-          <p className="mt-1 text-xs text-dim">sets</p>
-          {/* Tap a set to read the match one set at a time. */}
-          <div className="mt-4 flex justify-center">
-            <SetNavigator
-              sets={setEntries(match.setScores, null)}
-              scope={scope}
-              onScope={setScope}
-              homeShort={homeTeam.shortName}
-              awayShort={awayTeam.shortName}
-            />
-          </div>
-          <div className="mt-5">
-            <LinkButton href="/console">Back to console</LinkButton>
-          </div>
-        </header>
-
-        <h2 className="stat-display text-lg font-bold uppercase tracking-wide text-ink">
-          Spiker performance
-          <span className="ml-2 text-xs font-semibold normal-case tracking-normal text-dim">
-            {scopeLabel(scope)}
-          </span>
-        </h2>
-        <SpikeChartGrid
-          players={allPlayers}
-          events={inScope(events)}
-          homeTeamId={homeTeam.id}
-          homeLabel={homeTeam.name}
-          awayLabel={awayTeam.name}
-        />
-
-        <h2 className="stat-display text-lg font-bold uppercase tracking-wide text-ink">
-          Blocking
-          <span className="ml-2 text-xs font-semibold normal-case tracking-normal text-dim">
-            {scopeLabel(scope)}
-          </span>
-        </h2>
-        <BlockerCards
-          players={allPlayers}
-          events={inScope(events)}
-          homeTeamId={homeTeam.id}
-          seasonEvents={store.db.events}
-        />
-        <BlockChartGrid
-          players={allPlayers}
-          events={inScope(events)}
-          homeTeamId={homeTeam.id}
-          homeLabel={homeTeam.name}
-          awayLabel={awayTeam.name}
-        />
-      </div>
-    );
-  }
 
   // FIVB 6.3.2/7.1: the deciding set needs its own toss. Play is blocked until
   // it is entered rather than silently carrying the previous set's server over.
