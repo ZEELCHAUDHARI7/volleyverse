@@ -60,6 +60,7 @@ import {
   syncCourt,
 } from "@/lib/substitution";
 import { SubControl } from "@/components/sub-sheet";
+import { pushLiveState } from "@/lib/providers/live-state";
 import {
   type SetScope,
   SetNavigator,
@@ -333,6 +334,8 @@ export default function FreeRallyTracker() {
       } catch {
         // storage unavailable — state stays in memory for this session
       }
+      // The live scoreboard on other devices (no-op without Supabase).
+      void pushLiveState(id, next);
     },
     [id],
   );
