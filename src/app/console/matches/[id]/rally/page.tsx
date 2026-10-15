@@ -368,6 +368,12 @@ function LiveScreen({
   const { rally, usLineup, oppLineup } = state;
   const phase = rally.phase;
   const side = rally.side; // team performing the current phase
+  const deciding = state.set === match.totalSets;
+  const target = deciding ? 15 : 25;
+  const setDone = setPointReached(state.usScore, state.oppScore, target);
+  // A won set takes no more input until it is banked, like a finished rally.
+  // Undo and the bank-set banner stay live.
+  const inputClosed = phase === "OVER" || setDone;
   const lineupOf = (s: Side) => (s === "US" ? usLineup : oppLineup);
   /** The rotation the set in progress started from — set 1's unless changed. */
   const activeSetup = setupForSet(state.set, state.setup, state.setSetups);
@@ -511,7 +517,7 @@ function LiveScreen({
   // arms anyone: the whole action is one gesture, so there is no intermediate
   // state for it to leave behind and nothing for this to read if it tried.
   const commitFor = (playerId: string, trio: Trio) => {
-    if (phase === "OVER") return;
+    if (inputClosed) return;
     // The acting side is whoever was touched — the court is fully open, so this
     // may differ from the phase's expected side (an unexpected touch or tip).
     const aSide = sideOf(playerId);
@@ -612,7 +618,7 @@ function LiveScreen({
 
   // ---- Scorer missed a contact: advance the flow, log nothing ----
   const skip = () => {
-    if (phase === "OVER") return;
+    if (inputClosed) return;
     const { nextPhase, nextSide } = skipPhase(phase, side);
     const logged: LoggedAction = { eventId: null, playerId: null, side, action: null, phase };
     setState({
@@ -717,9 +723,6 @@ function LiveScreen({
   };
 
   // ---- Set / match banking ----
-  const deciding = state.set === match.totalSets;
-  const target = deciding ? 15 : 25;
-  const setDone = setPointReached(state.usScore, state.oppScore, target);
   const setWinner: Side | null = setDone ? (state.usScore > state.oppScore ? "US" : "OPP") : null;
 
   // FIVB 6.3.2/7.1 - the deciding set requires a NEW toss. It is only reached
@@ -890,7 +893,7 @@ function LiveScreen({
   // in volleyball the ball can go anywhere, so the collector must never be
   // restricted to a single side.
   const serveLock = phase === "SERVE" ? new Set([serverId(lineupOf(rally.serving))]) : null;
-  const tappableIds: Set<string> | null = phase === "OVER" ? new Set() : serveLock;
+  const tappableIds: Set<string> | null = inputClosed ? new Set() : serveLock;
 
   // The libero is now placed by the automatic swap, so when they are ON they sit
   // in a court slot and that TILE is the tappable thing; when they are OFF their
@@ -1064,9 +1067,9 @@ function LiveScreen({
       {/* Phase banner */}
       <div className="mb-2 flex min-h-6 items-center justify-between">
         <p className="stat-display text-sm font-bold uppercase tracking-wide text-accent">
-          {phase !== "OVER" ? `${PHASE_LABEL[phase]} · ${teamName(side)}` : ""}
+          {!inputClosed ? `${PHASE_LABEL[phase]} · ${teamName(side)}` : ""}
         </p>
-        {phase !== "OVER" && (
+        {!inputClosed && (
           <button type="button" onClick={skip} className="min-h-6 text-[11px] font-semibold text-dim underline-offset-2 hover:underline">
             skip contact →
           </button>
@@ -1081,7 +1084,7 @@ function LiveScreen({
         oppLineup={oppLineup}
         players={players}
         serving={rally.serving}
-        armedId={armed}
+        armedId={inputClosed ? null : armed}
         tappableIds={tappableIds}
         onDrag={onDrag}
         dragActions={dragMenuFor}
@@ -1092,7 +1095,9 @@ function LiveScreen({
       {/* ✓ O ✗ — the whole input system */}
       <div className="mt-3 flex-1">
         <p className="mb-1.5 min-h-4 text-center text-xs text-dim">
-          {armed && armedAction
+          {setDone
+            ? "Set won — bank it above to continue"
+            : armed && armedAction
             ? `${armedName} · ${ACTION_LABEL[armedAction]}`
             : phase === "SERVE"
               ? `Hold the server and flick ✓ ← · O ↑ · ✗ →`
@@ -1105,7 +1110,7 @@ function LiveScreen({
             <button
               key={m.trio}
               type="button"
-              disabled={!armed || phase === "OVER"}
+              disabled={!armed || inputClosed}
               onClick={() => commit(m.trio)}
               className={`flex min-h-20 flex-col items-center justify-center gap-0.5 rounded-2xl border text-center transition-all active:scale-[0.97] disabled:opacity-25 ${m.cls}`}
             >
