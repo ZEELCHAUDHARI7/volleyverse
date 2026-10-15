@@ -29,12 +29,11 @@ import {
   exportTableCsv,
   hasRecordedPlay,
   headToHead,
+  decidedWinner,
   isDecided,
-  outcomeFor,
   periodPerformance,
   seasonSummary,
   setTally,
-  teamMatches,
   teamRecord,
   tournamentPerformance,
   type Kpi,
@@ -93,8 +92,11 @@ export default function SeasonAnalytics() {
   const ranking = useMemo(
     () =>
       db.teams
-        .map((t) => ({ name: t.shortName, value: teamRecord(db.matches, t.id).winPct }))
-        .filter((r) => teamMatches(db.matches, db.teams.find((t) => t.shortName === r.name)!.id).length > 0)
+        .map((t) => ({ name: t.shortName, record: teamRecord(db.matches, t.id) }))
+        // Only teams with a result: 0% for "no completed match yet" read as
+        // "lost every match", which is a different thing.
+        .filter((r) => r.record.played > 0)
+        .map((r) => ({ name: r.name, value: r.record.winPct }))
         .sort((a, b) => b.value - a.value)
         .slice(0, 10),
     [db.teams, db.matches],
@@ -178,9 +180,10 @@ export default function SeasonAnalytics() {
             // An undecided match is labelled rather than given a blank winner,
             // so a CSV reader can tell "not finished" from "drawn".
             isDecided(m)
-              ? m.winnerTeamId
-                ? teamName(m.winnerTeamId)
-                : "—"
+              ? (() => {
+                  const w = decidedWinner(m);
+                  return w ? teamName(w) : "—";
+                })()
               : "in progress",
           ];
         }),
@@ -430,12 +433,12 @@ function MatchHistoryRow({
   teamShort: (id: string | null) => string;
 }) {
   const t = setTally(match);
-  const winner = match.winnerTeamId
-    ? teamName(match.winnerTeamId)
-    : t.home === t.away
-      ? null
-      : teamName(t.home > t.away ? match.homeTeamId : match.awayTeamId);
-  void outcomeFor;
+  const winner = decidedWinner(match);
+  const result = !isDecided(match)
+    ? "In progress"
+    : winner
+      ? `${teamName(winner)} won`
+      : "No winner";
   return (
     <Link
       href={`/console/matches/${match.id}/analytics`}
@@ -445,7 +448,7 @@ function MatchHistoryRow({
         <p className="truncate text-sm font-bold">
           {teamName(match.homeTeamId)} <span className="text-dim">vs</span> {teamName(match.awayTeamId)}
         </p>
-        <p className="mt-0.5 text-xs text-dim">{match.dateISO}{winner && ` · ${winner} won`}</p>
+        <p className="mt-0.5 text-xs text-dim">{match.dateISO} · {result}</p>
       </div>
       <span className="stat-display tnum text-xl font-extrabold">
         {t.home}<span className="text-dim">–</span>{t.away}

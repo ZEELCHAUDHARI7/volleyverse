@@ -561,12 +561,18 @@ function MatchRow({ match }: { match: Match }) {
             >
               📊 Analytics
             </LinkButton>
+            {/* A match with no set scores would go public as 0–0. Unpublish stays
+                available so one already out can still be taken down. */}
             <Button
               variant="ghost"
               onClick={() => setPublished(match.id, !match.published)}
+              disabled={!match.published && match.setScores.length === 0}
             >
               {match.published ? "Unpublish" : "Publish"}
             </Button>
+            {!match.published && match.setScores.length === 0 && (
+              <span className="text-xs text-dim">Add set scores to publish</span>
+            )}
             <Link
               href={`/console/matches/${match.id}/spikes`}
               className="text-xs text-dim underline-offset-2 hover:text-ink hover:underline"

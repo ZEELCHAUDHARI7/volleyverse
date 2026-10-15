@@ -53,35 +53,36 @@ export function hasRecordedPlay(m: Match): boolean {
   return m.setScores.length > 0;
 }
 
-/** Sets a side must take to win a best-of-`totalSets`. */
-function setsToWin(totalSets: number): number {
-  return Math.floor(totalSets / 2) + 1;
-}
-
 /**
- * True when the RESULT is settled — explicitly ended, or one side already
- * holds the majority of the sets.
+ * True when the RESULT is settled: the match is completed and has recorded play.
+ *
+ * The same rule the Dashboard, standings (`metrics.ts` and the `standings` view)
+ * and the public site use. Analytics once also settled a live match whose tally
+ * already held a majority, and so named winners for matches every other screen
+ * still showed as Live or Scheduled.
  *
  * Volume statistics (points, sets, averages) count every recorded set, but
- * win/loss, form and streaks only count decided matches: a live match at 1-0
- * must never be banked as a win.
+ * win/loss, form and streaks only count decided matches.
  */
 export function isDecided(m: Match): boolean {
   // Recorded play comes first, deliberately: a match force-completed with no
   // banked sets is neither played NOR decided. One rule, no contradiction.
-  if (!hasRecordedPlay(m)) return false;
-  if (m.status === "completed") return true;
-  const t = setTally(m);
-  const need = setsToWin(m.totalSets);
-  return t.home >= need || t.away >= need;
+  return hasRecordedPlay(m) && m.status === "completed";
+}
+
+/**
+ * Who won, for every screen that names a winner: null until the match is
+ * decided, then the stored winner, else the side ahead on sets.
+ */
+export function decidedWinner(m: Match): string | null {
+  return isDecided(m) ? (m.winnerTeamId ?? winnerOnSets(m)) : null;
 }
 
 /** Resolve a match result to W/L for a given team (null if not decided). */
 export function outcomeFor(m: Match, teamId: string): Outcome {
-  if (!isDecided(m)) return null;
   const involved = m.homeTeamId === teamId || m.awayTeamId === teamId;
   if (!involved) return null;
-  const winnerId = m.winnerTeamId ?? winnerOnSets(m);
+  const winnerId = decidedWinner(m);
   if (!winnerId) return null;
   return winnerId === teamId ? "W" : "L";
 }
