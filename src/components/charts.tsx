@@ -84,11 +84,14 @@ export function ChartShell({
   insight,
   children,
   height = 260,
+  empty,
 }: {
   title: string;
   insight?: string;
   children: React.ReactElement;
   height?: number;
+  /** Shown instead of the chart when there is nothing to draw. */
+  empty?: string;
 }) {
   return (
     <div className="card-premium rounded-2xl p-4">
@@ -97,13 +100,19 @@ export function ChartShell({
       </h3>
       {insight && <p className="mb-2 mt-0.5 text-xs text-dim">{insight}</p>}
       <div style={{ height }} className="mt-2">
-        <ResponsiveContainer width="100%" height="100%">
-          {children}
-        </ResponsiveContainer>
+        {empty ? (
+          <div className="grid h-full place-items-center px-4 text-center text-sm text-dim">{empty}</div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            {children}
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );
 }
+
+const NO_ATTACKS = "No attacks recorded for this match";
 
 /** 1 — Points scored by each attacker (match MVP). */
 export function PointsBySpiker({
@@ -114,15 +123,21 @@ export function PointsBySpiker({
   events: StatEvent[];
 }) {
   const attackers = players.filter(isAttacker);
-  const data = lines(attackers, events)
+  const ls = lines(attackers, events);
+  const data = ls
     .map((l) => ({
       name: firstName(attackers.find((p) => p.id === l.playerId)!.fullName),
       points: l.points,
     }))
     .sort((a, b) => b.points - a.points);
+  const recorded = ls.some((l) => l.points > 0 || l.successRate !== null);
   const t = theme();
   return (
-    <ChartShell title="Points by Attacker" insight="Who is the MVP this match?">
+    <ChartShell
+      title="Points by Attacker"
+      insight="Who is the MVP this match?"
+      empty={recorded ? undefined : NO_ATTACKS}
+    >
       <BarChart data={data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke={t.line} vertical={false} />
         <XAxis dataKey="name" {...axisProps()} />
@@ -143,7 +158,9 @@ export function SpikeSuccessRate({
   events: StatEvent[];
 }) {
   const attackers = players.filter(isAttacker);
+  // A player with no attempts has no rate, which is not the same as 0%.
   const data = lines(attackers, events)
+    .filter((l) => l.successRate !== null)
     .map((l) => ({
       name: firstName(attackers.find((p) => p.id === l.playerId)!.fullName),
       rate: l.successRate ?? 0,
@@ -151,7 +168,11 @@ export function SpikeSuccessRate({
     .sort((a, b) => b.rate - a.rate);
   const t = theme();
   return (
-    <ChartShell title="Spike Success Rate" insight="Who is most reliable?">
+    <ChartShell
+      title="Spike Success Rate"
+      insight="Who is most reliable?"
+      empty={data.length > 0 ? undefined : NO_ATTACKS}
+    >
       <BarChart data={data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke={t.line} vertical={false} />
         <XAxis dataKey="name" {...axisProps()} />

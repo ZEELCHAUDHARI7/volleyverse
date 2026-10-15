@@ -249,6 +249,10 @@ export function ComparisonBars({
 // Score timeline + momentum
 // ---------------------------------------------------------------------
 
+// Set scores alone are enough for the rest of the page, so these two can be
+// blank on a match that was played; they say so instead of looking broken.
+const NO_RALLIES = "No rally-by-rally data recorded for this match";
+
 export function ScoreTimeline({
   progression,
   homeLabel,
@@ -264,6 +268,9 @@ export function ScoreTimeline({
       title="Scoring Progression"
       hint="Cumulative points as the match unfolded, rally by rally."
     >
+      {progression.length === 0 ? (
+        <EmptyChart message={NO_RALLIES} />
+      ) : (
       <LineChart data={progression} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke={t.line} vertical={false} />
         <XAxis dataKey="rally" {...axisProps()} />
@@ -273,6 +280,7 @@ export function ScoreTimeline({
         <Line type="monotone" dataKey="home" name={homeLabel} stroke={t.accent} strokeWidth={2.5} dot={false} />
         <Line type="monotone" dataKey="away" name={awayLabel} stroke={t.azure} strokeWidth={2.5} dot={false} />
       </LineChart>
+      )}
     </ChartCard>
   );
 }
@@ -292,6 +300,9 @@ export function MomentumChart({
       title="Momentum"
       hint={`Points ahead — above the line favours ${homeLabel}, below favours ${awayLabel}.`}
     >
+      {progression.length === 0 ? (
+        <EmptyChart message={NO_RALLIES} />
+      ) : (
       <AreaChart data={progression} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
         <defs>
           <linearGradient id="momo" x1="0" y1="0" x2="0" y2="1">
@@ -308,6 +319,7 @@ export function MomentumChart({
         <ReferenceLine y={0} stroke={t.dim} />
         <Area type="monotone" dataKey="margin" stroke={t.accent} strokeWidth={2} fill="url(#momo)" />
       </AreaChart>
+      )}
     </ChartCard>
   );
 }
@@ -407,9 +419,9 @@ function CourtHeatmap({ series }: { series: DistributionSeries }) {
   );
 }
 
-function EmptyChart() {
+function EmptyChart({ message = "No data recorded" }: { message?: string }) {
   return (
-    <div className="grid h-full place-items-center text-sm text-dim">No data recorded</div>
+    <div className="grid h-full place-items-center px-4 text-center text-sm text-dim">{message}</div>
   );
 }
 
