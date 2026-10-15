@@ -427,7 +427,25 @@ export function topBy(
   ls: PlayerLine[],
   key: keyof Pick<PlayerLine, "points" | "assists" | "contribution">,
 ): PlayerLine | undefined {
-  return [...ls].sort((a, b) => (b[key] as number) - (a[key] as number))[0];
+  return leader(ls, (l) => l[key] as number);
+}
+
+/**
+ * The best line by `score`, or nobody when nobody scored above 0. Ties go to
+ * the lower player id, so every page and every reload names the same player
+ * whatever order the roster arrives in.
+ */
+function leader(ls: PlayerLine[], score: (l: PlayerLine) => number): PlayerLine | undefined {
+  let best: PlayerLine | undefined;
+  let bestScore = 0;
+  for (const l of ls) {
+    const s = score(l);
+    if (s > bestScore || (s === bestScore && best && l.playerId < best.playerId)) {
+      best = l;
+      bestScore = s;
+    }
+  }
+  return best;
 }
 
 /** Defensive score: blocks + digs, super digs weighted (the hero stat). */
@@ -436,7 +454,7 @@ export function defensiveScore(l: PlayerLine): number {
 }
 
 export function topDefender(ls: PlayerLine[]): PlayerLine | undefined {
-  return [...ls].sort((a, b) => defensiveScore(b) - defensiveScore(a))[0];
+  return leader(ls, defensiveScore);
 }
 
 // ---------------------------------------------------------------------

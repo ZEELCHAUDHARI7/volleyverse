@@ -68,11 +68,21 @@ export default function PublicMatchReport() {
     else if (s.awayPoints > s.homePoints) awaySets++;
   }
 
+  // topBy/topDefender name nobody when nobody has the stat; say so plainly.
   const heroes = [
-    { label: "Top scorer", value: name(scorer?.playerId), stat: `${scorer?.points ?? 0} points` },
-    { label: "Best setter", value: name(setter?.playerId), stat: `${setter?.assists ?? 0} assists` },
-    { label: "Wall of the match", value: name(defender?.playerId), stat: `${defender?.blocks ?? 0} blocks · ${defender?.saves ?? 0} saves` },
+    scorer
+      ? { label: "Top scorer", value: name(scorer.playerId), stat: `${scorer.points} points` }
+      : { label: "Top scorer", value: "—", stat: "No points recorded" },
+    setter
+      ? { label: "Best setter", value: name(setter.playerId), stat: `${setter.assists} assists` }
+      : { label: "Best setter", value: "—", stat: "No assists recorded" },
+    defender
+      ? { label: "Wall of the match", value: name(defender.playerId), stat: `${defender.blocks} blocks · ${defender.saves} saves` }
+      : { label: "Wall of the match", value: "—", stat: "No blocks or saves recorded" },
   ];
+  // Every point of the match, from the set scores. The player lines only
+  // hold attack points, which is what this tile used to show.
+  const pointsPlayed = match.setScores.reduce((n, s) => n + s.homePoints + s.awayPoints, 0);
 
   return (
     <div>
@@ -101,10 +111,10 @@ export default function PublicMatchReport() {
             <div className="mt-12 flex flex-wrap gap-12">
               <div>
                 <p className="stat-display tnum text-6xl font-extrabold text-accent sm:text-7xl">
-                  <CountUp value={totals.points} />
+                  <CountUp value={pointsPlayed} />
                 </p>
                 <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-dim">
-                  Team points
+                  Points played
                 </p>
               </div>
               <div>
