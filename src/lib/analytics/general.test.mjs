@@ -16,6 +16,7 @@ import {
   teamMatches,
   teamRecord,
   winnerOnSets,
+  decidedWinner,
 } from "./general.ts";
 
 const qa = createRunner({
@@ -65,21 +66,20 @@ t("a match counts once a set score exists, whatever its status says", () => {
   );
 });
 
-t("a live match is decided only once a side holds the majority of sets", () => {
-  assert.equal(isDecided(match({ setScores: [set(1, 25, 20)] })), false); // 1-0 of 5
+t("only a completed match is decided — the Dashboard, standings and analytics agree", () => {
+  // M17: Season analytics called a live 1-0 and a scheduled 2-0 "won" while the
+  // Dashboard still showed them as Live and Scheduled.
+  assert.equal(isDecided(match({ setScores: [set(1, 25, 20)] })), false);
   assert.equal(
-    isDecided(match({ setScores: [set(1, 25, 20), set(2, 25, 18)] })),
-    false, // 2-0 of 5 — set 3 still to come
+    isDecided(match({ setScores: [set(1, 25, 20), set(2, 25, 18), set(3, 25, 22)] })),
+    false, // 3-0 on paper, but nobody has ended it
   );
   assert.equal(
-    isDecided(
-      match({ setScores: [set(1, 25, 20), set(2, 25, 18), set(3, 25, 22)] }),
-    ),
-    true, // 3-0 takes a best-of-five
+    isDecided(match({ status: "scheduled", totalSets: 3, setScores: [set(1, 25, 20), set(2, 25, 18)] })),
+    false,
   );
-  // Best-of-three needs two.
   assert.equal(
-    isDecided(match({ totalSets: 3, setScores: [set(1, 25, 20), set(2, 25, 18)] })),
+    isDecided(match({ status: "completed", totalSets: 3, setScores: [set(1, 25, 20), set(2, 25, 18)] })),
     true,
   );
 });
@@ -90,14 +90,19 @@ t("ending a match settles it even mid-set, and no play settles nothing", () => {
   assert.equal(isDecided(match({ setScores: [] })), false);
 });
 
-t("a live match that is mathematically over resolves to W/L", () => {
-  const m = match({ setScores: [set(1, 25, 20), set(2, 25, 18), set(3, 25, 22)] });
-  assert.equal(outcomeFor(m, HOME), "W");
-  assert.equal(outcomeFor(m, AWAY), "L");
-  // Still in the balance: nobody has won anything yet.
-  const open = match({ setScores: [set(1, 25, 20)] });
-  assert.equal(outcomeFor(open, HOME), null);
-  assert.equal(outcomeFor(open, AWAY), null);
+t("a match has a winner only once it is completed", () => {
+  const live = match({ setScores: [set(1, 25, 20), set(2, 25, 18), set(3, 25, 22)] });
+  assert.equal(outcomeFor(live, HOME), null);
+  assert.equal(decidedWinner(live), null);
+  // Completed with no stored winner: the side ahead on sets, as everywhere else.
+  const done = match({ status: "completed", setScores: live.setScores });
+  assert.equal(outcomeFor(done, HOME), "W");
+  assert.equal(outcomeFor(done, AWAY), "L");
+  assert.equal(decidedWinner(done), HOME);
+  // A stored winner wins over the tally, as standings read it.
+  assert.equal(decidedWinner(match({ status: "completed", winnerTeamId: AWAY, setScores: live.setScores })), AWAY);
+  // Completed and level: decided, but nobody won.
+  assert.equal(decidedWinner(match({ status: "completed", setScores: [set(1, 25, 20), set(2, 20, 25)] })), null);
 });
 
 // =====================================================================
@@ -129,8 +134,13 @@ t("shape-of-result counts wait for the result", () => {
   const partial = [match({ setScores: [set(1, 25, 20), set(2, 25, 18)] })];
   assert.equal(seasonSummary(partial).sweeps, 0);
   assert.equal(seasonSummary(partial).closestMatchId, null);
-  const swept = [
+  const notEnded = [
     match({ setScores: [set(1, 25, 20), set(2, 25, 18), set(3, 25, 22)] }),
+  ];
+  assert.equal(seasonSummary(notEnded).sweeps, 0);
+  assert.equal(seasonSummary(notEnded).inProgress, 1);
+  const swept = [
+    match({ status: "completed", setScores: [set(1, 25, 20), set(2, 25, 18), set(3, 25, 22)] }),
   ];
   assert.equal(seasonSummary(swept).sweeps, 1);
   assert.equal(seasonSummary(swept).inProgress, 0);
