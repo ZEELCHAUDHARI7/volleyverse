@@ -22,6 +22,17 @@ export function setTally(m: Match): { home: number; away: number } {
   return { home, away };
 }
 
+/**
+ * The team ahead on sets, or null when level. The rule every result path
+ * uses: "End match" awards the match this way, and a corrected set score
+ * has to move the stored winner by it, because standings read that winner.
+ */
+export function winnerOnSets(m: Match): string | null {
+  const t = setTally(m);
+  if (t.home === t.away) return null;
+  return t.home > t.away ? m.homeTeamId : m.awayTeamId;
+}
+
 // ---------------------------------------------------------------------
 // What counts as a match worth analysing
 // ---------------------------------------------------------------------
@@ -70,13 +81,7 @@ export function outcomeFor(m: Match, teamId: string): Outcome {
   if (!isDecided(m)) return null;
   const involved = m.homeTeamId === teamId || m.awayTeamId === teamId;
   if (!involved) return null;
-  const winnerId =
-    m.winnerTeamId ??
-    (() => {
-      const t = setTally(m);
-      if (t.home === t.away) return null;
-      return t.home > t.away ? m.homeTeamId : m.awayTeamId;
-    })();
+  const winnerId = m.winnerTeamId ?? winnerOnSets(m);
   if (!winnerId) return null;
   return winnerId === teamId ? "W" : "L";
 }

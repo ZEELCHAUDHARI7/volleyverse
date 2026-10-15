@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useMatch, useStore } from "@/lib/store";
 import { lines } from "@/lib/metrics";
+import { winnerOnSets } from "@/lib/analytics/general";
 import {
   Button,
   Card,
@@ -161,6 +162,11 @@ export default function MatchReview() {
             awayShort={awayTeam.shortName}
             onSave={(next) => {
               store.setSetScores(match.id, next);
+              // Standings read the stored winner, so a corrected score must move it.
+              // A match still in play gets its winner when it ends, not here.
+              if (match.status === "completed") {
+                store.completeMatch(match.id, winnerOnSets({ ...match, setScores: next }));
+              }
               setEditingSets(false);
             }}
             onCancel={() => setEditingSets(false)}
