@@ -20,9 +20,18 @@ import {
   StatusChip,
 } from "@/components/ui";
 import {
+  applyRemoval,
+  countOf,
+  planTeamRemoval,
+  planTournamentRemoval,
+  planVenueRemoval,
+  type RemovalPlan,
+} from "@/lib/removal";
+import {
   POSITIONS_ALL,
   POSITION_LABEL,
   STAFF_ROLE_LABEL,
+  type Db,
   type PlayerPosition,
   type StaffRole,
   type Team,
@@ -128,7 +137,8 @@ export default function LeagueSetup() {
 // ---------------------------------------------------------------------
 
 function CompetitionSection() {
-  const { db, insert, remove } = useStore();
+  const { db, insert } = useStore();
+  const [removing, setRemoving] = useState<PendingRemoval | null>(null);
   const [leagueName, setLeagueName] = useState("");
   const [seasonName, setSeasonName] = useState("");
   const [tournName, setTournName] = useState("");
@@ -258,7 +268,15 @@ function CompetitionSection() {
                   {t.endDate ? ` → ${t.endDate}` : ""}
                 </p>
               </div>
-              <RemoveButton onClick={() => remove("tournaments", t.id)} />
+              <RemoveButton
+                onClick={() =>
+                  setRemoving({
+                    name: t.name,
+                    noun: "tournament",
+                    planFor: (d) => planTournamentRemoval(d, t.id),
+                  })
+                }
+              />
             </div>
           ))}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -342,6 +360,7 @@ function CompetitionSection() {
           </div>
         </div>
       )}
+      <RemovalDialog pending={removing} onClose={() => setRemoving(null)} />
     </Card>
   );
 }
@@ -351,7 +370,8 @@ function CompetitionSection() {
 // ---------------------------------------------------------------------
 
 function VenuesSection() {
-  const { db, insert, remove } = useStore();
+  const { db, insert } = useStore();
+  const [removing, setRemoving] = useState<PendingRemoval | null>(null);
   const [name, setName] = useState("");
   const [city, setCity] = useState("");
   const [capacity, setCapacity] = useState("");
@@ -385,7 +405,15 @@ function VenuesSection() {
                   {v.capacity ? ` · ${v.capacity.toLocaleString()} seats` : ""}
                 </p>
               </div>
-              <RemoveButton onClick={() => remove("venues", v.id)} />
+              <RemoveButton
+                onClick={() =>
+                  setRemoving({
+                    name: v.name,
+                    noun: "venue",
+                    planFor: (d) => planVenueRemoval(d, v.id),
+                  })
+                }
+              />
             </div>
             {courts.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -496,6 +524,7 @@ function VenuesSection() {
           </div>
         </div>
       )}
+      <RemovalDialog pending={removing} onClose={() => setRemoving(null)} />
     </Card>
   );
 }
@@ -507,6 +536,89 @@ function VenuesSection() {
 /** "1 player" / "3 players" — the confirm dialog has to read as prose. */
 function count(n: number, one: string, many = `${one}s`) {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+interface PendingRemoval {
+  name: string;
+  noun: "tournament" | "venue" | "team";
+  planFor: (db: Db) => RemovalPlan;
+}
+
+/**
+ * Confirms a tournament, venue or team removal and lists what goes with it.
+ * The plan is rebuilt from the live db on every render, so the counts stay
+ * true if another device changes the data while the dialog is open.
+ */
+function RemovalDialog({
+  pending,
+  onClose,
+}: {
+  pending: PendingRemoval | null;
+  onClose: () => void;
+}) {
+  const store = useStore();
+  if (!pending) return null;
+  const plan = pending.planFor(store.db);
+
+  const deletes: string[] = [];
+  const matches = plan.matchIds.length;
+  if (matches > 0) {
+    deletes.push(
+      count(matches, "match", "matches") +
+        (plan.events > 0
+          ? `, and the ${count(plan.events, "recorded stat")} in ${matches === 1 ? "it" : "them"}`
+          : ""),
+    );
+  }
+  for (const [collection, one] of [
+    ["players", "player"],
+    ["staff", "staff member"],
+    ["groups", "group"],
+    ["courts", "court"],
+  ] as const) {
+    const n = countOf(plan.rows, collection);
+    if (n > 0) deletes.push(count(n, one));
+  }
+  const kept: string[] = [];
+  const keptMatches = countOf(plan.unlinks, "matches");
+  const keptTournaments = countOf(plan.unlinks, "tournaments");
+  if (keptMatches > 0) kept.push(count(keptMatches, "match", "matches"));
+  if (keptTournaments > 0) kept.push(count(keptTournaments, "tournament"));
+
+  return (
+    <ConfirmDialog
+      open
+      title={`Delete ${pending.name}?`}
+      confirmLabel={`Delete ${pending.noun}`}
+      message={
+        <>
+          <p>
+            This permanently deletes {pending.name}
+            {deletes.length > 0 ? ", along with:" : "."}
+          </p>
+          {deletes.length > 0 && (
+            <ul className="mt-2 list-disc space-y-0.5 pl-5">
+              {deletes.map((d) => (
+                <li key={d}>{d}</li>
+              ))}
+            </ul>
+          )}
+          {kept.length > 0 && (
+            <p className="mt-2">
+              {kept.join(" and ")} will stay, but lose{" "}
+              {keptMatches + keptTournaments === 1 ? "its" : "their"} link to {pending.name}.
+            </p>
+          )}
+          <p className="mt-2">This cannot be undone.</p>
+        </>
+      }
+      onConfirm={() => {
+        applyRemoval(store, plan);
+        onClose();
+      }}
+      onCancel={onClose}
+    />
+  );
 }
 
 /**
@@ -611,7 +723,8 @@ function U21LoaderCard() {
 
 function TeamsSection() {
   const store = useStore();
-  const { db, insert, remove, update } = store;
+  const { db, insert, update } = store;
+  const [removing, setRemoving] = useState<PendingRemoval | null>(null);
   const [name, setName] = useState("");
   const [shortName, setShortName] = useState("");
   const [city, setCity] = useState("");
@@ -738,26 +851,17 @@ function TeamsSection() {
           team={t}
           open={openTeam === t.id}
           onToggle={() => setOpenTeam(openTeam === t.id ? null : t.id)}
-          onRemove={() => {
-            const linkedMatches = db.matches.filter(
-              (m) => m.homeTeamId === t.id || m.awayTeamId === t.id,
-            );
-            if (linkedMatches.length > 0) {
-              const count = linkedMatches.length;
-              const confirmDelete = window.confirm(
-                `"${t.name}" has ${count} match${count === 1 ? "" : "es"} scheduled. Deleting this team will also delete those matches. Do you still want to proceed?`,
-              );
-              if (!confirmDelete) return;
-            }
-            // Cascade locally: matches, players & staff of the team go too.
-            linkedMatches.forEach((m) => remove("matches", m.id));
-            db.players.filter((p) => p.teamId === t.id).forEach((p) => remove("players", p.id));
-            db.staff.filter((s) => s.teamId === t.id).forEach((s) => remove("staff", s.id));
-            remove("teams", t.id);
-          }}
+          onRemove={() =>
+            setRemoving({
+              name: t.name,
+              noun: "team",
+              planFor: (d) => planTeamRemoval(d, t.id),
+            })
+          }
           update={update}
         />
       ))}
+      <RemovalDialog pending={removing} onClose={() => setRemoving(null)} />
     </div>
   );
 }
