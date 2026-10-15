@@ -15,6 +15,7 @@ import {
   setTally,
   teamMatches,
   teamRecord,
+  winnerOnSets,
 } from "./general.ts";
 
 const qa = createRunner({
@@ -203,6 +204,33 @@ t("setTally is unchanged — drawn sets count for neither side", () => {
     home: 1,
     away: 0,
   });
+});
+
+// =====================================================================
+qa.suite("Correcting set scores");
+
+t("correcting set 2 hands the match to the side now ahead on sets", () => {
+  // The report's case: the stored winner was the away side before the fix to set 2.
+  const corrected = match({
+    status: "completed",
+    winnerTeamId: AWAY,
+    setScores: [set(1, 20, 25), set(2, 25, 23), set(3, 25, 18)],
+  });
+  assert.equal(winnerOnSets(corrected), HOME);
+});
+
+t("level on sets after a correction means no winner", () => {
+  const level = match({ status: "completed", winnerTeamId: HOME, setScores: [set(1, 25, 20), set(2, 20, 25)] });
+  assert.equal(winnerOnSets(level), null);
+});
+
+t("a drawn set counts for neither side", () => {
+  const m = match({ status: "completed", setScores: [set(1, 25, 20), set(2, 20, 20)] });
+  assert.equal(winnerOnSets(m), HOME);
+});
+
+t("removing every set score leaves no winner", () => {
+  assert.equal(winnerOnSets(match({ status: "completed", winnerTeamId: HOME, setScores: [] })), null);
 });
 
 qa.finish();
