@@ -45,6 +45,7 @@ import {
   subCountFrom,
   syncCourt,
 } from "@/lib/substitution";
+import { planEndMatch } from "@/lib/end-match";
 import {
   CourtBoard,
   type CourtPlayer,
@@ -52,6 +53,7 @@ import {
   type DragMenu,
 } from "@/components/court-board";
 import { SetupWizard } from "@/components/court-setup";
+import { EndMatchConfirm } from "@/components/end-match-confirm";
 import { SetRotationGate } from "@/components/set-rotation";
 import { SubControl } from "@/components/sub-sheet";
 import {
@@ -375,6 +377,7 @@ function LiveScreen({
    */
   const [scope, setScope] = useState<SetScope>("ALL");
   const [saved, setSaved] = useState<{ at: number; shared: boolean } | null>(null);
+  const [ending, setEnding] = useState(false);
   // Deciding-set toss (FIVB 6.3.2/7.1) - selections for the fresh toss prompt.
   const [dToss, setDToss] = useState<{ winner: Side | null; choice: Toss["choice"] | null }>({
     winner: null,
@@ -844,26 +847,15 @@ function LiveScreen({
     );
   };
 
+  const endPlan = planEndMatch(state);
   const endMatch = () => {
     // Bank the set in progress FIRST. Ending a match mid-set used to drop that
     // set's score entirely, and a match that ended before its first set was
     // banked completed with no set scores at all — which made it invisible to
     // every season total while still counting as a completed match. That is
     // the whole reason Season Analytics could read zero.
-    if (state.usScore > 0 || state.oppScore > 0) {
-      store.recordSetScore(matchId, {
-        setNo: state.set,
-        homePoints: state.usScore,
-        awayPoints: state.oppScore,
-      });
-    }
-    const winnerTeamId =
-      state.usSets === state.oppSets
-        ? null
-        : state.usSets > state.oppSets
-          ? match.homeTeamId
-          : match.awayTeamId;
-    store.completeMatch(matchId, winnerTeamId);
+    if (endPlan.bankedSet) store.recordSetScore(matchId, endPlan.bankedSet);
+    store.completeMatch(matchId, endPlan.winner && teamIdOf(endPlan.winner));
     setState(null); // clear the resumable rally session
     router.push(`/console/matches/${matchId}/review`);
   };
@@ -979,7 +971,7 @@ function LiveScreen({
         <div className="mb-2 flex items-center justify-between gap-2">
           <button
             type="button"
-            onClick={endMatch}
+            onClick={() => setEnding(true)}
             className="flex min-h-11 items-center rounded-xl border border-line px-3 text-xs font-semibold text-dim"
           >
             End match
@@ -992,6 +984,19 @@ function LiveScreen({
             Sets {state.usSets}–{state.oppSets}
           </span>
         </div>
+        {ending && (
+          <div className="mb-2">
+            <EndMatchConfirm
+              plan={endPlan}
+              usSets={state.usSets}
+              oppSets={state.oppSets}
+              homeName={homeTeam.name}
+              awayName={awayTeam.name}
+              onConfirm={endMatch}
+              onCancel={() => setEnding(false)}
+            />
+          </div>
+        )}
         <div className="card-premium grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-2xl px-4 py-2.5">
           <p className="stat-display text-left text-sm font-bold uppercase leading-tight">
             {homeTeam.shortName}
