@@ -5,8 +5,8 @@ import type {
   PlayerPosition,
   StatEvent,
 } from "../types";
-import { lines, defensiveScore, type PlayerLine } from "../metrics";
-import { setTally } from "./general";
+import { lines, defensiveScore, type PlayerLine } from "../metrics.ts";
+import { setTally } from "./general.ts";
 import {
   registerSport,
   type ComparisonMetric,
@@ -20,7 +20,7 @@ import {
   type StatTable,
   type TeamStatLine,
   type TimelineItem,
-} from "./framework";
+} from "./framework.ts";
 
 /**
  * VOLLEYBALL MODULE — the first concrete SportModule.
@@ -49,7 +49,11 @@ const WIN_EVENTS = new Set<EventType>([
   "SERVE_ACE",
   "BLOCK_WIN",
 ]);
-/** Events that END a rally as an error: the OTHER team scores. */
+/**
+ * Events that END a rally as an error: the OTHER team scores. The faults
+ * belong here too — leaving them out dropped those rallies from the count,
+ * the score chart and every run.
+ */
 const ERR_EVENTS = new Set<EventType>([
   "SPIKE_ERR",
   "SERVE_ERR",
@@ -57,6 +61,10 @@ const ERR_EVENTS = new Set<EventType>([
   "SET_ERR",
   "BLOCK_MISS",
   "DIG_FAIL",
+  "FAULT_NET",
+  "FAULT_FOUR_HITS",
+  "FAULT_DOUBLE",
+  "FAULT_ROTATION",
 ]);
 
 const EVENT_LABEL: Partial<Record<EventType, string>> = {
@@ -73,6 +81,10 @@ const EVENT_LABEL: Partial<Record<EventType, string>> = {
   SET_ERR: "Setting error",
   BLOCK_MISS: "Block error",
   DIG_FAIL: "Dig error",
+  FAULT_NET: "Net touch",
+  FAULT_FOUR_HITS: "Four hits",
+  FAULT_DOUBLE: "Double contact",
+  FAULT_ROTATION: "Rotation fault",
 };
 
 export interface RallyOutcome {

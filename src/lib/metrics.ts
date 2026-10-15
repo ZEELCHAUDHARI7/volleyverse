@@ -404,6 +404,13 @@ export function sideTotals(events: StatEvent[], teamId: string): SideTotals {
       case "SET_ERR":
         t.errors++;
         break;
+      // A fault costs a point and belongs to no skill, as in the player lines.
+      case "FAULT_NET":
+      case "FAULT_FOUR_HITS":
+      case "FAULT_DOUBLE":
+      case "FAULT_ROTATION":
+        t.errors++;
+        break;
     }
   }
   const pct = (num: number, den: number) =>
