@@ -10,6 +10,8 @@ import {
   type DragMenu,
 } from "@/components/court-board";
 import { SetupWizard } from "@/components/court-setup";
+import { EndMatchConfirm } from "@/components/end-match-confirm";
+import { planEndMatch } from "@/lib/end-match";
 import { SpikeChartGrid } from "@/components/spike-charts";
 import { BlockChartGrid, BlockerCards } from "@/components/block-charts";
 import { Button, EmptyState, LinkButton, PageSkeleton } from "@/components/ui";
@@ -862,31 +864,11 @@ export default function FreeRallyTracker() {
 
   const allPlayers = [...homeRoster, ...awayRoster];
 
-  /**
-   * Who a match abandoned right now would be awarded to. Sets decide it, so a
-   * side ahead on points but level on sets takes nothing — the set in progress
-   * is unfinished and cannot count.
-   */
-  const leader: Side | null =
-    state.usSets === state.oppSets
-      ? null
-      : state.usSets > state.oppSets
-        ? "US"
-        : "OPP";
+  const endPlan = planEndMatch(state);
 
   const onEndMatch = () => {
-    // Bank the set in progress so its points are not lost from the record.
-    if (state.usScore > 0 || state.oppScore > 0) {
-      store.recordSetScore(match.id, {
-        setNo: state.set,
-        homePoints: state.usScore,
-        awayPoints: state.oppScore,
-      });
-    }
-    store.completeMatch(
-      match.id,
-      leader === null ? null : leader === "US" ? homeTeam.id : awayTeam.id,
-    );
+    if (endPlan.bankedSet) store.recordSetScore(match.id, endPlan.bankedSet);
+    store.completeMatch(match.id, endPlan.winner && teamIdFor(endPlan.winner));
     setEnding(false);
     disarm();
   };
@@ -1127,31 +1109,15 @@ export default function FreeRallyTracker() {
         )}
 
         {ending && (
-          <div className="mt-3 rounded-xl border border-accent/30 bg-accent/5 p-3 text-center">
-            <p className="text-sm text-ink">
-              End the match now?{" "}
-              {leader === null ? (
-                <span className="font-semibold">
-                  Level at {state.usSets}–{state.oppSets} on sets — no winner
-                  recorded.
-                </span>
-              ) : (
-                <>
-                  <span className="font-semibold">
-                    {leader === "US" ? homeTeam.name : awayTeam.name}
-                  </span>{" "}
-                  wins {Math.max(state.usSets, state.oppSets)}–
-                  {Math.min(state.usSets, state.oppSets)} on sets.
-                </>
-              )}
-            </p>
-            <div className="mt-2 flex justify-center gap-2">
-              <Button onClick={onEndMatch}>Confirm</Button>
-              <Button variant="ghost" onClick={() => setEnding(false)}>
-                Cancel
-              </Button>
-            </div>
-          </div>
+          <EndMatchConfirm
+            plan={endPlan}
+            usSets={state.usSets}
+            oppSets={state.oppSets}
+            homeName={homeTeam.name}
+            awayName={awayTeam.name}
+            onConfirm={onEndMatch}
+            onCancel={() => setEnding(false)}
+          />
         )}
       </header>
 
