@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { subscribeLiveState } from "@/lib/providers/live-state";
+import { type LiveScoreboard, pickLiveMatch } from "@/lib/live-score";
 import type { Match, StatEvent, Team, Venue } from "@/lib/types";
-import type { Lineup, MatchState, Position, Side } from "@/lib/rally";
+import type { Lineup, Position, Side } from "@/lib/rally";
 
 /**
  * SHARED LIVE-MATCH PLUMBING for the fan-facing showcase.
@@ -12,11 +13,12 @@ import type { Lineup, MatchState, Position, Side } from "@/lib/rally";
  * One hook + one court component, used by both the home-page Live Now
  * strip and the /live Match Centre — the sync logic exists exactly once.
  *
- * Sync model (local-first): the Rally Tracker persists MatchState to
- * localStorage on every tap; the store broadcasts DB writes via the
- * cross-tab `storage` event. This hook layers a 2s poll on top as a
- * same-tab / missed-event fallback. Swapping to Supabase realtime later
- * replaces the body of useLiveMatch only — every consumer is unchanged.
+ * Sync model: with Supabase configured, the scorer pushes every tap to
+ * `match_live_state` and this hook follows that row in realtime, which is
+ * what reaches other devices. Until the row has been heard from — and
+ * always in local-only mode — the scoring screens' localStorage is read
+ * instead (cross-tab `storage` event plus a 2s poll), which covers tabs of
+ * the scorer's own browser.
  *
  * Side mapping: the pure rally engine models sides as "US"/"OPP";
  * on the platform, US = the HOME team and OPP = the AWAY team.
@@ -27,14 +29,18 @@ import type { Lineup, MatchState, Position, Side } from "@/lib/rally";
  * behind `match.published` elsewhere in the showcase.
  */
 
-const RALLY_KEY = (matchId: string) => `volleyverse:rally:${matchId}`;
+/** Where each scoring screen keeps its session: /spikes first, then /rally. */
+const LOCAL_KEYS = (matchId: string) => [
+  `volleyverse:free:${matchId}`,
+  `volleyverse:rally:${matchId}`,
+];
 
 export interface LiveMatchData {
   ready: boolean;
-  /** The match currently marked live in the console, if any. */
+  /** The live match being followed — see pickLiveMatch. */
   match: Match | null;
   /** Courtside state — null until the setup wizard completes. */
-  state: MatchState | null;
+  state: LiveScoreboard | null;
   /** This match's StatEvents (both sides), live via cross-tab sync. */
   events: StatEvent[];
   /** True when the last storage read threw — show a soft warning. */
@@ -44,24 +50,38 @@ export interface LiveMatchData {
 export function useLiveMatch(): LiveMatchData {
   const { ready, db } = useStore();
   const match = useMemo(
-    () => db.matches.find((m) => m.status === "live") ?? null,
-    [db.matches],
+    () => pickLiveMatch(db.matches, db.events),
+    [db.matches, db.events],
   );
-  const [state, setState] = useState<MatchState | null>(null);
+  // Keyed on the id: the store hands back a fresh match object on every
+  // change, which would otherwise tear down and re-open the realtime channel.
+  const matchId = match?.id ?? null;
+  const [state, setState] = useState<LiveScoreboard | null>(null);
   const [degraded, setDegraded] = useState(false);
 
   useEffect(() => {
-    if (!match) {
+    if (!matchId) {
       setState(null);
       return;
     }
-    const key = RALLY_KEY(match.id);
+    const keys = LOCAL_KEYS(matchId);
+    // Once the shared row has been heard from it is the truth, so the poll
+    // stops overwriting it with this browser's copy.
+    let remoteHeard = false;
     const read = () => {
+      if (remoteHeard) return;
       try {
-        const raw = window.localStorage.getItem(key);
-        const parsed = raw ? (JSON.parse(raw) as MatchState) : null;
-        // Ignore pre-redesign (single-lineup) sessions.
-        setState(parsed && parsed.usLineup && parsed.oppLineup ? parsed : null);
+        let found: LiveScoreboard | null = null;
+        for (const key of keys) {
+          const raw = window.localStorage.getItem(key);
+          const parsed = raw ? (JSON.parse(raw) as LiveScoreboard) : null;
+          // Ignore pre-redesign (single-lineup) sessions.
+          if (parsed && parsed.usLineup && parsed.oppLineup) {
+            found = parsed;
+            break;
+          }
+        }
+        setState(found);
         setDegraded(false);
       } catch {
         setDegraded(true); // keep last good state on screen
@@ -70,31 +90,22 @@ export function useLiveMatch(): LiveMatchData {
     read();
     const iv = setInterval(read, 2000);
     const onStorage = (e: StorageEvent) => {
-      if (e.key === key) read();
+      if (e.key && keys.includes(e.key)) read();
     };
     window.addEventListener("storage", onStorage);
-    // Cross-user realtime: when Supabase is configured, remote score
-    // updates arrive here and also refresh the local cache so the poll and
-    // other tabs stay consistent. No-op in local-only mode.
-    const unsubscribe = subscribeLiveState(match.id, (remote) => {
-      if (remote && remote.usLineup && remote.oppLineup) {
-        setState(remote);
-        setDegraded(false);
-        try {
-          window.localStorage.setItem(key, JSON.stringify(remote));
-        } catch {
-          /* cache write failed — remote state is still shown */
-        }
-      } else if (remote === null) {
-        setState(null);
-      }
+    // Nothing is written back to the scoring screens' keys: they are the
+    // scorer's resume points, and the two screens' states differ in shape.
+    const unsubscribe = subscribeLiveState(matchId, (remote) => {
+      remoteHeard = true;
+      setState(remote && remote.usLineup && remote.oppLineup ? remote : null);
+      setDegraded(false);
     });
     return () => {
       clearInterval(iv);
       window.removeEventListener("storage", onStorage);
       unsubscribe();
     };
-  }, [match]);
+  }, [matchId]);
 
   const events = useMemo(
     () => (match ? db.events.filter((e) => e.matchId === match.id) : []),
@@ -159,7 +170,7 @@ export function LiveCourt({
   nameOf,
 }: {
   match: Match;
-  state: MatchState;
+  state: LiveScoreboard;
   nameOf: (pid: string) => string;
 }) {
   const { homeTeam, awayTeam } = useMatchContext(match);
