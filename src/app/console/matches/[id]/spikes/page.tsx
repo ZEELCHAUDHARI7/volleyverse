@@ -541,6 +541,9 @@ export default function FreeRallyTracker() {
   }
 
   const teamIdFor = (side: Side) => (side === "US" ? homeTeam.id : awayTeam.id);
+  // A won set takes no more input until it is banked: the court locks and the
+  // recorders refuse. Undo and the set-complete panel stay live.
+  const setOver = setPointReached(state.usScore, state.oppScore, SET_TARGET);
   const currentServerId = serverId(
     state.rally.serving === "US" ? state.usLineup : state.oppLineup,
   );
@@ -681,6 +684,7 @@ export default function FreeRallyTracker() {
     kind?: TapKind,
     blockerId?: string,
   ) => {
+    if (setOver) return;
     const { player, side } = target;
     const isServer = player.id === currentServerId;
     const res = resolveTap(state.rally, side, isServer, outcome, kind);
@@ -795,7 +799,7 @@ export default function FreeRallyTracker() {
   };
 
   const onFault = (kind: FaultKind) => {
-    if (!armed) return;
+    if (!armed || setOver) return;
     const { player, side } = armed;
     const res = resolveFault(side, kind);
     const e = store.addEvent(match.id, teamIdFor(side), player.id, state.set, res.event);
@@ -951,8 +955,6 @@ export default function FreeRallyTracker() {
     persist(started.state);
     disarm();
   };
-
-  const setOver = setPointReached(state.usScore, state.oppScore, SET_TARGET);
 
   // Where the set counts land if the set in progress is banked as it stands —
   // drives both the prompt's tally and whether it offers set N+1 or the match.
@@ -1145,7 +1147,7 @@ export default function FreeRallyTracker() {
         players={players}
         serving={state.rally.serving}
         armedId={armed?.player.id ?? null}
-        tappableIds={null}
+        tappableIds={setOver ? new Set() : null}
         onDrag={onDrag}
         dragActions={dragMenuFor}
         onTap={(playerId, side) => {
