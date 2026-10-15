@@ -5,9 +5,11 @@ import { useMemo, useState } from "react";
 import { useMatch, useStore } from "@/lib/store";
 import { lines } from "@/lib/metrics";
 import { winnerOnSets } from "@/lib/analytics/general";
+import { removedSets } from "@/lib/set-scores";
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   LinkButton,
   PageHeader,
@@ -335,6 +337,11 @@ function SetScoreEditor({
   );
   const drawnSet = built.some((s) => s.homePoints === s.awayPoints);
 
+  // A blank set means "not played", so clearing boxes deletes saved scores.
+  // That goes through a question first; a plain correction saves straight away.
+  const removed = removedSets(match.setScores, built);
+  const [confirming, setConfirming] = useState(false);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between px-1 text-[10px] font-bold uppercase tracking-[0.2em] text-dim">
@@ -387,13 +394,42 @@ function SetScoreEditor({
       )}
 
       <div className="flex gap-2">
-        <Button onClick={() => onSave(built)} disabled={gap || drawnSet}>
+        <Button
+          onClick={() => (removed.length > 0 ? setConfirming(true) : onSave(built))}
+          disabled={gap || drawnSet}
+        >
           Save set scores
         </Button>
         <Button variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={confirming}
+        title={removed.length === 1 ? "Delete a set score?" : `Delete ${removed.length} set scores?`}
+        message={
+          <>
+            Saving deletes{" "}
+            {removed.map((s, i) => (
+              <span key={s.setNo}>
+                {i > 0 && ", "}
+                <span className="tnum font-semibold text-ink">
+                  set {s.setNo} ({s.homePoints}–{s.awayPoints})
+                </span>
+              </span>
+            ))}
+            .{built.length === 0 && " The match will have no set scores left."}
+          </>
+        }
+        confirmLabel="Delete and save"
+        cancelLabel="Keep editing"
+        onConfirm={() => {
+          setConfirming(false);
+          onSave(built);
+        }}
+        onCancel={() => setConfirming(false)}
+      />
     </div>
   );
 }
