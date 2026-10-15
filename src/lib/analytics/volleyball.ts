@@ -6,7 +6,7 @@ import type {
   StatEvent,
 } from "../types";
 import { lines, defensiveScore, type PlayerLine } from "../metrics.ts";
-import { setTally } from "./general.ts";
+import { decidedWinner, hasRecordedPlay, setTally } from "./general.ts";
 import {
   registerSport,
   type ComparisonMetric,
@@ -624,16 +624,15 @@ function analyzeMatch(ctx: MatchContext): MatchAnalytics {
   const run = biggestRun(outcomes);
   const analytics = playerAnalytics(ctx);
 
-  const winner =
-    match.winnerTeamId === homeTeam.id
-      ? "home"
-      : match.winnerTeamId === awayTeam.id
-        ? "away"
-        : tally.home === tally.away
-          ? null
-          : tally.home > tally.away
-            ? "home"
-            : "away";
+  // The same rule as every other screen: no winner until the match is decided.
+  const decided = decidedWinner(match);
+  const winner = decided === homeTeam.id ? "home" : decided === awayTeam.id ? "away" : null;
+  const progress =
+    match.status === "completed"
+      ? "final"
+      : hasRecordedPlay(match) || events.length > 0
+        ? "in-progress"
+        : "not-played";
 
   const homePts = match.setScores.reduce((s, x) => s + x.homePoints, 0);
   const awayPts = match.setScores.reduce((s, x) => s + x.awayPoints, 0);
@@ -646,7 +645,8 @@ function analyzeMatch(ctx: MatchContext): MatchAnalytics {
     { key: "duration", label: "Duration", value: fmtDuration(t.durationMs), hint: "From first to last logged rally" },
     { key: "rallies", label: "Rallies", value: outcomes.length },
     { key: "run", label: "Biggest Run", value: run.run, unit: "pts", hint: `${run.side === "home" ? homeTeam.shortName : awayTeam.shortName}`, tone: "violet" },
-    { key: "mvp", label: "MVP", value: mvp ? firstName(mvp.name) : "—", hint: mvp ? `${Math.round(mvp.contribution)} impact` : undefined, tone: "ok" },
+    // Nobody is MVP of a match in which nobody did anything.
+    { key: "mvp", label: "MVP", value: mvp && mvp.contribution > 0 ? firstName(mvp.name) : "—", hint: mvp && mvp.contribution > 0 ? `${Math.round(mvp.contribution)} impact` : undefined, tone: "ok" },
     { key: "fastest", label: "Fastest Point", value: t.fastest != null ? `${(t.fastest / 1000).toFixed(1)}s` : "—" },
   ];
 
@@ -658,6 +658,7 @@ function analyzeMatch(ctx: MatchContext): MatchAnalytics {
       awaySetsWon: tally.away,
       winner,
       scoreline: `${tally.home}–${tally.away}`,
+      progress,
     },
     headline,
     comparison: comparison(homeTeam.id, awayTeam.id, match, events),

@@ -96,6 +96,20 @@ export default function MatchAnalyticsPage() {
     );
   }
 
+  // Nothing recorded yet: say so, rather than a page of zeros and a write-up.
+  if (analytics.result.progress === "not-played") {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-10">
+        <EmptyState
+          title="Not played yet"
+          hint={`${homeTeam.name} vs ${awayTeam.name} · ${match.dateISO}. Analytics appear here once the match has recorded play.`}
+          action={<LinkButton href="/console">Back to console</LinkButton>}
+        />
+      </div>
+    );
+  }
+  const final = analytics.result.progress === "final";
+
   const names = { home: homeTeam.name, away: awayTeam.name };
   const summary = generateSummary(analytics, names);
   const insights = generateInsights(analytics, names);
@@ -141,12 +155,21 @@ export default function MatchAnalyticsPage() {
         <div className="court-lines absolute inset-0" aria-hidden />
         <div className="relative">
           <div className="mb-3 flex items-center justify-between">
-            <StatusChip tone="ok">Completed</StatusChip>
-            {winnerName ? (
-              <StatusChip tone="accent">🏆 {winnerName}</StatusChip>
+            {final ? (
+              <StatusChip tone="ok">Completed</StatusChip>
+            ) : match.status === "live" ? (
+              <StatusChip tone="err" pulse>
+                Live
+              </StatusChip>
             ) : (
-              <StatusChip tone="dim">No winner recorded</StatusChip>
+              <StatusChip tone="dim">In progress</StatusChip>
             )}
+            {final &&
+              (winnerName ? (
+                <StatusChip tone="accent">🏆 {winnerName}</StatusChip>
+              ) : (
+                <StatusChip tone="dim">No winner recorded</StatusChip>
+              ))}
           </div>
           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
             <p className="stat-display text-right text-xl font-extrabold uppercase leading-tight">{homeTeam.name}</p>

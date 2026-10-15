@@ -127,9 +127,15 @@ export interface MatchAnalytics {
   result: {
     homeSetsWon: number;
     awaySetsWon: number;
+    /** Set only once the match is decided (completed with recorded play). */
     winner: "home" | "away" | null;
     /** Human score string, e.g. "3–1". */
     scoreline: string;
+    /**
+     * Where the match stands, so nothing reads an unplayed or unfinished match
+     * as a final result: "final" once it is completed.
+     */
+    progress: "not-played" | "in-progress" | "final";
   };
   headline: Kpi[];
   comparison: ComparisonMetric[];
