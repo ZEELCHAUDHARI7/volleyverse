@@ -142,8 +142,8 @@ export default function RallyTracker() {
 
   // Auto-save after every change — never lose data mid-match.
   const persist = useCallback(
-    (next: MatchState | null) => {
-      if (!match) return;
+    (next: MatchState | null): Promise<boolean> => {
+      if (!match) return Promise.resolve(false);
       setState(next);
       try {
         if (next) window.localStorage.setItem(RALLY_KEY(match.id), JSON.stringify(next));
@@ -153,7 +153,8 @@ export default function RallyTracker() {
       }
       // Broadcast to every other user/device watching this match (no-op
       // when Supabase isn't configured — localStorage above still syncs tabs).
-      pushLiveState(match.id, next);
+      // Resolves whether it got there, which only Save reports.
+      return pushLiveState(match.id, next);
     },
     [match],
   );
@@ -326,7 +327,8 @@ function LiveScreen({
   homeRoster: Player[];
   awayRoster: Player[];
   state: MatchState;
-  setState: (m: MatchState | null) => void;
+  /** Persists and shares; resolves true once other devices can see it. */
+  setState: (m: MatchState | null) => Promise<boolean>;
   store: ReturnType<typeof useStore>;
 }) {
   const router = useRouter();
@@ -372,7 +374,7 @@ function LiveScreen({
    * score and its `setNo`-tagged events — this selects them back.
    */
   const [scope, setScope] = useState<SetScope>("ALL");
-  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saved, setSaved] = useState<{ at: number; shared: boolean } | null>(null);
   // Deciding-set toss (FIVB 6.3.2/7.1) - selections for the fresh toss prompt.
   const [dToss, setDToss] = useState<{ winner: Side | null; choice: Toss["choice"] | null }>({
     winner: null,
@@ -686,13 +688,14 @@ function LiveScreen({
   // wrong tap is one press away from being fixed.
   const canGoBack = rally.current.length > 0 || state.history.length > 0;
 
-  // ---- Save: force-write the shared session so a second collector can pick up
-  // exactly here. Data already auto-saves on every tap; this is the explicit,
-  // reassuring checkpoint for "pause the video, hand off, resume later".
-  const save = () => {
-    setState({ ...state }); // re-persist to the per-match shared key
-    setSavedAt(Date.now());
-    showFlash("✓ Saved — anyone who opens this match can resume from here", true);
+  // ---- Save: force-write the session so another tab of this console can pick
+  // up exactly here, and re-send the live score. Data already auto-saves on
+  // every tap; this is the explicit checkpoint, and it says where the save
+  // actually reached.
+  const save = async () => {
+    const shared = await setState({ ...state });
+    setSaved({ at: Date.now(), shared });
+    showFlash(shared ? "✓ Saved — other devices see this score live" : "✓ Saved on this device", true);
   };
 
   // ---- Set / match banking ----
@@ -1143,8 +1146,10 @@ function LiveScreen({
         </button>
       </div>
       <p className="mt-1.5 text-center text-[11px] text-dim">
-        {savedAt
-          ? `Saved ${new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · shared with anyone on this console`
+        {saved
+          ? `Saved ${new Date(saved.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${
+              saved.shared ? "live on other devices" : "on this device only"
+            }`
           : "Auto-saving every tap · Save to checkpoint for hand-off"}
       </p>
 
