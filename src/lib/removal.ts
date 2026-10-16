@@ -88,6 +88,23 @@ export function planTeamRemoval(db: Db, id: string): RemovalPlan {
   };
 }
 
+/**
+ * The matches a player is part of: their own stat events, events naming them
+ * as the opponent, and match line-ups. Removing such a player would rewrite
+ * a recorded result (and Postgres refuses it), so League Setup does not offer
+ * it; deleting those matches first frees the player.
+ */
+export function matchesWithPlayer(db: Db, playerId: string): string[] {
+  const ids = new Set<string>();
+  for (const e of db.events) {
+    if (e.playerId === playerId || e.vsPlayerId === playerId) ids.add(e.matchId);
+  }
+  for (const m of db.matches) {
+    if (m.rosters?.some((r) => r.playerId === playerId)) ids.add(m.id);
+  }
+  return [...ids];
+}
+
 export function countOf(items: RowRef[], collection: Collection): number {
   return items.filter((r) => r.collection === collection).length;
 }

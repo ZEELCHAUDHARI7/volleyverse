@@ -123,6 +123,13 @@ export function useSupabaseBackend(): DataProvider {
   const flushingRef = useRef(false);
   const rejectedRef = useRef<RejectedOp[]>([]);
 
+  /**
+   * Registration id (Player.id) → person id (players.id). Player carries only
+   * the registration, so without this a removal deleted the registration and
+   * left the person row behind, one per removal or U21 re-load.
+   */
+  const personOfRef = useRef(new Map<string, string>());
+
   const persistQueue = useCallback(() => {
     try {
       window.localStorage.setItem(QUEUE_KEY, JSON.stringify(queueRef.current));
@@ -287,7 +294,12 @@ export function useSupabaseBackend(): DataProvider {
 
   const loadPlayers = useCallback(async (): Promise<Player[]> => {
     if (!supabase) return [];
-    return (await readTable("roster_view")).map(M.playerFromRow);
+    const rows = await readTable("roster_view");
+    for (const r of rows) {
+      const personId = M.personIdFromRow(r);
+      if (personId) personOfRef.current.set(String(r.id), personId);
+    }
+    return rows.map(M.playerFromRow);
   }, [supabase, readTable]);
 
   const loadMatches = useCallback(async (): Promise<Match[]> => {
@@ -554,6 +566,7 @@ export function useSupabaseBackend(): DataProvider {
           // the registration id is the app-facing Player.id.
           const p = withId as unknown as Player;
           const personId = uuid();
+          personOfRef.current.set(id, personId);
           enqueue(
             { kind: "upsert", table: "players", row: { id: personId, ...M.playerPersonToRow(p) } },
             {
@@ -614,6 +627,15 @@ export function useSupabaseBackend(): DataProvider {
       remove: (collection: Collection, id: string) => {
         const table = M.TABLE_FOR_COLLECTION[collection]; // players -> team_players
         enqueue({ kind: "delete", table, match: { id } });
+        if (collection === "players") {
+          // The person goes too, unless another registration still uses it
+          // (deleting it would cascade to that registration).
+          const personId = personOfRef.current.get(id);
+          personOfRef.current.delete(id);
+          const shared = [...personOfRef.current.values()].includes(personId ?? "");
+          if (personId && !shared)
+            enqueue({ kind: "delete", table: "players", match: { id: personId } });
+        }
         patchDb((prev) => ({
           ...prev,
           [collection]: (prev[collection] as { id: string }[]).filter(
