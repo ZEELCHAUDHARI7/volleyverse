@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
+import { checkCapacity, checkHeightCm, checkShirtNumber } from "@/lib/number-fields";
 import { loadPvl2025 } from "@/lib/seed/pvl-2025";
 import {
   U21_LEAGUE_NAME,
@@ -50,7 +51,7 @@ import {
  */
 
 const inputCls =
-  "min-h-11 w-full rounded-xl border border-line bg-surface2 px-3 text-sm text-ink transition-all duration-300 placeholder:text-dim focus:border-accent focus:shadow-[0_0_0_3px_var(--glow-accent)] focus:outline-none";
+  "min-h-11 w-full rounded-xl border border-line bg-surface2 px-3 text-sm text-ink transition-all duration-300 placeholder:text-dim focus:border-accent focus:shadow-[0_0_0_3px_var(--glow-accent)] focus:outline-none aria-[invalid=true]:border-err";
 const labelCls = "mb-1 block text-[11px] uppercase tracking-wider text-dim";
 
 /** Small destructive text action used on registry rows. */
@@ -377,6 +378,7 @@ function VenuesSection() {
   const [capacity, setCapacity] = useState("");
   const [courtName, setCourtName] = useState("");
   const [courtVenueId, setCourtVenueId] = useState("");
+  const capacityCheck = checkCapacity(capacity);
 
   return (
     <Card className="space-y-5 p-6">
@@ -453,24 +455,30 @@ function VenuesSection() {
         <label className="block">
           <span className={labelCls}>Capacity</span>
           <input
-            type="number"
-            min={0}
+            inputMode="numeric"
             className={inputCls}
             placeholder="optional"
+            aria-invalid={!capacityCheck.ok}
             value={capacity}
             onChange={(e) => setCapacity(e.target.value)}
           />
+          {!capacityCheck.ok && (
+            <span className="mt-1 block text-[11px] font-semibold text-err">
+              {capacityCheck.error}
+            </span>
+          )}
         </label>
         <div className="flex items-end">
           <Button
             className="w-full"
-            disabled={name.trim().length < 2}
+            disabled={name.trim().length < 2 || !capacityCheck.ok}
             onClick={() => {
+              if (!capacityCheck.ok) return;
               insert("venues", {
                 name: name.trim(),
                 address: null,
                 city: city.trim() || null,
-                capacity: capacity ? Number(capacity) : null,
+                capacity: capacityCheck.value,
                 mapUrl: null,
               });
               setName("");
@@ -894,6 +902,16 @@ function TeamCard({
   const [sName, setSName] = useState("");
   const [sRole, setSRole] = useState<StaffRole>("HEAD_COACH");
 
+  const jerseyCheck = checkShirtNumber(pJersey);
+  const heightCheck = checkHeightCm(pHeight);
+
+  /**
+   * Roster shirt boxes save as they are typed, so a number that is not valid
+   * yet ("1000", "2.5") is held here instead of being written. The row keeps
+   * showing what was typed, with the reason, until it is fixed.
+   */
+  const [jerseyDrafts, setJerseyDrafts] = useState<Record<string, string>>({});
+
   const captain = roster.find((p) => p.isCaptain);
 
   /**
@@ -1023,103 +1041,121 @@ function TeamCard({
               )}
             </p>
             <div className="space-y-1.5">
-              {roster.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-center justify-between gap-3 rounded-xl bg-surface2 px-3 py-2"
-                >
-                  <span className="flex min-w-0 items-center gap-2 text-sm">
-                    {/* Jersey and position are editable in place: the tracker
-                        reads the same store, so a number typed here shows up on
-                        the court board immediately — no save, no reload. */}
-                    <input
-                      type="number"
-                      min={0}
-                      max={99}
-                      inputMode="numeric"
-                      aria-label={`Jersey number for ${p.fullName}`}
-                      title="Jersey number — shown on the court during collection"
-                      placeholder="—"
-                      value={p.jerseyNo ?? ""}
-                      onChange={(e) =>
-                        update("players", p.id, {
-                          jerseyNo: e.target.value === "" ? null : Number(e.target.value),
-                        })
-                      }
-                      className={`data-type h-8 w-14 shrink-0 rounded-lg border bg-surface2 text-center text-sm font-bold tabular-nums transition-colors focus:border-accent focus:outline-none ${
-                        p.jerseyNo !== null && dupJerseys.has(p.jerseyNo)
-                          ? "border-err text-err"
-                          : p.jerseyNo === null
-                            ? "border-dashed border-line text-dim"
-                            : "border-line text-ink"
-                      }`}
-                    />
-                    <span className="truncate font-semibold text-ink">{p.fullName}</span>
-                    <select
-                      aria-label={`Position for ${p.fullName}`}
-                      title="Court position — the libero swap needs a Middle Blocker to replace"
-                      value={p.position ?? ""}
-                      onChange={(e) =>
-                        update("players", p.id, {
-                          position: (e.target.value || null) as PlayerPosition | null,
-                        })
-                      }
-                      className="h-8 shrink-0 rounded-lg border border-line bg-surface2 px-1.5 text-[11px] font-semibold text-dim focus:border-accent focus:outline-none"
-                    >
-                      <option value="">Not listed</option>
-                      {POSITIONS_ALL.map((pos) => (
-                        <option key={pos} value={pos}>
-                          {POSITION_LABEL[pos]}
-                        </option>
-                      ))}
-                    </select>
-                    {p.isCaptain && (
-                      <span
-                        className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/15 text-[10px] font-bold text-accent ring-1 ring-accent/30"
-                        title="Captain"
-                      >
-                        C
+              {roster.map((p) => {
+                const jerseyText =
+                  jerseyDrafts[p.id] ?? (p.jerseyNo === null ? "" : String(p.jerseyNo));
+                const rowJersey = checkShirtNumber(jerseyText);
+                return (
+                  <div key={p.id} className="rounded-xl bg-surface2 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex min-w-0 items-center gap-2 text-sm">
+                        {/* Jersey and position are editable in place: the tracker
+                            reads the same store, so a number typed here shows up on
+                            the court board immediately — no save, no reload. */}
+                        <input
+                          inputMode="numeric"
+                          aria-label={`Jersey number for ${p.fullName}`}
+                          aria-invalid={!rowJersey.ok}
+                          title="Jersey number — shown on the court during collection"
+                          placeholder="—"
+                          value={jerseyText}
+                          onChange={(e) => {
+                            const typed = e.target.value;
+                            setJerseyDrafts((d) => ({ ...d, [p.id]: typed }));
+                            const next = checkShirtNumber(typed);
+                            if (next.ok && next.value !== p.jerseyNo)
+                              update("players", p.id, { jerseyNo: next.value });
+                          }}
+                          onBlur={() => {
+                            if (!rowJersey.ok) return;
+                            setJerseyDrafts((d) => {
+                              const rest = { ...d };
+                              delete rest[p.id];
+                              return rest;
+                            });
+                          }}
+                          className={`data-type h-8 w-14 shrink-0 rounded-lg border bg-surface2 text-center text-sm font-bold tabular-nums transition-colors focus:border-accent focus:outline-none ${
+                            !rowJersey.ok || (p.jerseyNo !== null && dupJerseys.has(p.jerseyNo))
+                              ? "border-err text-err"
+                              : p.jerseyNo === null
+                                ? "border-dashed border-line text-dim"
+                                : "border-line text-ink"
+                          }`}
+                        />
+                        <span className="truncate font-semibold text-ink">{p.fullName}</span>
+                        <select
+                          aria-label={`Position for ${p.fullName}`}
+                          title="Court position — the libero swap needs a Middle Blocker to replace"
+                          value={p.position ?? ""}
+                          onChange={(e) =>
+                            update("players", p.id, {
+                              position: (e.target.value || null) as PlayerPosition | null,
+                            })
+                          }
+                          className="h-8 shrink-0 rounded-lg border border-line bg-surface2 px-1.5 text-[11px] font-semibold text-dim focus:border-accent focus:outline-none"
+                        >
+                          <option value="">Not listed</option>
+                          {POSITIONS_ALL.map((pos) => (
+                            <option key={pos} value={pos}>
+                              {POSITION_LABEL[pos]}
+                            </option>
+                          ))}
+                        </select>
+                        {p.isCaptain && (
+                          <span
+                            className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/15 text-[10px] font-bold text-accent ring-1 ring-accent/30"
+                            title="Captain"
+                          >
+                            C
+                          </span>
+                        )}
+                        {p.isReserve && (
+                          <span
+                            className="shrink-0 rounded-md bg-line/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-dim ring-1 ring-line"
+                            title="Reserve player"
+                          >
+                            Res
+                          </span>
+                        )}
                       </span>
-                    )}
-                    {p.isReserve && (
-                      <span
-                        className="shrink-0 rounded-md bg-line/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-dim ring-1 ring-line"
-                        title="Reserve player"
-                      >
-                        Res
+                      <span className="flex shrink-0 items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            roster.forEach((q) =>
+                              update("players", q.id, { isCaptain: q.id === p.id && !p.isCaptain }),
+                            );
+                          }}
+                          className="rounded-lg px-2 py-1 text-xs font-semibold text-dim transition-colors hover:bg-accent/10 hover:text-accent"
+                        >
+                          {p.isCaptain ? "Unset captain" : "Make captain"}
+                        </button>
+                        <RemoveButton
+                          onClick={() => {
+                            const hasStats = db.events?.some((e) => e.playerId === p.id);
+                            const hasRosters = db.matches.some((m) =>
+                              m.rosters?.some((r) => r.playerId === p.id),
+                            );
+                            if (hasStats || hasRosters) {
+                              const confirmDelete = window.confirm(
+                                `"${p.fullName}" has recorded match stats. Deleting this player will remove their stats from those matches. Do you still want to proceed?`,
+                              );
+                              if (!confirmDelete) return;
+                            }
+                            remove("players", p.id);
+                          }}
+                        />
                       </span>
+                    </div>
+                    {!rowJersey.ok && (
+                      <p className="mt-1 text-[11px] font-semibold text-err">
+                        {rowJersey.error} Not saved:{" "}
+                        {p.jerseyNo === null ? "still no number." : `still #${p.jerseyNo}.`}
+                      </p>
                     )}
-                  </span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        roster.forEach((q) =>
-                          update("players", q.id, { isCaptain: q.id === p.id && !p.isCaptain }),
-                        );
-                      }}
-                      className="rounded-lg px-2 py-1 text-xs font-semibold text-dim transition-colors hover:bg-accent/10 hover:text-accent"
-                    >
-                      {p.isCaptain ? "Unset captain" : "Make captain"}
-                    </button>
-                    <RemoveButton
-                      onClick={() => {
-                        const hasStats = db.events?.some((e) => e.playerId === p.id);
-                        const hasRosters = db.matches.some((m) =>
-                          m.rosters?.some((r) => r.playerId === p.id),
-                        );
-                        if (hasStats || hasRosters) {
-                          const confirmDelete = window.confirm(
-                            `"${p.fullName}" has recorded match stats. Deleting this player will remove their stats from those matches. Do you still want to proceed?`,
-                          );
-                          if (!confirmDelete) return;
-                        }
-                        remove("players", p.id);
-                      }}
-                    />
-                  </span>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-6">
               <input
@@ -1129,10 +1165,10 @@ function TeamCard({
                 onChange={(e) => setPName(e.target.value)}
               />
               <input
-                type="number"
-                min={0}
+                inputMode="numeric"
                 className={inputCls}
                 placeholder="Jersey #"
+                aria-invalid={!jerseyCheck.ok}
                 value={pJersey}
                 onChange={(e) => setPJersey(e.target.value)}
               />
@@ -1149,10 +1185,10 @@ function TeamCard({
                 ))}
               </select>
               <input
-                type="number"
-                min={0}
+                inputMode="numeric"
                 className={inputCls}
                 placeholder="Height cm"
+                aria-invalid={!heightCheck.ok}
                 value={pHeight}
                 onChange={(e) => setPHeight(e.target.value)}
               />
@@ -1163,16 +1199,22 @@ function TeamCard({
                 onChange={(e) => setPNationality(e.target.value)}
               />
             </div>
+            {(!jerseyCheck.ok || !heightCheck.ok) && (
+              <p className="mt-1 text-[11px] font-semibold text-err">
+                {[jerseyCheck, heightCheck].flatMap((c) => (c.ok ? [] : [c.error])).join(" ")}
+              </p>
+            )}
             <Button
               variant="ghost"
               className="mt-2"
-              disabled={pName.trim().length < 2}
+              disabled={pName.trim().length < 2 || !jerseyCheck.ok || !heightCheck.ok}
               onClick={() => {
+                if (!jerseyCheck.ok || !heightCheck.ok) return;
                 insert("players", {
                   fullName: pName.trim(),
-                  jerseyNo: pJersey === "" ? null : Number(pJersey),
+                  jerseyNo: jerseyCheck.value,
                   position: pPosition === "" ? null : pPosition,
-                  heightCm: pHeight ? Number(pHeight) : null,
+                  heightCm: heightCheck.value,
                   nationality: pNationality.trim() || null,
                   photoUrl: null,
                   teamId: team.id,
