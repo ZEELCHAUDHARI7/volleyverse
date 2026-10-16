@@ -1078,8 +1078,10 @@ function TeamCard({
                 const keptIn = keptPlayers.has(p.id) ? matchesWithPlayer(db, p.id).length : 0;
                 return (
                   <div key={p.id} className="rounded-xl bg-surface2 px-3 py-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="flex min-w-0 items-center gap-2 text-sm">
+                    {/* Two groups that share a line where they fit and stack on a
+                        phone, where the controls' fixed widths left the name none. */}
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                      <span className="flex min-w-0 flex-1 basis-48 items-center gap-2 text-sm">
                         {/* Jersey and position are editable in place: the tracker
                             reads the same store, so a number typed here shows up on
                             the court board immediately — no save, no reload. */}
@@ -1113,25 +1115,7 @@ function TeamCard({
                                 : "border-line text-ink"
                           }`}
                         />
-                        <span className="truncate font-semibold text-ink">{p.fullName}</span>
-                        <select
-                          aria-label={`Position for ${p.fullName}`}
-                          title="Court position — the libero swap needs a Middle Blocker to replace"
-                          value={p.position ?? ""}
-                          onChange={(e) =>
-                            update("players", p.id, {
-                              position: (e.target.value || null) as PlayerPosition | null,
-                            })
-                          }
-                          className="h-8 shrink-0 rounded-lg border border-line bg-surface2 px-1.5 text-[11px] font-semibold text-dim focus:border-accent focus:outline-none"
-                        >
-                          <option value="">Not listed</option>
-                          {POSITIONS_ALL.map((pos) => (
-                            <option key={pos} value={pos}>
-                              {POSITION_LABEL[pos]}
-                            </option>
-                          ))}
-                        </select>
+                        <span className="min-w-0 break-words font-semibold text-ink">{p.fullName}</span>
                         {p.isCaptain && (
                           <span
                             className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/15 text-[10px] font-bold text-accent ring-1 ring-accent/30"
@@ -1150,6 +1134,24 @@ function TeamCard({
                         )}
                       </span>
                       <span className="flex shrink-0 items-center gap-2">
+                        <select
+                          aria-label={`Position for ${p.fullName}`}
+                          title="Court position — the libero swap needs a Middle Blocker to replace"
+                          value={p.position ?? ""}
+                          onChange={(e) =>
+                            update("players", p.id, {
+                              position: (e.target.value || null) as PlayerPosition | null,
+                            })
+                          }
+                          className="h-8 shrink-0 rounded-lg border border-line bg-surface2 px-1.5 text-[11px] font-semibold text-dim focus:border-accent focus:outline-none"
+                        >
+                          <option value="">Not listed</option>
+                          {POSITIONS_ALL.map((pos) => (
+                            <option key={pos} value={pos}>
+                              {POSITION_LABEL[pos]}
+                            </option>
+                          ))}
+                        </select>
                         <button
                           type="button"
                           onClick={() => {

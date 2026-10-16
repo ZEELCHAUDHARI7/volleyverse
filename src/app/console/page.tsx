@@ -532,7 +532,7 @@ function MatchRow({ match }: { match: Match }) {
 
   return (
     <Card
-      className={`flex flex-wrap items-center gap-x-6 gap-y-3 ${
+      className={`flex flex-wrap items-center gap-x-4 gap-y-3 sm:gap-x-6 ${
         match.status === "live" ? "border-err/30" : ""
       }`}
     >
@@ -543,8 +543,11 @@ function MatchRow({ match }: { match: Match }) {
         {match.matchNo != null ? `M${match.matchNo}` : "VS"}
       </span>
 
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-base font-bold">
+      {/* Names wrap rather than truncate: two fixtures of one team otherwise
+          both read "Goa Guardians vs …" on a phone. The basis sends the
+          score and actions to the next line before the names are squeezed. */}
+      <div className="min-w-0 flex-1 basis-48">
+        <p className="break-words text-base font-bold">
           {home?.name ?? "TBD"}{" "}
           <span className="text-dim">vs</span>{" "}
           {away?.name ?? "TBD"}
@@ -578,7 +581,7 @@ function MatchRow({ match }: { match: Match }) {
         <StatusChip tone="azure">Scheduled</StatusChip>
       )}
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {match.status !== "completed" ? (
           <LinkButton href={`/console/matches/${match.id}/spikes`} variant={match.status === "live" ? "primary" : "ghost"}>
             {match.status === "live" ? "Open Tracker" : "Start Match"}
