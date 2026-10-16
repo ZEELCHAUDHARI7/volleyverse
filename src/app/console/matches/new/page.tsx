@@ -209,7 +209,7 @@ export default function NewMatchWizard() {
                         {t.shortName.slice(0, 3)}
                       </span>
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-ink">{t.name}</span>
+                        <span className="line-clamp-2 break-words text-sm font-semibold text-ink">{t.name}</span>
                         {t.city && <span className="block truncate text-[11px] text-dim">{t.city}</span>}
                         {short && (
                           <span className="block truncate text-[11px] font-semibold text-err">

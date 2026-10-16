@@ -3,7 +3,7 @@ import { StoreProvider } from "@/lib/store";
 import { ShowcaseNav, ShowcaseFooter } from "@/components/showcase";
 import { SmoothScroll } from "@/components/smooth-scroll";
 import { CursorSpotlight } from "@/components/match-night";
-import { SyncIndicator } from "@/components/sync-indicator";
+import { SyncAlert } from "@/components/sync-indicator";
 
 export const metadata: Metadata = {
   title: "Live Volleyball | VolleyVerse",
@@ -28,7 +28,7 @@ export default function ShowcaseLayout({
           <main className="flex-1 overflow-x-clip">{children}</main>
           <ShowcaseFooter />
         </div>
-        <SyncIndicator />
+        <SyncAlert />
       </SmoothScroll>
     </StoreProvider>
   );

@@ -10,13 +10,15 @@ import {
   onAuthChange,
   type TemporaryUser,
 } from "@/lib/auth/temporary-auth";
+import { SyncStatus } from "@/components/sync-indicator";
 
 /** Console shell nav — two-tier layout with brand mark, controls, and section sub-nav */
 
+/** `short` is the label below sm, where all four tabs must fit one 390 px row. */
 const LINKS = [
   { href: "/console", label: "Dashboard", exact: true },
-  { href: "/console/league", label: "League Setup", exact: false },
-  { href: "/console/matches/new", label: "Start Match", exact: false },
+  { href: "/console/league", label: "League Setup", short: "League", exact: false },
+  { href: "/console/matches/new", label: "Start Match", short: "Start", exact: false },
   { href: "/console/analytics", label: "Analytics", exact: false },
 ];
 
@@ -78,7 +80,7 @@ export function ConsoleNav() {
           {/* Logo & Console Tag */}
           <Link href="/" className="flex items-center gap-2">
             <span aria-hidden className="text-base leading-none">🏐</span>
-            <span className="stat-display text-sm font-extrabold uppercase tracking-widest text-ink">
+            <span className="stat-display sr-only text-sm font-extrabold uppercase tracking-widest text-ink sm:not-sr-only">
               VolleyVerse
             </span>
             <span className="rounded-md bg-accent/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-accent ring-1 ring-accent/25">
@@ -88,11 +90,13 @@ export function ConsoleNav() {
 
           {/* Right System Controls */}
           <div className="flex items-center gap-2">
+            <SyncStatus compact />
             <Link
               href="/admin"
               className="inline-flex items-center gap-1 rounded-lg bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider text-amber-400 hover:bg-amber-500/25 transition-all whitespace-nowrap"
             >
-              <span>👑</span> Admin Panel
+              <span aria-hidden>👑</span>
+              <span className="sr-only sm:not-sr-only">Admin Panel</span>
             </Link>
 
             <Link
@@ -116,11 +120,20 @@ export function ConsoleNav() {
               <Link
                 key={l.href}
                 href={l.href}
-                className={`relative px-3.5 py-2 text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors ${
+                className={`relative px-2.5 py-2 text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors sm:px-3.5 ${
                   isActive ? "text-ink font-extrabold" : "text-dim hover:text-ink"
                 }`}
               >
-                {l.label}
+                {l.short ? (
+                  <>
+                    <span aria-hidden className="sm:hidden">
+                      {l.short}
+                    </span>
+                    <span className="sr-only sm:not-sr-only">{l.label}</span>
+                  </>
+                ) : (
+                  l.label
+                )}
                 {isActive && (
                   <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent shadow-sm shadow-accent/50 rounded-full" />
                 )}
