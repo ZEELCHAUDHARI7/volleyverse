@@ -42,7 +42,9 @@ import {
   type LiberoEvent,
   applySub,
   liberoStateFrom,
+  replaySubs,
   subCountFrom,
+  subRecordsFrom,
   syncCourt,
 } from "@/lib/substitution";
 import { planEndMatch } from "@/lib/end-match";
@@ -98,6 +100,7 @@ function hydrate(s: MatchState): MatchState {
     usLibero: liberoStateFrom(s.usLibero),
     oppLibero: liberoStateFrom(s.oppLibero),
     subs: subCountFrom(s.subs),
+    pendingSubs: subRecordsFrom(s.pendingSubs),
     // Likewise for a session saved before rotation could change between sets:
     // no recorded per-set rotations and no set start owed is exactly the old
     // behaviour, so resuming one never lands on a rotation screen mid-set.
@@ -479,6 +482,7 @@ function LiveScreen({
         us: withCourt.subs.us + (sd === "US" ? 1 : 0),
         opp: withCourt.subs.opp + (sd === "OPP" ? 1 : 0),
       },
+      pendingSubs: [...(state.pendingSubs ?? []), { side: sd, outId, inId }],
     });
     setState(synced.state);
     setArmed(null);
@@ -643,6 +647,7 @@ function LiveScreen({
       usLibero: state.usLibero,
       oppLibero: state.oppLibero,
       subs: state.subs,
+      subsBefore: state.pendingSubs ?? [],
       eventIds: current.map((a) => a.eventId).filter((x): x is string => !!x),
       assistUpgradeEventId,
     };
@@ -658,6 +663,7 @@ function LiveScreen({
       oppLineup: rotateWinner && winner === "OPP" ? rotate(oppLineup) : oppLineup,
       rally: openingRally(nextServing),
       history: [...state.history, snapshot],
+      pendingSubs: [],
     });
     setState(synced.state);
     setArmed(null);
@@ -688,23 +694,38 @@ function LiveScreen({
     if (!prev) return;
     for (const eid of prev.eventIds) store.removeEvent(eid);
     if (prev.assistUpgradeEventId) store.removeEvent(prev.assistUpgradeEventId);
-    // The court rewinds whole: lineups AND libero placement. A substitution made
-    // during the undone rally rewinds with it — the honest reading of "undo".
+    // The court rewinds to the start of that rally: lineups, libero placement
+    // and sub counters. Substitutions are only made with the ball dead, so any
+    // since then came after the rally and are put back on the rewound court.
+    const replay = replaySubs(
+      {
+        ...state,
+        usScore: prev.usScore,
+        oppScore: prev.oppScore,
+        usLineup: prev.usLineup,
+        oppLineup: prev.oppLineup,
+        usLibero: liberoStateFrom(prev.usLibero),
+        oppLibero: liberoStateFrom(prev.oppLibero),
+        subs: subCountFrom(prev.subs),
+        rally: openingRally(prev.serving),
+        history: state.history.slice(0, -1),
+      },
+      liberoIds,
+      state.pendingSubs ?? [],
+    );
     const synced = syncLiberos({
-      ...state,
-      usScore: prev.usScore,
-      oppScore: prev.oppScore,
-      usLineup: prev.usLineup,
-      oppLineup: prev.oppLineup,
-      usLibero: liberoStateFrom(prev.usLibero),
-      oppLibero: liberoStateFrom(prev.oppLibero),
-      subs: subCountFrom(prev.subs),
-      rally: openingRally(prev.serving),
-      history: state.history.slice(0, -1),
+      ...replay.court,
+      pendingSubs: [...subRecordsFrom(prev.subsBefore), ...replay.kept],
     });
     setState(synced.state);
     setArmed(null);
-    flashAll(["Undone", synced.note]);
+    const nm = (pid: string) => players.get(pid)?.name ?? "Player";
+    flashAll([
+      "Undone",
+      ...replay.kept.map((s) => `⇄ ${nm(s.inId)} stays on for ${nm(s.outId)}`),
+      ...replay.dropped.map((s) => `Sub ${nm(s.inId)} for ${nm(s.outId)} could not be kept`),
+      synced.note,
+    ]);
   };
 
   // ---- Back: undo exactly one step (a mis-tap) without losing the match ----
@@ -743,6 +764,7 @@ function LiveScreen({
       ...openSetCourt(activeSetup),
       rally: openingRally(servingFromToss(toss)),
       history: [],
+      pendingSubs: [],
     });
     setState(synced.state);
     setDToss({ winner: null, choice: null });
@@ -805,6 +827,7 @@ function LiveScreen({
         ...openSetCourt(nextSetup),
         rally: openingRally(serving),
         history: [],
+        pendingSubs: [],
       },
       // The carried rotation's liberos, not the match's: sync must not reach for
       // a libero the incoming set no longer designates.

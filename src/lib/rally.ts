@@ -1,5 +1,5 @@
 import type { EventType } from "./types";
-import type { LiberoState, SubCount } from "./substitution";
+import type { LiberoState, SubCount, SubRecord } from "./substitution";
 
 /**
  * RALLY ENGINE — the courtside state machine (v2: two-sided ✓ O ✗).
@@ -382,13 +382,15 @@ export interface RallySnapshot {
   usLineup: Lineup;
   oppLineup: Lineup;
   /**
-   * Libero placement at the START of the rally. Undo restores the whole court,
-   * so a libero swap (and any substitution made mid-rally) rewinds with it.
+   * Libero placement at the START of the rally. Undo restores the court as it
+   * stood then, so a libero swap made by the rally rewinds with it.
    */
   usLibero?: LiberoState;
   oppLibero?: LiberoState;
   /** Substitution counters at the start of the rally — restored with the court. */
   subs?: SubCount;
+  /** Substitutions made between the rally before and this one; already on this court. */
+  subsBefore?: SubRecord[];
   /** StatEvent ids emitted by the rally — removed on rally-undo. */
   eventIds: string[];
   /** Was the assist upgrade applied (for accurate undo). */
@@ -438,6 +440,11 @@ export interface MatchState {
   oppLibero: LiberoState;
   /** Regular substitutions used this set, per side. Libero swaps never count. */
   subs: SubCount;
+  /**
+   * Substitutions made since the last rally ended. Undo puts them back after
+   * rewinding that rally (`replaySubs`). Absent on older sessions: none.
+   */
+  pendingSubs?: SubRecord[];
   /** Final scores of completed sets, oldest first — fan scoreboard data. */
   setScores: { us: number; opp: number }[];
   rally: RallyState;

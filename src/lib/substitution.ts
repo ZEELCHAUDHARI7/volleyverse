@@ -204,6 +204,71 @@ export function applySub(args: {
   return { lineup: { ...lineup, [pos]: inId }, libero, ok: true };
 }
 
+/** A substitution as made, kept so Undo can rewind a rally without losing it. */
+export interface SubRecord {
+  side: Side;
+  outId: string;
+  inId: string;
+}
+
+/** Read saved substitutions; a session saved before they were kept has none. */
+export function subRecordsFrom(value: unknown): SubRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (v): v is SubRecord =>
+      !!v &&
+      (v.side === "US" || v.side === "OPP") &&
+      typeof v.outId === "string" &&
+      typeof v.inId === "string",
+  );
+}
+
+/**
+ * Put substitutions back on a court Undo has rewound to the start of a rally.
+ *
+ * Substitutions are made only with the ball dead (FIVB 15.2.1), so any made
+ * since that rally came after it: undoing the rally must not undo them. They
+ * are re-applied in order with `applySub` and counted again. One that no
+ * longer fits is left out and returned in `dropped` so the screen can say so.
+ * The caller re-syncs the liberos afterwards, as after any substitution.
+ */
+export function replaySubs<
+  C extends {
+    usLineup: Lineup;
+    oppLineup: Lineup;
+    usLibero: LiberoState;
+    oppLibero: LiberoState;
+    subs: SubCount;
+  },
+>(
+  court: C,
+  liberoIds: { us: string | null; opp: string | null },
+  subs: SubRecord[],
+): { court: C; kept: SubRecord[]; dropped: SubRecord[] } {
+  let next = court;
+  const kept: SubRecord[] = [];
+  const dropped: SubRecord[] = [];
+  for (const sub of subs) {
+    const us = sub.side === "US";
+    const res = applySub({
+      lineup: us ? next.usLineup : next.oppLineup,
+      libero: us ? next.usLibero : next.oppLibero,
+      liberoId: us ? liberoIds.us : liberoIds.opp,
+      outId: sub.outId,
+      inId: sub.inId,
+    });
+    if (!res.ok) {
+      dropped.push(sub);
+      continue;
+    }
+    next = us
+      ? { ...next, usLineup: res.lineup, usLibero: res.libero, subs: { ...next.subs, us: next.subs.us + 1 } }
+      : { ...next, oppLineup: res.lineup, oppLibero: res.libero, subs: { ...next.subs, opp: next.subs.opp + 1 } };
+    kept.push(sub);
+  }
+  return { court: next, kept, dropped };
+}
+
 // ---------------------------------------------------------------------
 // Libero auto-swap
 // ---------------------------------------------------------------------

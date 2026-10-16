@@ -58,9 +58,12 @@ import {
   type LiberoEvent,
   type LiberoState,
   type SubCount,
+  type SubRecord,
   applySub,
   liberoStateFrom,
+  replaySubs,
   subCountFrom,
+  subRecordsFrom,
   syncCourt,
 } from "@/lib/substitution";
 import { SubControl } from "@/components/sub-sheet";
@@ -100,6 +103,8 @@ interface Snapshot {
   oppLibero?: LiberoState;
   /** Substitution counters at the start of the rally, restored with the court. */
   subs?: SubCount;
+  /** Substitutions made between the rally before and this one; already on this court. */
+  subsBefore?: SubRecord[];
   eventIds: string[];
 }
 
@@ -125,6 +130,8 @@ interface FreeMatchState {
   oppLibero: LiberoState;
   /** Regular substitutions used this set. Libero swaps never count. */
   subs: SubCount;
+  /** Substitutions made since the last rally ended. Undo puts them back. */
+  pendingSubs: SubRecord[];
   setScores: { us: number; opp: number }[];
   rally: FreeRallyState;
   /** Event ids logged in the rally in progress — tap-level undo. */
@@ -147,6 +154,7 @@ function initialState(us: TeamSetup, opp: TeamSetup, toss: Toss): FreeMatchState
     usSets: 0,
     oppSets: 0,
     ...openSetCourt({ us, opp }),
+    pendingSubs: [],
     setScores: [],
     rally: openRally(servingFromToss(toss)),
     current: [],
@@ -166,6 +174,7 @@ function hydrate(s: FreeMatchState): FreeMatchState {
     usLibero: liberoStateFrom(s.usLibero),
     oppLibero: liberoStateFrom(s.oppLibero),
     subs: subCountFrom(s.subs),
+    pendingSubs: subRecordsFrom(s.pendingSubs),
     // A session saved before rotation could change between sets has neither
     // field. Empty + false is exactly the old behaviour: every set starts from
     // `setup`, and no set start is owed — so resuming one never traps the
@@ -581,6 +590,7 @@ export default function FreeRallyTracker() {
       usLibero: s.usLibero,
       oppLibero: s.oppLibero,
       subs: s.subs,
+      subsBefore: s.pendingSubs,
       eventIds,
     };
     const { nextServing, rotateWinner } = resolvePoint(s.rally.serving, winner);
@@ -598,6 +608,7 @@ export default function FreeRallyTracker() {
       rally: openRally(nextServing),
       current: [],
       history: [...s.history, snapshot],
+      pendingSubs: [],
     });
   };
 
@@ -626,6 +637,7 @@ export default function FreeRallyTracker() {
           us: next.subs.us + (side === "US" ? 1 : 0),
           opp: next.subs.opp + (side === "OPP" ? 1 : 0),
         },
+        pendingSubs: [...state.pendingSubs, { side, outId, inId }],
       },
       liberoIds,
       isMiddleBlocker,
@@ -830,11 +842,11 @@ export default function FreeRallyTracker() {
     const prev = state.history[state.history.length - 1];
     if (!prev) return;
     for (const eid of prev.eventIds) store.removeEvent(eid);
-    // The court rewinds whole: lineups AND libero placement. A substitution made
-    // during the undone rally rewinds with it, which is the honest reading of
-    // "undo that rally".
-    persist(
-      syncLiberos({
+    // The court rewinds to the start of that rally: lineups, libero placement
+    // and sub counters. Substitutions are only made with the ball dead, so any
+    // since then came after the rally and are put back on the rewound court.
+    const replay = replaySubs(
+      {
         ...state,
         usScore: prev.usScore,
         oppScore: prev.oppScore,
@@ -848,7 +860,26 @@ export default function FreeRallyTracker() {
         rally: openRally(prev.serving),
         current: [],
         history: state.history.slice(0, -1),
-      }),
+      },
+      liberoIds,
+      state.pendingSubs,
+    );
+    const synced = syncCourt(
+      { ...replay.court, pendingSubs: [...subRecordsFrom(prev.subsBefore), ...replay.kept] },
+      liberoIds,
+      isMiddleBlocker,
+    );
+    persist(synced.state);
+    setNotice(
+      [
+        ...replay.kept.map((s) => `⇄ ${nameOf(s.inId)} stays on for ${nameOf(s.outId)}`),
+        ...replay.dropped.map(
+          (s) => `Sub ${nameOf(s.inId)} for ${nameOf(s.outId)} could not be kept`,
+        ),
+        liberoNote(synced.events, nameOf),
+      ]
+        .filter(Boolean)
+        .join("   "),
     );
     disarm();
   };
@@ -905,6 +936,7 @@ export default function FreeRallyTracker() {
         rally: openRally(nextServer ?? state.rally.serving),
         current: [],
         history: [],
+        pendingSubs: [],
       },
       // The carried rotation's liberos, not the match's: sync must not reach
       // for a libero the incoming set no longer designates.
