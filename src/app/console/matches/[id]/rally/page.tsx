@@ -865,13 +865,10 @@ function LiveScreen({
     );
   };
 
-  const endPlan = planEndMatch(state);
+  const endPlan = planEndMatch(state, setDone);
   const endMatch = () => {
-    // Bank the set in progress FIRST. Ending a match mid-set used to drop that
-    // set's score entirely, and a match that ended before its first set was
-    // banked completed with no set scores at all — which made it invisible to
-    // every season total while still counting as a completed match. That is
-    // the whole reason Season Analytics could read zero.
+    // A set already won but not yet banked is saved first. A set cut short is
+    // not: saved set scores are counted as won by whoever leads them.
     if (endPlan.bankedSet) store.recordSetScore(matchId, endPlan.bankedSet);
     store.completeMatch(matchId, endPlan.winner && teamIdOf(endPlan.winner));
     setState(null); // clear the resumable rally session
@@ -1006,8 +1003,6 @@ function LiveScreen({
           <div className="mb-2">
             <EndMatchConfirm
               plan={endPlan}
-              usSets={state.usSets}
-              oppSets={state.oppSets}
               homeName={homeTeam.name}
               awayName={awayTeam.name}
               onConfirm={endMatch}

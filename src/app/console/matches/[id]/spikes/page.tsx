@@ -446,7 +446,7 @@ export default function FreeRallyTracker() {
             Match complete
           </p>
           <p className="stat-display mt-2 text-3xl font-extrabold uppercase text-ink">
-            {winner ? `🏆 ${winner}` : "Drawn"}
+            {winner ? `🏆 ${winner}` : "No winner"}
           </p>
           <p className="stat-display tnum mt-3 text-2xl font-extrabold">
             <span className="text-accent">{homeTeam.shortName} {setsWon.us}</span>
@@ -965,7 +965,7 @@ export default function FreeRallyTracker() {
   const decidesMatch =
     matchWinner(setsAfterThis.us, setsAfterThis.opp, match.totalSets) !== null;
 
-  const endPlan = planEndMatch(state);
+  const endPlan = planEndMatch(state, setOver);
 
   const onEndMatch = () => {
     if (endPlan.bankedSet) store.recordSetScore(match.id, endPlan.bankedSet);
@@ -1129,8 +1129,6 @@ export default function FreeRallyTracker() {
         {ending && (
           <EndMatchConfirm
             plan={endPlan}
-            usSets={state.usSets}
-            oppSets={state.oppSets}
             homeName={homeTeam.name}
             awayName={awayTeam.name}
             onConfirm={onEndMatch}
