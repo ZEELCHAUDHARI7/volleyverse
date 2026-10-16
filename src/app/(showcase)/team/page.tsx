@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { PlayerPosition } from "@/lib/types";
 import { standings } from "@/lib/metrics";
 import {
@@ -28,6 +28,14 @@ export default function TeamsPage() {
   const { ready, db, matches, events } = usePublished();
   const [teamFilter, setTeamFilter] = useState<string>("ALL");
   const [posFilter, setPosFilter] = useState<PlayerPosition | "ALL">("ALL");
+
+  // A team picked elsewhere (profile search, a team link) arrives as ?team=<id>.
+  // Read once on mount: useSearchParams would need a Suspense boundary here.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("team");
+    if (id) setTeamFilter(id);
+  }, []);
+
   if (!ready) return <ShowcaseSkeleton />;
 
   const table = standings(matches);
