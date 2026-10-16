@@ -150,17 +150,6 @@ export function useSupabaseBackend(): DataProvider {
     setLastError(message);
   }, []);
 
-  const clearErrors = useCallback(() => {
-    rejectedRef.current = [];
-    try {
-      window.localStorage.removeItem(REJECTED_KEY);
-    } catch {
-      /* ignore */
-    }
-    setRejected(0);
-    setLastError(null);
-  }, []);
-
   const execOp = useCallback(
     async (op: PendingOp): Promise<void> => {
       if (!supabase) throw new Error("no client");
@@ -382,6 +371,26 @@ export function useSupabaseBackend(): DataProvider {
     },
     [fetchCollection],
   );
+
+  /**
+   * Throw the parked writes away. The rows they drew optimistically are still
+   * on screen, and nothing else will remove them: the server never changed, so
+   * no realtime echo arrives. Reload what they touched so the screen shows what
+   * the database holds, not rows beside a green "Synced" that never landed.
+   */
+  const clearErrors = useCallback(() => {
+    const tables = new Set(rejectedRef.current.map((r) => r.op.table));
+    rejectedRef.current = [];
+    try {
+      window.localStorage.removeItem(REJECTED_KEY);
+    } catch {
+      /* ignore */
+    }
+    setRejected(0);
+    setLastError(null);
+    const stale = new Set([...tables].flatMap((t) => M.COLLECTIONS_FOR_TABLE[t] ?? []));
+    for (const c of stale) void reload(c as Collection);
+  }, [reload]);
 
   // ---- initial load + realtime subscription ----
   useEffect(() => {
