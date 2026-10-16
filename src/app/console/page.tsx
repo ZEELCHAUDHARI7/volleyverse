@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useActiveLeague, useStore } from "@/lib/store";
 import { STARTING_SIX, squadShortBy } from "@/lib/squad";
+import { fixtureWarnings, localDateISO } from "@/lib/duplicates";
+import { FixtureWarning } from "@/components/fixture-warning";
 import {
   Button,
   Card,
@@ -320,6 +322,13 @@ function ScheduleMatch({ tournaments }: { tournaments: string[] }) {
   const teamOptions = (excludeId: string) =>
     db.teams.filter((t) => t.id !== excludeId);
 
+  const warnings = fixtureWarnings(
+    { tournamentId, homeTeamId, awayTeamId, dateISO },
+    db.matches,
+    localDateISO(),
+    (id) => db.teams.find((t) => t.id === id)?.name ?? "This team",
+  );
+
   // A fixture can be booked before its squads are registered, so this warns
   // rather than blocks: the line-ups cannot be set until each team has six.
   const shortTeams = db.teams.filter(
@@ -406,11 +415,14 @@ function ScheduleMatch({ tournaments }: { tournaments: string[] }) {
           </select>
         </label>
         <div className="flex items-end">
-          <Button className="w-full" disabled={!valid} onClick={submit}>
+          <Button className="w-full" disabled={!valid || warnings.length > 0} onClick={submit}>
             Schedule · Match {nextMatchNo}
           </Button>
         </div>
       </div>
+      {valid && (
+        <FixtureWarning warnings={warnings} confirmLabel="Schedule anyway" onConfirm={submit} />
+      )}
       {shortTeams.map((t) => {
         const size = db.players.filter((p) => p.teamId === t.id).length;
         return (

@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useActiveLeague, useStore } from "@/lib/store";
 import { STARTING_SIX, squadShortBy } from "@/lib/squad";
+import { fixtureWarnings, localDateISO } from "@/lib/duplicates";
+import { FixtureWarning } from "@/components/fixture-warning";
 import {
   Button,
   Card,
@@ -35,14 +37,14 @@ type Step = "teams" | "details";
 export default function NewMatchWizard() {
   const router = useRouter();
   const store = useStore();
-  const { ready, db, insert, createMatch } = store;
+  const { ready, db, insert, createMatch, lastError } = store;
   const { league, season, tournaments } = useActiveLeague();
 
   const [step, setStep] = useState<Step>("teams");
   const [homeId, setHomeId] = useState("");
   const [awayId, setAwayId] = useState("");
   const [tournamentId, setTournamentId] = useState("");
-  const [dateISO, setDateISO] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dateISO, setDateISO] = useState(() => localDateISO());
   const [time, setTime] = useState("");
   const [totalSets, setTotalSets] = useState(5);
   const [venueId, setVenueId] = useState("");
@@ -59,6 +61,16 @@ export default function NewMatchWizard() {
   if (!ready) return <PageSkeleton />;
 
   const nameOf = (id: string) => teams.find((t) => t.id === id)?.name ?? "";
+
+  const warnings = fixtureWarnings(
+    { tournamentId: effectiveTournamentId, homeTeamId: homeId, awayTeamId: awayId, dateISO },
+    db.matches,
+    localDateISO(),
+    (id) => nameOf(id) || "This team",
+  );
+  // With no league in view because the load failed, the defaults below would
+  // create a second "VolleyVerse League" beside the real one.
+  const competitionUnknown = !league && lastError !== null;
 
   /** Toggle a team into the Home slot, then Away; clicking a chosen team clears it. */
   const pick = (id: string) => {
@@ -99,7 +111,7 @@ export default function NewMatchWizard() {
   };
 
   const start = () => {
-    if (!twoChosen || !dateISO) return;
+    if (!twoChosen || !dateISO || competitionUnknown) return;
     const tid = ensureTournamentId();
     const matchNo = db.matches.filter((m) => m.tournamentId === tid).length + 1;
     const match = createMatch({
@@ -260,11 +272,18 @@ export default function NewMatchWizard() {
             }
           />
 
-          {tournaments.length === 0 && (
-            <p className="rounded-xl border border-dashed border-line bg-surface2/50 px-4 py-3 text-xs text-dim">
-              No competition set up yet — a default league, season and tournament will be created
-              automatically so you can proceed.
+          {competitionUnknown ? (
+            <p role="alert" className="rounded-xl border border-err/40 bg-err/10 px-4 py-3 text-xs text-ink">
+              The competition could not be loaded, so this match has nowhere to go yet. Reload the
+              page and try again.
             </p>
+          ) : (
+            tournaments.length === 0 && (
+              <p className="rounded-xl border border-dashed border-line bg-surface2/50 px-4 py-3 text-xs text-dim">
+                No competition set up yet — a default league, season and tournament will be created
+                automatically so you can proceed.
+              </p>
+            )
           )}
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -339,10 +358,16 @@ export default function NewMatchWizard() {
             <Button variant="ghost" onClick={() => setStep("teams")}>
               Back
             </Button>
-            <Button disabled={!twoChosen || !dateISO} onClick={start}>
+            <Button
+              disabled={!twoChosen || !dateISO || competitionUnknown || warnings.length > 0}
+              onClick={start}
+            >
               Start match → Track
             </Button>
           </div>
+          {twoChosen && !competitionUnknown && (
+            <FixtureWarning warnings={warnings} confirmLabel="Start anyway" onConfirm={start} />
+          )}
         </Card>
       )}
     </div>
