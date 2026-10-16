@@ -11,7 +11,9 @@ import {
   liberoStateFrom,
   liberoTargetPosition,
   positionOf,
+  replaySubs,
   subCountFrom,
+  subRecordsFrom,
   subOptions,
   syncBothLiberos,
   syncCourt,
@@ -329,6 +331,70 @@ t("an old session's court is repaired by the first sync", () => {
   });
   assert.equal(r.lineup[6], "lib");
   assert.equal(r.libero.onCourt, true);
+});
+
+
+// =====================================================================
+qa.suite("Undo keeps later substitutions");
+
+/** A court rewound by Undo to the start of a rally. */
+const rewound = (over = {}) => ({
+  usLineup: LINE,
+  oppLineup: LINE,
+  usLibero: LIBERO_OFF,
+  oppLibero: LIBERO_OFF,
+  subs: { us: 0, opp: 0 },
+  ...over,
+});
+const NO_LIBEROS = { us: null, opp: null };
+
+t("a substitution made after the rally is put back on the rewound court", () => {
+  // The QA run: ace, then #5 on for #8, then Undo. The ace went; so did the sub.
+  const r = replaySubs(rewound(), NO_LIBEROS, [{ side: "US", outId: "oh2", inId: "bench5" }]);
+  assert.equal(r.court.usLineup[5], "bench5");
+  assert.deepEqual(r.court.subs, { us: 1, opp: 0 });
+  assert.equal(r.kept.length, 1);
+  assert.equal(r.dropped.length, 0);
+});
+
+t("several go back in the order they were made, each counted", () => {
+  const r = replaySubs(rewound(), NO_LIBEROS, [
+    { side: "US", outId: "oh2", inId: "bench5" },
+    { side: "US", outId: "bench5", inId: "bench9" },
+  ]);
+  assert.equal(r.court.usLineup[5], "bench9");
+  assert.equal(r.court.subs.us, 2);
+});
+
+t("an away substitution goes back on the away court only", () => {
+  const r = replaySubs(rewound(), NO_LIBEROS, [{ side: "OPP", outId: "opp", inId: "bench4" }]);
+  assert.equal(r.court.oppLineup[4], "bench4");
+  assert.equal(r.court.usLineup[4], "opp");
+  assert.deepEqual(r.court.subs, { us: 0, opp: 1 });
+});
+
+t("the middle blocker held off for the libero hands the return over again", () => {
+  const court = rewound({
+    usLineup: { ...LINE, 6: "lib" },
+    usLibero: { onCourt: true, replacedId: "mb2" },
+  });
+  const r = replaySubs(court, { us: "lib", opp: null }, [{ side: "US", outId: "mb2", inId: "bench6" }]);
+  assert.equal(r.court.usLibero.replacedId, "bench6");
+  assert.equal(r.court.usLineup[6], "lib");
+});
+
+t("one that no longer fits is left out and reported, not applied", () => {
+  const r = replaySubs(rewound(), NO_LIBEROS, [{ side: "US", outId: "bench7", inId: "bench8" }]);
+  assert.deepEqual(r.court.usLineup, LINE);
+  assert.equal(r.court.subs.us, 0);
+  assert.equal(r.dropped.length, 1);
+});
+
+t("a session saved before this has no substitutions to put back", () => {
+  assert.deepEqual(subRecordsFrom(undefined), []);
+  assert.deepEqual(subRecordsFrom([{ side: "US", outId: "a", inId: "b" }, { side: "X" }, 3]), [
+    { side: "US", outId: "a", inId: "b" },
+  ]);
 });
 
 qa.finish();
