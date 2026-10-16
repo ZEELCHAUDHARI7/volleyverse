@@ -1,32 +1,48 @@
 "use client";
 
-import React, { useState } from "react";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  PieChart,
-  Pie,
-  Cell,
-  BarChart,
-  Bar,
-} from "recharts";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useId, useState } from "react";
+import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import type { Player, StatEvent, Match, Team } from "@/lib/types";
-import { playerLine } from "@/lib/metrics";
+import { playerLine, seasonRecord, type PlayerLine, type RecordStat } from "@/lib/metrics";
+import {
+  matchHighs,
+  matchLog,
+  rate,
+  searchDirectory,
+  totalPoints,
+  type DirectoryHit,
+  type HighStat,
+  type MatchLogRow,
+} from "@/lib/player-profile";
+import { ChartShell, axisProps, theme, tooltipStyle } from "@/components/charts";
 import { PositionTag } from "@/components/ui";
 
 interface PlayerDashboardViewProps {
   player: Player;
   team?: Team;
+  /** Published matches only. */
   allMatches: Match[];
+  /** Events of published matches only. */
   allEvents: StatEvent[];
   allTeams: Team[];
   allPlayers: Player[];
 }
 
+type Tab = "overview" | "stats" | "matches" | "achievements";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "stats", label: "Stats" },
+  { id: "matches", label: "Matches" },
+  { id: "achievements", label: "Achievements" },
+];
+
+/**
+ * The public player profile. Every number is derived from published events;
+ * where there are none the page says so instead of drawing a stand-in.
+ */
 export function PlayerDashboardView({
   player,
   team,
@@ -35,554 +51,430 @@ export function PlayerDashboardView({
   allTeams,
   allPlayers,
 }: PlayerDashboardViewProps) {
-  const [activeTab, setActiveTab] = useState<"overview" | "stats" | "matches" | "achievements">("overview");
-
-  // Filter events & matches for this player
-  const playerEvents = allEvents.filter((e) => e.playerId === player.id);
-  const playerMatches = allMatches.filter((m) =>
-    m.rosters.length > 0
-      ? m.rosters.some((r) => r.playerId === player.id)
-      : m.homeTeamId === player.teamId || m.awayTeamId === player.teamId,
-  );
+  const [tab, setTab] = useState<Tab>("overview");
+  const tabsId = useId();
 
   const season = playerLine(player, allEvents);
-
-  // Skill ratings derived dynamically from player position & performance
-  const isAttacker = player.position === "OH" || player.position === "OPP" || player.position === "U";
-  const isSetter = player.position === "S";
-  const isMiddle = player.position === "MB";
-  const isLibero = player.position === "L" || player.position === "DS";
-
-  const skillSpiking = isAttacker ? Math.min(98, 75 + Math.round((season.successRate ?? 40) * 0.4)) : isMiddle ? 82 : 65;
-  const skillServing = Math.min(95, 70 + season.aces * 3);
-  const skillBlocking = isMiddle ? 92 : isAttacker ? 78 : 60;
-  const skillDigging = isLibero ? 94 : 72 + Math.min(20, season.saves);
-  const skillPassing = isLibero ? 95 : isSetter ? 90 : 78;
-
-  const radarSkills = [
-    { name: "Spiking", value: skillSpiking, angle: -90 },
-    { name: "Serving", value: skillServing, angle: -18 },
-    { name: "Blocking", value: skillBlocking, angle: 54 },
-    { name: "Digging", value: skillDigging, angle: 126 },
-    { name: "Passing", value: skillPassing, angle: 198 },
-  ];
-
-  // Helper for pentagon radar points
-  const getRadarPoint = (val: number, angleDeg: number, center = 90, radius = 60) => {
-    const rad = (angleDeg * Math.PI) / 180;
-    const r = (val / 100) * radius;
-    const x = center + r * Math.cos(rad);
-    const y = center + r * Math.sin(rad);
-    return `${x},${y}`;
-  };
-
-  const polygonPoints = radarSkills.map((s) => getRadarPoint(s.value, s.angle)).join(" ");
-  const grid50 = radarSkills.map((s) => getRadarPoint(50, s.angle)).join(" ");
-  const grid100 = radarSkills.map((s) => getRadarPoint(100, s.angle)).join(" ");
-
-  // Match Trend Data
-  const completedMatches = [...playerMatches]
-    .filter((m) => m.status === "completed")
-    .sort((a, b) => a.dateISO.localeCompare(b.dateISO))
-    .slice(-10);
-
-  const trendData = completedMatches.map((m, idx) => {
-    const mEvents = allEvents.filter((e) => e.matchId === m.id);
-    const l = playerLine(player, mEvents);
-    const oppId = m.homeTeamId === player.teamId ? m.awayTeamId : m.homeTeamId;
-    const oppName = allTeams.find((t) => t.id === oppId)?.shortName ?? `M${idx + 1}`;
-    return {
-      name: oppName,
-      points: l.points || Math.floor(10 + Math.random() * 15),
-      killRate: l.successRate ?? Math.floor(40 + Math.random() * 25),
-    };
-  });
-
-  const fallbackTrend = [
-    { name: "M1", points: 18, killRate: 42 },
-    { name: "M2", points: 24, killRate: 52 },
-    { name: "M3", points: 19, killRate: 45 },
-    { name: "M4", points: 28, killRate: 58 },
-    { name: "M5", points: 22, killRate: 48 },
-    { name: "M6", points: 31, killRate: 62 },
-    { name: "M7", points: 20, killRate: 44 },
-    { name: "M8", points: 26, killRate: 53 },
-    { name: "M9", points: 29, killRate: 60 },
-    { name: "M10", points: 25, killRate: 51 },
-  ];
-
-  const chartData = trendData.length >= 3 ? trendData : fallbackTrend;
-
-  // Donut chart: Attack Breakdown
-  const attackKills = season.points > 0 ? season.points : 215;
-  const attackTouches = season.spikeAttempts > season.points ? season.spikeAttempts - season.points : 78;
-  const attackErrors = Math.max(10, Math.round(season.spikeAttempts * 0.1));
-
-  const attackBreakdownData = [
-    { name: "Kills", value: attackKills, color: "#3b82f6" },
-    { name: "Touches", value: attackTouches, color: "#10b981" },
-    { name: "Errors", value: attackErrors, color: "#ef4444" },
-  ];
-
-  // Bar chart: Serving Breakdown
-  const serveAces = season.aces > 0 ? season.aces : 23;
-  const serveInPlay = Math.max(80, serveAces * 6);
-  const serveErrors = Math.max(12, Math.round(serveInPlay * 0.12));
-
-  const servingBreakdownData = [
-    { name: "Aces", val: serveAces },
-    { name: "In-Play", val: serveInPlay },
-    { name: "Errors", val: serveErrors },
-  ];
-
-  // Sparkline SVG renderer
-  const Sparkline = ({ points, color = "#3b82f6" }: { points: number[]; color?: string }) => {
-    const min = Math.min(...points);
-    const max = Math.max(...points) || 1;
-    const path = points
-      .map((p, i) => {
-        const x = (i / (points.length - 1)) * 100;
-        const y = 30 - ((p - min) / (max - min || 1)) * 24;
-        return `${i === 0 ? "M" : "L"}${x},${y}`;
-      })
-      .join(" ");
-    return (
-      <svg className="h-7 w-full" viewBox="0 0 100 32" preserveAspectRatio="none">
-        <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
-  };
+  const log = matchLog(player, allMatches, allEvents);
+  const shortName = (id: string) => allTeams.find((t) => t.id === id)?.shortName ?? "TBD";
 
   return (
-    <div className="min-h-screen bg-[#080d1a] text-[#f2f6fc] font-sans pb-24">
-      {/* Top Header Navigation Bar */}
-      <header className="border-b border-[#1c2e54]/60 bg-[#0c1730]/80 backdrop-blur-md sticky top-0 z-40">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-8">
-            <div className="flex items-center gap-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 font-black text-white shadow-lg shadow-blue-500/20">
-                ⚡
-              </span>
-              <span className="stat-display text-xl font-black uppercase tracking-wider text-white">
-                Volley<span className="text-cyan-400">Verse</span>
-              </span>
+    <div className="mx-auto max-w-6xl px-4 pb-24 pt-10 md:px-8">
+      <header className="card-premium relative overflow-hidden rounded-3xl p-6 sm:p-8">
+        {player.jerseyNo !== null && (
+          <span
+            aria-hidden
+            className="stat-display tnum absolute -top-2 right-4 select-none text-8xl font-extrabold text-ink/5 sm:text-9xl"
+          >
+            {player.jerseyNo}
+          </span>
+        )}
+        <div className="relative flex flex-wrap items-start justify-between gap-6">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <PositionTag position={player.position} />
+              {player.isCaptain && <Chip>Captain</Chip>}
+              {player.isReserve && <Chip>Reserve</Chip>}
             </div>
-
-            <nav className="hidden md:flex items-center gap-1">
-              {[
-                { id: "overview", label: "Overview" },
-                { id: "stats", label: "Stats" },
-                { id: "matches", label: "Matches" },
-                { id: "achievements", label: "Achievements" },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all ${
-                    activeTab === tab.id
-                      ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
-                      : "text-slate-400 hover:text-white hover:bg-slate-800/40"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </nav>
+            <h1 className="stat-display mt-3 text-4xl font-extrabold uppercase leading-none sm:text-6xl">
+              {player.fullName}
+            </h1>
+            <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-dim">
+              {player.jerseyNo !== null && <span className="tnum">#{player.jerseyNo}</span>}
+              {team && (
+                <Link href={`/team?team=${team.id}`} className="font-semibold text-ink hover:text-accent">
+                  {team.name}
+                </Link>
+              )}
+              {player.nationality && <span>{player.nationality}</span>}
+              {player.heightCm !== null && <span className="tnum">{player.heightCm} cm</span>}
+            </p>
           </div>
-
-          <div className="flex items-center gap-4">
-            <div className="relative hidden sm:block">
-              <input
-                type="text"
-                placeholder="Search players, teams..."
-                className="w-56 rounded-xl border border-[#1c2e54] bg-[#070e20] px-3.5 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-              />
-            </div>
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 font-bold text-white text-xs ring-2 ring-blue-400/30">
-              {player.fullName.charAt(0)}
-            </div>
-          </div>
+          <DirectorySearch players={allPlayers} teams={allTeams} />
         </div>
       </header>
 
-      {/* Main Dashboard Content */}
-      <main className="mx-auto max-w-7xl px-4 pt-6 sm:px-6 space-y-6">
-        {/* ROW 1: Hero Card + Skill Radar + Key KPIs */}
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-          {/* Athlete Card (4 Cols) */}
-          <div className="lg:col-span-4 relative overflow-hidden rounded-3xl border border-[#1c2e54] bg-gradient-to-b from-[#111f42] to-[#0a1226] p-6 shadow-2xl">
-            <div className="absolute top-2 left-4 text-7xl font-black text-slate-700/20 select-none font-mono">
-              #{player.jerseyNo ?? "07"}
-            </div>
+      <div
+        role="tablist"
+        aria-label="Player profile"
+        className="mt-6 flex gap-1 overflow-x-auto rounded-2xl border border-line bg-surface2/40 p-1"
+      >
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            id={`${tabsId}-${t.id}-tab`}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            aria-controls={`${tabsId}-${t.id}-panel`}
+            onClick={() => setTab(t.id)}
+            className={`min-h-11 flex-1 whitespace-nowrap rounded-xl px-4 text-xs font-bold uppercase tracking-wider transition-colors ${
+              tab === t.id ? "bg-accent/15 text-accent ring-1 ring-accent/30" : "text-dim hover:text-ink"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-            {player.isCaptain && (
-              <span className="absolute top-6 right-6 rounded-lg bg-amber-500/20 border border-amber-500/40 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-amber-400">
-                CAPTAIN
-              </span>
-            )}
+      <section
+        id={`${tabsId}-${tab}-panel`}
+        role="tabpanel"
+        aria-labelledby={`${tabsId}-${tab}-tab`}
+        className="mt-6"
+      >
+        {tab === "overview" && (
+          <Overview player={player} season={season} log={log} shortName={shortName} />
+        )}
+        {tab === "stats" && <Stats player={player} season={season} />}
+        {tab === "matches" && <Matches player={player} log={log} shortName={shortName} />}
+        {tab === "achievements" && (
+          <Achievements player={player} log={log} events={allEvents} shortName={shortName} />
+        )}
+      </section>
+    </div>
+  );
+}
 
-            <div className="relative z-10 flex flex-col items-center text-center pt-4">
-              <div className="relative mb-4">
-                <div className="h-28 w-28 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 p-0.5 shadow-xl shadow-blue-500/20">
-                  <div className="h-full w-full rounded-2xl bg-[#0a1226] overflow-hidden flex items-center justify-center">
-                    {player.photoUrl ? (
-                      <img src={player.photoUrl} alt={player.fullName} className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="text-4xl font-extrabold text-blue-400">{player.fullName.charAt(0)}</span>
-                    )}
-                  </div>
-                </div>
-              </div>
+function Chip({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded-md bg-accent/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent ring-1 ring-accent/30">
+      {children}
+    </span>
+  );
+}
 
-              <h2 className="stat-display text-2xl font-black uppercase tracking-wide text-white">
-                {player.fullName}
-              </h2>
-              <div className="mt-1">
-                <PositionTag position={player.position} />
-              </div>
+function Empty({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="card-premium rounded-2xl px-6 py-10 text-center text-sm text-dim">{children}</div>
+  );
+}
 
-              <div className="mt-4 flex flex-wrap items-center justify-center gap-3 text-xs text-slate-300">
-                <span className="flex items-center gap-1 bg-[#142347] px-2.5 py-1 rounded-lg border border-[#23396c]">
-                  🇮🇳 {player.nationality ?? "India"}
-                </span>
-                <span className="flex items-center gap-1 bg-[#142347] px-2.5 py-1 rounded-lg border border-[#23396c]">
-                  📏 {player.heightCm ?? 195} cm
-                </span>
-                <span className="flex items-center gap-1 bg-[#142347] px-2.5 py-1 rounded-lg border border-[#23396c]">
-                  🏐 {team?.name ?? "Thunder Spikers"}
-                </span>
-              </div>
-            </div>
+const pct = (v: number | null) => (v === null ? "—" : `${v}%`);
+
+function Overview({
+  player,
+  season,
+  log,
+  shortName,
+}: {
+  player: Player;
+  season: PlayerLine;
+  log: MatchLogRow[];
+  shortName: (id: string) => string;
+}) {
+  const tiles = [
+    { label: "Matches", value: String(log.length) },
+    { label: "Total points", value: String(totalPoints(season)) },
+    { label: "Kills", value: String(season.points) },
+    { label: "Kill %", value: pct(rate(season.points, season.spikeAttempts)) },
+    { label: "Aces", value: String(season.aces) },
+    { label: "Blocks", value: String(season.blocks) },
+  ];
+  const trend = [...log].reverse().map((r) => ({
+    name: `vs ${shortName(r.opponentId)}`,
+    points: r.totalPoints,
+    kills: r.line.points,
+  }));
+  const t = theme();
+
+  return (
+    <div className="space-y-6">
+      {log.length === 0 && (
+        <Empty>
+          No published matches for {player.fullName} yet. Their numbers appear here once a match
+          they played in is published.
+        </Empty>
+      )}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {tiles.map((k) => (
+          <div key={k.label} className="card-premium rounded-2xl p-4">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-dim">{k.label}</p>
+            <p className="stat-display tnum mt-1 text-3xl font-extrabold">{k.value}</p>
           </div>
+        ))}
+      </div>
+      <ChartShell
+        title="Points per match"
+        insight="Total points and kills in each published match, oldest first."
+        height={240}
+        empty={trend.length < 2 ? "The trend appears once two of their matches are published." : undefined}
+      >
+        <LineChart data={trend} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={t.line} vertical={false} />
+          <XAxis dataKey="name" {...axisProps()} />
+          <YAxis allowDecimals={false} {...axisProps()} />
+          <Tooltip {...tooltipStyle()} />
+          <Line type="monotone" dataKey="points" name="Points" stroke={t.accent} strokeWidth={2.5} dot={{ fill: t.accent, r: 4 }} />
+          <Line type="monotone" dataKey="kills" name="Kills" stroke={t.azure} strokeWidth={2.5} dot={{ fill: t.azure, r: 4 }} />
+        </LineChart>
+      </ChartShell>
+    </div>
+  );
+}
 
-          {/* Skill Radar (3 Cols) */}
-          <div className="lg:col-span-3 rounded-3xl border border-[#1c2e54] bg-[#0c1730] p-5 flex flex-col justify-between shadow-xl">
-            <h3 className="stat-display text-xs font-bold uppercase tracking-wider text-slate-400">
-              Skill Radar
-            </h3>
+function Stats({ player, season: s }: { player: Player; season: PlayerLine }) {
+  const groups: { title: string; rows: [string, string][] }[] = [
+    {
+      title: "Attack",
+      rows: [
+        ["Attempts", String(s.spikeAttempts)],
+        ["Kills", String(s.points)],
+        ["Kept in play", String(s.spikeSuccesses - s.points)],
+        ["Errors", String(s.spikeAttempts - s.spikeSuccesses)],
+        ["Kill %", pct(rate(s.points, s.spikeAttempts))],
+      ],
+    },
+    {
+      title: "Serve",
+      rows: [
+        ["Serves", String(s.serveAttempts)],
+        ["Aces", String(s.aces)],
+        ["In play", String(s.serveAttempts - s.aces - s.serveErrors)],
+        ["Errors", String(s.serveErrors)],
+        ["Ace %", pct(rate(s.aces, s.serveAttempts))],
+        ["Serves in", pct(rate(s.serveAttempts - s.serveErrors, s.serveAttempts))],
+      ],
+    },
+    {
+      title: "Reception",
+      rows: [
+        ["Receptions", String(s.receiveAttempts)],
+        ["Perfect", String(s.receivesPerfect)],
+        ["Errors", String(s.receiveErrors)],
+        ["Positive %", pct(rate(s.receivesGood, s.receiveAttempts))],
+      ],
+    },
+    {
+      title: "Setting",
+      rows: [
+        ["Sets", String(s.setAttempts)],
+        ["Assists", String(s.assists)],
+        ["Errors", String(s.setAttempts - s.setSuccesses)],
+      ],
+    },
+    {
+      title: "Block",
+      rows: [
+        ["Attempts", String(s.blockAttempts)],
+        ["Stuff blocks", String(s.blocks)],
+        ["Block %", pct(rate(s.blocks, s.blockAttempts))],
+      ],
+    },
+    {
+      title: "Defence",
+      rows: [
+        ["Dig attempts", String(s.digAttempts)],
+        ["Digs", String(s.saves)],
+        ["Super digs", String(s.superDigs)],
+        ["Dig %", pct(rate(s.saves, s.digAttempts))],
+      ],
+    },
+  ];
 
-            <div className="relative mx-auto my-2 h-44 w-44">
-              <svg viewBox="0 0 180 180" className="h-full w-full">
-                <polygon points={grid100} fill="none" stroke="#1c2e54" strokeWidth="1" />
-                <polygon points={grid50} fill="none" stroke="#1c2e54" strokeWidth="1" strokeDasharray="3 3" />
-
-                {radarSkills.map((s) => {
-                  const pt = getRadarPoint(100, s.angle);
-                  return <line key={s.name} x1="90" y1="90" x2={pt.split(",")[0]} y2={pt.split(",")[1]} stroke="#1c2e54" strokeWidth="1" />;
-                })}
-
-                <polygon points={polygonPoints} fill="rgba(59, 130, 246, 0.3)" stroke="#3b82f6" strokeWidth="2" />
-
-                {radarSkills.map((s) => {
-                  const pt = getRadarPoint(125, s.angle);
-                  const x = parseFloat(pt.split(",")[0]);
-                  const y = parseFloat(pt.split(",")[1]);
-                  return (
-                    <g key={s.name}>
-                      <text x={x} y={y - 6} textAnchor="middle" fill="#94a3b8" fontSize="9" fontWeight="bold">
-                        {s.name}
-                      </text>
-                      <text x={x} y={y + 6} textAnchor="middle" fill="#38bdf8" fontSize="10" fontWeight="900">
-                        {s.value}
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
-            </div>
-
-            <div className="text-center text-[10px] text-slate-500 uppercase tracking-widest font-semibold">
-              Pro Skill Index
-            </div>
-          </div>
-
-          {/* Key Performance Indicators (5 Cols) */}
-          <div className="lg:col-span-5 rounded-3xl border border-[#1c2e54] bg-[#0c1730] p-5 shadow-xl">
-            <h3 className="stat-display text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">
-              Season Key Performance Indicators
-            </h3>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {[
-                { label: "Total Points", val: season.points || 268, rank: "#2 on team", trend: [12, 18, 15, 22, 28, 24], color: "#3b82f6" },
-                { label: "Kills", val: season.points || 215, rank: "#1 on team", trend: [10, 15, 12, 19, 23, 20], color: "#06b6d4" },
-                { label: "Kill %", val: `${season.successRate ?? 48.7}%`, rank: "#3 in league", trend: [38, 42, 45, 52, 49, 54], color: "#10b981" },
-                { label: "Aces", val: season.aces || 23, rank: "#2 on team", trend: [1, 3, 2, 4, 3, 5], color: "#f59e0b" },
-                { label: "Errors", val: 18, rank: "#5 on team", trend: [4, 2, 3, 1, 4, 2], color: "#ef4444" },
-                { label: "Efficiency", val: "+197", rank: "#2 on team", trend: [120, 145, 160, 180, 197], color: "#a855f7" },
-              ].map((kpi) => (
-                <div key={kpi.label} className="rounded-2xl border border-[#1c2e54] bg-[#070e20] p-3 flex flex-col justify-between">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{kpi.label}</span>
-                    <div className="stat-display text-xl font-black text-white mt-1">{kpi.val}</div>
-                    <div className="text-[9px] font-medium text-slate-500">{kpi.rank}</div>
-                  </div>
-                  <div className="mt-2">
-                    <Sparkline points={kpi.trend} color={kpi.color} />
-                  </div>
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-dim">
+        {player.fullName}&apos;s season from every published match. Errors across all skills:{" "}
+        <span className="tnum font-semibold text-ink">{s.errors}</span>.
+      </p>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {groups.map((g) => (
+          <div key={g.title} className="card-premium rounded-2xl p-5">
+            <h3 className="stat-display text-lg font-bold uppercase tracking-wide">{g.title}</h3>
+            <dl className="mt-3 space-y-1.5 text-sm">
+              {g.rows.map(([label, value]) => (
+                <div key={label} className="flex items-baseline justify-between gap-3">
+                  <dt className="text-dim">{label}</dt>
+                  <dd className="tnum font-semibold">{value}</dd>
                 </div>
               ))}
-            </div>
+            </dl>
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Matches({
+  player,
+  log,
+  shortName,
+}: {
+  player: Player;
+  log: MatchLogRow[];
+  shortName: (id: string) => string;
+}) {
+  if (log.length === 0) return <Empty>No published matches for {player.fullName} yet.</Empty>;
+  return (
+    <div className="card-premium overflow-x-auto rounded-2xl p-2 sm:p-4">
+      <table className="w-full min-w-[560px] text-left text-sm">
+        <thead>
+          <tr className="border-b border-line text-[10px] font-bold uppercase tracking-wider text-dim">
+            <th className="px-3 py-2.5">Date</th>
+            <th className="px-3 py-2.5">Opponent</th>
+            <th className="px-3 py-2.5">Result</th>
+            <th className="px-3 py-2.5 text-right">Points</th>
+            <th className="px-3 py-2.5 text-right">Kills</th>
+            <th className="px-3 py-2.5 text-right">Aces</th>
+            <th className="px-3 py-2.5 text-right">Blocks</th>
+            <th className="px-3 py-2.5 text-right">Digs</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line/50">
+          {log.map((r) => (
+            <tr key={r.match.id}>
+              <td className="tnum px-3 py-3 text-dim">{r.match.dateISO}</td>
+              <td className="px-3 py-3 font-semibold">
+                <Link href={`/matches/${r.match.id}`} className="hover:text-accent">
+                  vs {shortName(r.opponentId)}
+                </Link>
+              </td>
+              <td className="tnum px-3 py-3">
+                {r.result ? (
+                  <span className={r.result === "W" ? "text-ok" : "text-err"}>
+                    {r.result} {r.setsFor}–{r.setsAgainst}
+                  </span>
+                ) : (
+                  <span className="text-dim">
+                    {r.setsFor}–{r.setsAgainst}
+                  </span>
+                )}
+              </td>
+              <td className="tnum px-3 py-3 text-right font-bold">{r.totalPoints}</td>
+              <td className="tnum px-3 py-3 text-right">{r.line.points}</td>
+              <td className="tnum px-3 py-3 text-right">{r.line.aces}</td>
+              <td className="tnum px-3 py-3 text-right">{r.line.blocks}</td>
+              <td className="tnum px-3 py-3 text-right">{r.line.saves}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const HIGH_LABEL: Record<HighStat, string> = {
+  totalPoints: "Most points in a match",
+  kills: "Most kills in a match",
+  aces: "Most aces in a match",
+  blocks: "Most blocks in a match",
+  digs: "Most digs in a match",
+};
+
+const RECORD_LABEL: Record<RecordStat, string> = {
+  points: "attack points",
+  aces: "aces",
+  blocks: "blocks",
+  superDigs: "super digs",
+};
+
+function Achievements({
+  player,
+  log,
+  events,
+  shortName,
+}: {
+  player: Player;
+  log: MatchLogRow[];
+  events: StatEvent[];
+  shortName: (id: string) => string;
+}) {
+  const highs = matchHighs(log);
+  // League-wide single-match records this player holds.
+  const records = (Object.keys(RECORD_LABEL) as RecordStat[])
+    .map((stat) => seasonRecord(stat, events))
+    .filter((r) => r !== null && r.playerId === player.id);
+
+  if (highs.length === 0)
+    return (
+      <Empty>
+        No achievements for {player.fullName} yet. Their single-match bests appear after a
+        published match with recorded stats.
+      </Empty>
+    );
+
+  return (
+    <div className="space-y-4">
+      {records.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {records.map((r) => (
+            <span
+              key={r!.stat}
+              className="rounded-xl bg-accent/15 px-3 py-2 text-xs font-bold text-accent ring-1 ring-accent/30"
+            >
+              League record · {r!.value} {RECORD_LABEL[r!.stat]} in one match
+            </span>
+          ))}
         </div>
-
-        {/* ROW 2: Performance Trend + Attack Breakdown + Serving Breakdown + Heatmap */}
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-          {/* Performance Trend (4 Cols) */}
-          <div className="lg:col-span-4 rounded-3xl border border-[#1c2e54] bg-[#0c1730] p-5 shadow-xl flex flex-col justify-between">
-            <h3 className="stat-display text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-              Performance Trend (Last 10 Matches)
-            </h3>
-
-            <div className="h-48 w-full mt-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <XAxis dataKey="name" stroke="#64748b" fontSize={10} tickLine={false} />
-                  <YAxis stroke="#64748b" fontSize={10} tickLine={false} />
-                  <Tooltip contentStyle={{ background: "#0c1730", border: "1px solid #1c2e54", borderRadius: 12, fontSize: 12 }} />
-                  <Line type="monotone" dataKey="points" name="Points" stroke="#3b82f6" strokeWidth={2.5} dot={{ fill: "#3b82f6", r: 3 }} />
-                  <Line type="monotone" dataKey="killRate" name="Kill %" stroke="#10b981" strokeWidth={2.5} dot={{ fill: "#10b981", r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="flex items-center justify-center gap-6 pt-2 border-t border-[#1c2e54]/50 text-xs">
-              <span className="flex items-center gap-1.5 text-blue-400 font-semibold">
-                <span className="h-2 w-2 rounded-full bg-blue-500"></span> Points
-              </span>
-              <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
-                <span className="h-2 w-2 rounded-full bg-emerald-500"></span> Kill %
-              </span>
-            </div>
+      )}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {highs.map((h) => (
+          <div key={h.stat} className="card-premium rounded-2xl p-5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-dim">{HIGH_LABEL[h.stat]}</p>
+            <p className="stat-display tnum mt-1 text-4xl font-extrabold text-accent">{h.value}</p>
+            <Link href={`/matches/${h.row.match.id}`} className="mt-1 block text-xs text-dim hover:text-ink">
+              vs {shortName(h.row.opponentId)} · {h.row.match.dateISO}
+            </Link>
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-          {/* Attack Breakdown Donut (3 Cols) */}
-          <div className="lg:col-span-3 rounded-3xl border border-[#1c2e54] bg-[#0c1730] p-5 shadow-xl flex flex-col justify-between">
-            <h3 className="stat-display text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-              Attack Breakdown
-            </h3>
+/** Find any player or team by name and go to them. */
+function DirectorySearch({ players, teams }: { players: Player[]; teams: Team[] }) {
+  const router = useRouter();
+  const [query, setQuery] = useState("");
+  const inputId = useId();
+  const hits = searchDirectory(query, players, teams);
+  const hrefOf = (h: DirectoryHit) => (h.kind === "player" ? `/players/${h.id}` : `/team?team=${h.id}`);
 
-            <div className="relative h-44 w-full flex items-center justify-center">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={attackBreakdownData} innerRadius={45} outerRadius={65} paddingAngle={4} dataKey="value">
-                    {attackBreakdownData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ background: "#0c1730", border: "1px solid #1c2e54", borderRadius: 12, fontSize: 12 }} />
-                </PieChart>
-              </ResponsiveContainer>
-
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="stat-display text-2xl font-black text-white">{attackKills}</span>
-                <span className="text-[9px] uppercase tracking-widest text-slate-400">Total Kills</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-1 text-center text-[10px] border-t border-[#1c2e54]/50 pt-2">
-              <div>
-                <div className="font-bold text-blue-400">{attackKills}</div>
-                <div className="text-slate-500">Kills</div>
-              </div>
-              <div>
-                <div className="font-bold text-emerald-400">{attackTouches}</div>
-                <div className="text-slate-500">Touches</div>
-              </div>
-              <div>
-                <div className="font-bold text-rose-400">{attackErrors}</div>
-                <div className="text-slate-500">Errors</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Serving Breakdown (2 Cols) */}
-          <div className="lg:col-span-2 rounded-3xl border border-[#1c2e54] bg-[#0c1730] p-5 shadow-xl flex flex-col justify-between">
-            <h3 className="stat-display text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-              Serving Breakdown
-            </h3>
-
-            <div className="h-44 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={servingBreakdownData} layout="vertical" margin={{ top: 0, right: 10, left: -25, bottom: 0 }}>
-                  <XAxis type="number" stroke="#64748b" fontSize={9} />
-                  <YAxis type="category" dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} />
-                  <Tooltip contentStyle={{ background: "#0c1730", border: "1px solid #1c2e54", borderRadius: 12, fontSize: 12 }} />
-                  <Bar dataKey="val" fill="#3b82f6" radius={[0, 6, 6, 0]} maxBarSize={16} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="text-center text-[10px] text-slate-500 uppercase tracking-wider">
-              Serving Accuracy 88%
-            </div>
-          </div>
-
-          {/* Attack Zone Heatmap (3 Cols) */}
-          <div className="lg:col-span-3 rounded-3xl border border-[#1c2e54] bg-[#0c1730] p-5 shadow-xl flex flex-col justify-between">
-            <h3 className="stat-display text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-              Attack Zone Heatmap
-            </h3>
-
-            <div className="relative h-44 w-full rounded-2xl border border-blue-500/30 bg-[#07132b] p-2 flex flex-col justify-between overflow-hidden">
-              <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-cyan-400 shadow-md shadow-cyan-400/50 z-10"></div>
-
-              <div className="grid grid-cols-3 gap-1 h-full w-full">
-                <div className="relative rounded-lg bg-blue-900/20 border border-blue-500/20 flex flex-col items-center justify-center p-1">
-                  <span className="text-[9px] font-bold text-slate-400">Zone 4</span>
-                  <div className="h-6 w-6 rounded-full bg-blue-500/60 flex items-center justify-center text-[10px] font-bold text-white">45%</div>
-                </div>
-                <div className="relative rounded-lg bg-red-900/30 border border-red-500/30 flex flex-col items-center justify-center p-1">
-                  <span className="text-[9px] font-bold text-slate-400">Zone 3</span>
-                  <div className="h-7 w-7 rounded-full bg-red-500/80 shadow-lg shadow-red-500/50 flex items-center justify-center text-[10px] font-black text-white">82%</div>
-                </div>
-                <div className="relative rounded-lg bg-blue-900/20 border border-blue-500/20 flex flex-col items-center justify-center p-1">
-                  <span className="text-[9px] font-bold text-slate-400">Zone 2</span>
-                  <div className="h-6 w-6 rounded-full bg-blue-500/60 flex items-center justify-center text-[10px] font-bold text-white">38%</div>
-                </div>
-
-                <div className="relative rounded-lg bg-blue-900/20 border border-blue-500/20 flex flex-col items-center justify-center p-1">
-                  <span className="text-[9px] font-bold text-slate-400">Zone 5</span>
-                  <div className="h-5 w-5 rounded-full bg-cyan-500/50 flex items-center justify-center text-[9px] font-bold text-white">20%</div>
-                </div>
-                <div className="relative rounded-lg bg-amber-900/30 border border-amber-500/30 flex flex-col items-center justify-center p-1">
-                  <span className="text-[9px] font-bold text-slate-400">Zone 6</span>
-                  <div className="h-7 w-7 rounded-full bg-amber-500/80 shadow-lg shadow-amber-500/50 flex items-center justify-center text-[10px] font-black text-white">65%</div>
-                </div>
-                <div className="relative rounded-lg bg-blue-900/20 border border-blue-500/20 flex flex-col items-center justify-center p-1">
-                  <span className="text-[9px] font-bold text-slate-400">Zone 1</span>
-                  <div className="h-5 w-5 rounded-full bg-cyan-500/50 flex items-center justify-center text-[9px] font-bold text-white">15%</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between text-[10px] text-slate-500 pt-2 border-t border-[#1c2e54]/50">
-              <span>Attack Density</span>
-              <span className="font-bold text-red-400">High: Zone 3 & Zone 6</span>
-            </div>
-          </div>
-        </div>
-
-        {/* ROW 3: Match Log & Career Highlights */}
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-          {/* Match Log (7 Cols) */}
-          <div className="lg:col-span-7 rounded-3xl border border-[#1c2e54] bg-[#0c1730] p-5 shadow-xl">
-            <h3 className="stat-display text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">
-              Match Log
-            </h3>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
-                <thead>
-                  <tr className="border-b border-[#1c2e54] text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                    <th className="py-2.5 px-3">Date</th>
-                    <th className="py-2.5 px-3">Opponent</th>
-                    <th className="py-2.5 px-3">Score</th>
-                    <th className="py-2.5 px-3 text-right">Points</th>
-                    <th className="py-2.5 px-3 text-right">Kills</th>
-                    <th className="py-2.5 px-3 text-right">Aces</th>
-                    <th className="py-2.5 px-3 text-right">Blocks</th>
-                    <th className="py-2.5 px-3 text-center">MVP</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#1c2e54]/40">
-                  {(() => {
-                    const realLogs = completedMatches.map((m) => {
-                      const mEvents = allEvents.filter((e) => e.matchId === m.id);
-                      const l = playerLine(player, mEvents);
-                      const oppId = m.homeTeamId === player.teamId ? m.awayTeamId : m.homeTeamId;
-                      const opp = allTeams.find((t) => t.id === oppId)?.shortName ?? "TBD";
-                      const sets = m.setScores.length > 0
-                        ? `${m.setScores.filter(s => s.homePoints > s.awayPoints).length}-${m.setScores.filter(s => s.awayPoints > s.homePoints).length}`
-                        : "3-1";
-                      return {
-                        date: m.dateISO || "Recent",
-                        opp: `vs ${opp}`,
-                        score: sets,
-                        pts: l.points,
-                        kills: Math.max(0, l.points - l.aces - l.blocks),
-                        aces: l.aces,
-                        blocks: l.blocks,
-                        mvp: l.points >= 15,
-                      };
-                    });
-
-                    const demoLogs = [
-                      { date: "18 Aug 2024", opp: "vs Sky High", score: "3-1", pts: 24, kills: 19, aces: 3, blocks: 2, mvp: true },
-                      { date: "14 Aug 2024", opp: "vs Net Ninjas", score: "3-2", pts: 28, kills: 23, aces: 4, blocks: 1, mvp: true },
-                      { date: "10 Aug 2024", opp: "vs Block Busters", score: "3-0", pts: 18, kills: 15, aces: 2, blocks: 3, mvp: false },
-                      { date: "06 Aug 2024", opp: "vs Smashers", score: "1-3", pts: 16, kills: 12, aces: 1, blocks: 2, mvp: false },
-                      { date: "02 Aug 2024", opp: "vs Jump Titans", score: "3-1", pts: 20, kills: 17, aces: 2, blocks: 2, mvp: true },
-                    ];
-
-                    const displayLogs = realLogs.length > 0 ? realLogs : demoLogs;
-
-                    return displayLogs.map((m, idx) => (
-                      <tr key={idx} className="hover:bg-[#142347]/50 transition-colors">
-                        <td className="py-3 px-3 text-slate-400">{m.date}</td>
-                        <td className="py-3 px-3 font-semibold text-white">{m.opp}</td>
-                        <td className="py-3 px-3 font-mono text-cyan-400">{m.score}</td>
-                        <td className="py-3 px-3 text-right font-bold text-white">{m.pts}</td>
-                        <td className="py-3 px-3 text-right text-blue-400 font-semibold">{m.kills}</td>
-                        <td className="py-3 px-3 text-right text-amber-400 font-semibold">{m.aces}</td>
-                        <td className="py-3 px-3 text-right text-purple-400 font-semibold">{m.blocks}</td>
-                        <td className="py-3 px-3 text-center">
-                          {m.mvp ? <span className="text-amber-400 text-sm">⭐</span> : <span className="text-slate-600">—</span>}
-                        </td>
-                      </tr>
-                    ));
-                  })()}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Career Highlights (5 Cols) */}
-          <div className="lg:col-span-5 rounded-3xl border border-[#1c2e54] bg-[#0c1730] p-5 shadow-xl">
-            <h3 className="stat-display text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">
-              Career Highlights
-            </h3>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-b from-amber-500/10 to-[#070e20] p-4 text-center">
-                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/20 text-amber-400 text-xl font-bold border border-amber-500/40">
-                  🏆
-                </div>
-                <div className="stat-display text-2xl font-black text-amber-400 mt-2">24</div>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">Career High Points</div>
-                <div className="text-[9px] text-slate-500 mt-1">vs Sky High · 18 Aug 2024</div>
-              </div>
-
-              <div className="rounded-2xl border border-blue-500/30 bg-gradient-to-b from-blue-500/10 to-[#070e20] p-4 text-center">
-                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/20 text-blue-400 text-xl font-bold border border-blue-500/40">
-                  ⚡
-                </div>
-                <div className="stat-display text-2xl font-black text-blue-400 mt-2">5</div>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">Single Match Aces</div>
-                <div className="text-[9px] text-slate-500 mt-1">vs Net Ninjas · 14 Aug 2024</div>
-              </div>
-
-              <div className="rounded-2xl border border-purple-500/30 bg-gradient-to-b from-purple-500/10 to-[#070e20] p-4 text-center">
-                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/20 text-purple-400 text-xl font-bold border border-purple-500/40">
-                  🔥
-                </div>
-                <div className="stat-display text-2xl font-black text-purple-400 mt-2">19</div>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">Most Kills</div>
-                <div className="text-[9px] text-slate-500 mt-1">vs Sky High · 18 Aug 2024</div>
-              </div>
-
-              <div className="rounded-2xl border border-emerald-500/30 bg-gradient-to-b from-emerald-500/10 to-[#070e20] p-4 text-center">
-                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400 text-xl font-bold border border-emerald-500/40">
-                  🎯
-                </div>
-                <div className="stat-display text-lg font-black text-emerald-400 mt-2 uppercase">Clutch Finisher</div>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">Decisive Points</div>
-                <div className="text-[9px] text-slate-500 mt-1">vs Block Busters · 10 Aug 2024</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </main>
+  return (
+    <div className="relative w-full sm:w-72">
+      <label htmlFor={inputId} className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-dim">
+        Find a player or team
+      </label>
+      <input
+        id={inputId}
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && hits[0]) router.push(hrefOf(hits[0]));
+          if (e.key === "Escape") setQuery("");
+        }}
+        placeholder="Search players, teams…"
+        autoComplete="off"
+        className="min-h-11 w-full rounded-xl border border-line bg-surface2 px-3 text-sm text-ink placeholder:text-dim focus:border-accent focus:outline-none"
+      />
+      {query.trim() && (
+        <ul
+          aria-label="Search results"
+          className="card-premium absolute inset-x-0 top-full z-30 mt-1 max-h-80 overflow-y-auto rounded-xl p-1"
+        >
+          {hits.length === 0 ? (
+            <li className="px-3 py-2 text-sm text-dim">No player or team matches “{query.trim()}”.</li>
+          ) : (
+            hits.map((h) => (
+              <li key={`${h.kind}-${h.id}`}>
+                <Link
+                  href={hrefOf(h)}
+                  onClick={() => setQuery("")}
+                  className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm hover:bg-accent/10"
+                >
+                  <span className="truncate font-semibold">{h.label}</span>
+                  <span className="shrink-0 text-xs text-dim">
+                    {h.kind === "team" ? "Team" : (h.detail ?? "")}
+                  </span>
+                </Link>
+              </li>
+            ))
+          )}
+        </ul>
+      )}
     </div>
   );
 }
