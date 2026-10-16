@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { Player, StatEvent, Match, Db } from "@/lib/types";
 import { playerLine } from "@/lib/metrics";
 import { PositionTag, Skeleton } from "@/components/ui";
 import { useActiveLeague, useStore } from "@/lib/store";
-import { isAuthPage } from "@/lib/auth/routes";
+import { FAN_SIGN_IN_PATH, isAuthPage, requiresAccount } from "@/lib/auth/routes";
 import { isAuthenticated, onAuthChange } from "@/lib/auth/temporary-auth";
 import {
   fanInitials,
@@ -255,6 +255,8 @@ function Wordmark() {
  * account page. Signed in: an initials avatar and sign-out.
  */
 function FanControls({ onAccountPage }: { onAccountPage: boolean }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [fan, setFan] = useState<TemporaryFan | null>(null);
 
   useEffect(() => {
@@ -272,6 +274,14 @@ function FanControls({ onAccountPage }: { onAccountPage: boolean }) {
       unsubscribe();
     };
   }, []);
+
+  // Every public page needs an account, so it cannot stay on screen once the
+  // session ends: go where the next reload would send this visitor anyway.
+  async function signOut() {
+    await fanLogout();
+    if (requiresAccount(pathname)) router.replace(FAN_SIGN_IN_PATH);
+    router.refresh();
+  }
 
   if (!fan) {
     if (onAccountPage) return null;
@@ -296,7 +306,7 @@ function FanControls({ onAccountPage }: { onAccountPage: boolean }) {
       </span>
       <button
         type="button"
-        onClick={() => fanLogout()}
+        onClick={signOut}
         className="hidden rounded-lg px-2 py-2 text-xs font-semibold uppercase tracking-wider text-dim transition-colors hover:text-ink sm:block"
       >
         Sign out
