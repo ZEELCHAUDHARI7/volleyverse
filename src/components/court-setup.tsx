@@ -15,6 +15,7 @@ import {
   type Toss,
   servingFromToss,
 } from "@/lib/rally";
+import { STARTING_SIX, squadShortBy } from "@/lib/squad";
 import { PositionTag } from "@/components/ui";
 import { CourtBoard, type CourtPlayer } from "@/components/court-board";
 
@@ -128,6 +129,36 @@ export function SetupWizard({
         </p>
         <span className="tnum text-xs text-dim">Step {stepIndex}/4</span>
       </header>
+
+      {/* A team short of six can never complete its line-up step; say so up
+          front instead of leaving "Pick 6 more" disabled with no way out. */}
+      {[
+        { team: homeTeam, roster: homeRoster },
+        { team: awayTeam, roster: awayRoster },
+      ].map(({ team, roster }) =>
+        squadShortBy(roster, team.id) > 0 ? (
+          <div
+            key={team.id}
+            role="alert"
+            className="mb-4 rounded-2xl border border-err/40 bg-err/10 px-4 py-3"
+          >
+            <p className="text-sm font-bold text-ink">
+              {team.name} has {roster.length} {roster.length === 1 ? "player" : "players"}.
+              A starting six needs {STARTING_SIX}.
+            </p>
+            <p className="mt-1 text-xs text-dim">
+              Add {squadShortBy(roster, team.id)} more in League Setup, then come back to this
+              match.
+            </p>
+            <Link
+              href="/console/league"
+              className="mt-3 inline-flex min-h-11 items-center rounded-xl bg-accent px-4 text-sm font-bold text-accent-ink"
+            >
+              Go to League Setup
+            </Link>
+          </div>
+        ) : null,
+      )}
 
       {step === "TOSS" && (
         <>

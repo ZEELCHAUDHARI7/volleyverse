@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useActiveLeague, useStore } from "@/lib/store";
+import { STARTING_SIX, squadShortBy } from "@/lib/squad";
 import {
   Button,
   Card,
@@ -172,13 +173,18 @@ export default function NewMatchWizard() {
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {teams.map((t) => {
                   const role = homeId === t.id ? "HOME" : awayId === t.id ? "AWAY" : null;
+                  // Starting a match goes straight to the line-ups, which a
+                  // team short of six can never complete.
+                  const short = squadShortBy(db.players, t.id) > 0;
+                  const size = db.players.filter((p) => p.teamId === t.id).length;
                   return (
                     <button
                       key={t.id}
                       type="button"
                       onClick={() => pick(t.id)}
+                      disabled={short}
                       aria-pressed={role !== null}
-                      className={`group relative flex min-h-16 items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-all duration-300 ${
+                      className={`group relative flex min-h-16 items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-60 ${
                         role
                           ? "border-accent bg-accent/10 ring-1 ring-accent/30"
                           : "border-line bg-surface2 hover:border-accent/40"
@@ -193,6 +199,11 @@ export default function NewMatchWizard() {
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-semibold text-ink">{t.name}</span>
                         {t.city && <span className="block truncate text-[11px] text-dim">{t.city}</span>}
+                        {short && (
+                          <span className="block truncate text-[11px] font-semibold text-err">
+                            {size} {size === 1 ? "player" : "players"} · needs {STARTING_SIX}
+                          </span>
+                        )}
                       </span>
                       {role && (
                         <span className="absolute right-2 top-2 rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent-ink">
@@ -203,6 +214,12 @@ export default function NewMatchWizard() {
                   );
                 })}
               </div>
+              {teams.some((t) => squadShortBy(db.players, t.id) > 0) && (
+                <p className="text-xs text-dim">
+                  A team needs at least {STARTING_SIX} players to start a match. Add players in
+                  League Setup.
+                </p>
+              )}
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line/60 pt-4">
                 <p className="text-sm text-dim">

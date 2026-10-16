@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useActiveLeague, useStore } from "@/lib/store";
+import { STARTING_SIX, squadShortBy } from "@/lib/squad";
 import {
   Button,
   Card,
@@ -319,6 +320,12 @@ function ScheduleMatch({ tournaments }: { tournaments: string[] }) {
   const teamOptions = (excludeId: string) =>
     db.teams.filter((t) => t.id !== excludeId);
 
+  // A fixture can be booked before its squads are registered, so this warns
+  // rather than blocks: the line-ups cannot be set until each team has six.
+  const shortTeams = db.teams.filter(
+    (t) => (t.id === homeTeamId || t.id === awayTeamId) && squadShortBy(db.players, t.id) > 0,
+  );
+
   return (
     <Card className="space-y-5 p-6">
       <SectionHeading
@@ -404,6 +411,18 @@ function ScheduleMatch({ tournaments }: { tournaments: string[] }) {
           </Button>
         </div>
       </div>
+      {shortTeams.map((t) => {
+        const size = db.players.filter((p) => p.teamId === t.id).length;
+        return (
+          <p key={t.id} className="text-xs font-semibold text-err">
+            {t.name} has {size} {size === 1 ? "player" : "players"}. Add at least {STARTING_SIX} in{" "}
+            <Link href="/console/league" className="underline underline-offset-2">
+              League Setup
+            </Link>{" "}
+            before match day, or its line-up cannot be set.
+          </p>
+        );
+      })}
     </Card>
   );
 }
