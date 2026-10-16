@@ -23,7 +23,9 @@ export default function ShowcaseLayout({
         <CursorSpotlight />
         <div className="flex min-h-dvh flex-col">
           <ShowcaseNav />
-          <main className="flex-1">{children}</main>
+          {/* Reveal slides content in from the side; until it is on screen that
+              offset must not widen the page on a phone. */}
+          <main className="flex-1 overflow-x-clip">{children}</main>
           <ShowcaseFooter />
         </div>
         <SyncIndicator />
