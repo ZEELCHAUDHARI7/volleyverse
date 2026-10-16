@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { kickoffISO, pickNextFixture } from "@/lib/live-score";
 import { lines, seasonRecord, standings, topBy } from "@/lib/metrics";
 import type { RecordStat } from "@/lib/metrics";
 import {
@@ -73,9 +74,7 @@ export default function ShowcaseHome() {
   const latestTopPlayer =
     latestTop && db.players.find((p) => p.id === latestTop.playerId);
 
-  const nextFixture = db.matches
-    .filter((m) => m.status === "scheduled")
-    .sort((a, b) => a.dateISO.localeCompare(b.dateISO))[0];
+  const nextFixture = pickNextFixture(db.matches);
   const nextFixtureVenue =
     nextFixture && db.venues.find((v) => v.id === nextFixture.venueId);
 
@@ -241,7 +240,7 @@ export default function ShowcaseHome() {
             <Reveal delay={250}>
               <div className="mt-9">
                 <LedCountdown
-                  toISO={`${nextFixture.dateISO}T${nextFixture.time ?? "18:00"}:00`}
+                  toISO={kickoffISO(nextFixture)}
                 />
               </div>
             </Reveal>

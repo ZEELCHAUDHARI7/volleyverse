@@ -1,5 +1,6 @@
 "use client";
 
+import { kickoffISO, pickNextFixture } from "@/lib/live-score";
 import { lines, sideTotals, topBy } from "@/lib/metrics";
 import { useStore } from "@/lib/store";
 import {
@@ -44,9 +45,7 @@ export default function LiveMatchCentre() {
   // ---------------- NO LIVE MATCH ----------------
   if (!match) {
     const latest = published.matches[0];
-    const nextFixture = db.matches
-      .filter((m) => m.status === "scheduled")
-      .sort((a, b) => a.dateISO.localeCompare(b.dateISO))[0];
+    const nextFixture = pickNextFixture(db.matches);
     return (
       <div className="mx-auto max-w-7xl px-4 pb-24 pt-32 md:px-8">
         <Reveal>
@@ -69,7 +68,7 @@ export default function LiveMatchCentre() {
               </p>
               <div className="mt-6">
                 <LedCountdown
-                  toISO={`${nextFixture.dateISO}T${nextFixture.time ?? "18:00"}:00`}
+                  toISO={kickoffISO(nextFixture)}
                 />
               </div>
             </div>
