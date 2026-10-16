@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Player, StatEvent, Match, Db } from "@/lib/types";
 import { playerLine } from "@/lib/metrics";
 import { PositionTag, Skeleton } from "@/components/ui";
@@ -238,7 +238,7 @@ function Wordmark() {
   return (
     <Link
       href="/"
-      className="stat-display group text-lg font-extrabold uppercase tracking-wide"
+      className="stat-display group block min-w-0 truncate text-lg font-extrabold uppercase tracking-wide"
     >
       {wm.lead && <>{wm.lead} </>}
       <span className="text-accent transition-all group-hover:drop-shadow-[0_0_12px_var(--glow-accent)]">
@@ -307,7 +307,7 @@ function FanControls({ onAccountPage }: { onAccountPage: boolean }) {
       <button
         type="button"
         onClick={signOut}
-        className="hidden rounded-lg px-2 py-2 text-xs font-semibold uppercase tracking-wider text-dim transition-colors hover:text-ink sm:block"
+        className="rounded-lg px-2 py-2 text-xs font-semibold uppercase tracking-wider text-dim transition-colors hover:text-ink"
       >
         Sign out
       </button>
@@ -344,10 +344,10 @@ function StaffLink({ onAccountPage }: { onAccountPage: boolean }) {
   return (
     <Link
       href={staffed ? "/console" : "/login"}
-      className="btn-premium ml-2 rounded-xl border border-line px-4 py-2 text-xs uppercase tracking-wider text-dim transition-colors hover:border-accent/60 hover:text-accent"
+      className="btn-premium mt-2 rounded-xl border border-line px-4 py-2 text-center text-xs uppercase tracking-wider text-dim transition-colors hover:border-accent/60 hover:text-accent md:ml-2 md:mt-0"
     >
       {staffed ? "Console" : "Staff"}
-      <span className="hidden sm:inline">{staffed ? "" : " sign in"}</span>
+      {staffed ? "" : " sign in"}
     </Link>
   );
 }
@@ -356,6 +356,8 @@ export function ShowcaseNav() {
   const pathname = usePathname();
   const onAccountPage = isAuthPage(pathname);
   const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuId = useId();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -364,26 +366,62 @@ export function ShowcaseNav() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // A link followed from the open menu lands on its page with the menu shut.
+  useEffect(() => setMenuOpen(false), [pathname]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
+
+  // Below md the links, the fan's sign-in/out and the staff link do not fit
+  // in one row beside the wordmark, so they fold into a menu. The account
+  // pages carry at most one control and keep the row as it is.
+  const collapsible = !onAccountPage;
+
   return (
     <header
       className={`sticky top-0 z-40 transition-all duration-500 ${
-        scrolled ? "glass shadow-[0_10px_40px_-16px_rgba(0,0,0,0.8)]" : "bg-transparent"
+        scrolled || menuOpen ? "glass shadow-[0_10px_40px_-16px_rgba(0,0,0,0.8)]" : "bg-transparent"
       }`}
     >
       <div
-        className={`mx-auto flex max-w-6xl items-center justify-between px-4 transition-all duration-500 md:px-8 ${
+        className={`relative mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 transition-all duration-500 md:px-8 ${
           scrolled ? "h-14" : "h-20"
         }`}
       >
         <Wordmark />
-        <nav className="flex items-center gap-1 text-sm font-semibold">
+        {collapsible && (
+          <button
+            type="button"
+            aria-expanded={menuOpen}
+            aria-controls={menuId}
+            onClick={() => setMenuOpen((open) => !open)}
+            className="min-h-11 shrink-0 rounded-xl border border-line px-4 text-xs font-bold uppercase tracking-wider text-dim transition-colors hover:text-ink md:hidden"
+          >
+            {menuOpen ? "Close" : "Menu"}
+          </button>
+        )}
+        <nav
+          id={menuId}
+          aria-label="Site"
+          className={
+            collapsible
+              ? `${menuOpen ? "flex" : "hidden"} absolute inset-x-0 top-full flex-col items-stretch gap-1 border-b border-line bg-bg/95 px-4 pb-4 pt-2 text-sm font-semibold backdrop-blur md:static md:flex md:flex-row md:items-center md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none`
+              : "flex items-center gap-1 text-sm font-semibold"
+          }
+        >
           {!onAccountPage &&
             NAV_LINKS.map((l) => (
             <Link
               key={l.href}
               href={l.href}
               data-active={pathname.startsWith(l.href)}
-              className={`nav-link rounded-lg px-3 py-2 transition-colors ${
+              className={`nav-link rounded-lg px-3 py-3 transition-colors md:py-2 ${
                 pathname.startsWith(l.href) ? "text-ink" : "text-dim hover:text-ink"
               }`}
             >
