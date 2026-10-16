@@ -7,6 +7,7 @@ import { createRunner } from "./console-ui.mjs";
 import {
   applyRemoval,
   countOf,
+  matchesWithPlayer,
   planTeamRemoval,
   planTournamentRemoval,
   planVenueRemoval,
@@ -236,6 +237,37 @@ t("a venue removal clears the links before deleting courts and the venue", () =>
     ["T1", null],
     ["T2", "V2"],
   ]);
+});
+
+
+qa.suite("Removing a player");
+
+t("a player in no recorded match can go", () => {
+  const db = league();
+  db.players.push({ id: "pA3", teamId: "A" });
+  assert.deepEqual(matchesWithPlayer(db, "pA3"), []);
+});
+
+t("their own points tie them to those matches", () => {
+  assert.deepEqual(matchesWithPlayer(league(), "pB1"), ["m1", "m2", "m4"]);
+});
+
+t("being the opponent in someone else's point ties them too", () => {
+  const db = league();
+  db.events.push({ id: "e7", matchId: "m2", playerId: "pB1", teamId: "B", vsPlayerId: "pC1" });
+  assert.deepEqual(matchesWithPlayer(db, "pC1"), ["m3", "m2"]);
+});
+
+t("a line-up place with no points ties them too", () => {
+  const db = league();
+  db.matches[1] = { ...db.matches[1], rosters: [{ teamId: "C", playerId: "pX", isStarter: true, isLibero: false }] };
+  assert.deepEqual(matchesWithPlayer(db, "pX"), ["m2"]);
+});
+
+t("each match is counted once", () => {
+  const db = league();
+  db.matches[0] = { ...db.matches[0], rosters: [{ teamId: "A", playerId: "pA1", isStarter: true, isLibero: false }] };
+  assert.deepEqual(matchesWithPlayer(db, "pA1"), ["m1"]);
 });
 
 qa.finish();

@@ -23,6 +23,7 @@ import {
 import {
   applyRemoval,
   countOf,
+  matchesWithPlayer,
   planTeamRemoval,
   planTournamentRemoval,
   planVenueRemoval,
@@ -912,6 +913,9 @@ function TeamCard({
    */
   const [jerseyDrafts, setJerseyDrafts] = useState<Record<string, string>>({});
 
+  /** Players whose Remove was refused because recorded matches name them. */
+  const [keptPlayers, setKeptPlayers] = useState<Set<string>>(new Set());
+
   const captain = roster.find((p) => p.isCaptain);
 
   /**
@@ -1045,6 +1049,7 @@ function TeamCard({
                 const jerseyText =
                   jerseyDrafts[p.id] ?? (p.jerseyNo === null ? "" : String(p.jerseyNo));
                 const rowJersey = checkShirtNumber(jerseyText);
+                const keptIn = keptPlayers.has(p.id) ? matchesWithPlayer(db, p.id).length : 0;
                 return (
                   <div key={p.id} className="rounded-xl bg-surface2 px-3 py-2">
                     <div className="flex items-center justify-between gap-3">
@@ -1132,15 +1137,9 @@ function TeamCard({
                         </button>
                         <RemoveButton
                           onClick={() => {
-                            const hasStats = db.events?.some((e) => e.playerId === p.id);
-                            const hasRosters = db.matches.some((m) =>
-                              m.rosters?.some((r) => r.playerId === p.id),
-                            );
-                            if (hasStats || hasRosters) {
-                              const confirmDelete = window.confirm(
-                                `"${p.fullName}" has recorded match stats. Deleting this player will remove their stats from those matches. Do you still want to proceed?`,
-                              );
-                              if (!confirmDelete) return;
+                            if (matchesWithPlayer(db, p.id).length > 0) {
+                              setKeptPlayers((kept) => new Set(kept).add(p.id));
+                              return;
                             }
                             remove("players", p.id);
                           }}
@@ -1151,6 +1150,13 @@ function TeamCard({
                       <p className="mt-1 text-[11px] font-semibold text-err">
                         {rowJersey.error} Not saved:{" "}
                         {p.jerseyNo === null ? "still no number." : `still #${p.jerseyNo}.`}
+                      </p>
+                    )}
+                    {keptIn > 0 && (
+                      <p role="alert" className="mt-1 text-[11px] font-semibold text-err">
+                        {keptIn === 1
+                          ? `${p.fullName} is part of 1 recorded match, so they stay on the roster: removing them would change that result. If the match was entered by mistake, delete it first.`
+                          : `${p.fullName} is part of ${keptIn} recorded matches, so they stay on the roster: removing them would change those results. If the matches were entered by mistake, delete them first.`}
                       </p>
                     )}
                   </div>
