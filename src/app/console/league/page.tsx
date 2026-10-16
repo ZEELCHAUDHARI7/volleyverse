@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useStore } from "@/lib/store";
+import { useActiveLeague, useStore } from "@/lib/store";
 import { checkCapacity, checkHeightCm, checkShirtNumber } from "@/lib/number-fields";
+import { nameTaken, takenMessage } from "@/lib/duplicates";
 import { loadPvl2025 } from "@/lib/seed/pvl-2025";
 import {
   U21_LEAGUE_NAME,
@@ -149,11 +150,8 @@ function CompetitionSection() {
   const [tournStart, setTournStart] = useState("");
   const [tournEnd, setTournEnd] = useState("");
 
-  const league = db.leagues[0];
-  const season = db.seasons.find((s) => s.leagueId === league?.id);
-  const tournaments = season
-    ? db.tournaments.filter((t) => t.seasonId === season.id)
-    : [];
+  const { league, season, tournaments } = useActiveLeague();
+  const tournClash = nameTaken(tournName, tournaments);
 
   return (
     <Card className="space-y-5 p-6">
@@ -287,9 +285,15 @@ function CompetitionSection() {
               <input
                 className={inputCls}
                 placeholder="e.g. Championship Round"
+                aria-invalid={tournClash !== null}
                 value={tournName}
                 onChange={(e) => setTournName(e.target.value)}
               />
+              {tournClash && (
+                <span className="mt-1 block text-[11px] font-semibold text-err">
+                  {takenMessage("tournament", tournClash.name, "in this season")}
+                </span>
+              )}
             </label>
             <label className="block">
               <span className={labelCls}>Organizer</span>
@@ -336,8 +340,9 @@ function CompetitionSection() {
             <div className="flex items-end">
               <Button
                 className="w-full"
-                disabled={tournName.trim().length < 2}
+                disabled={tournName.trim().length < 2 || tournClash !== null}
                 onClick={() => {
+                  if (tournClash) return;
                   insert("tournaments", {
                     seasonId: season.id,
                     divisionId: null,
@@ -380,6 +385,10 @@ function VenuesSection() {
   const [courtName, setCourtName] = useState("");
   const [courtVenueId, setCourtVenueId] = useState("");
   const capacityCheck = checkCapacity(capacity);
+  const venueClash = nameTaken(name, db.venues);
+  const courtClash = courtVenueId
+    ? nameTaken(courtName, db.courts.filter((c) => c.venueId === courtVenueId))
+    : null;
 
   return (
     <Card className="space-y-5 p-6">
@@ -440,9 +449,13 @@ function VenuesSection() {
           <input
             className={inputCls}
             placeholder="Arena name"
+            aria-invalid={venueClash !== null}
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
+          {venueClash && (
+            <span className="mt-1 block text-[11px] font-semibold text-err">{takenMessage("venue", venueClash.name)}</span>
+          )}
         </label>
         <label className="block">
           <span className={labelCls}>City</span>
@@ -472,9 +485,9 @@ function VenuesSection() {
         <div className="flex items-end">
           <Button
             className="w-full"
-            disabled={name.trim().length < 2 || !capacityCheck.ok}
+            disabled={name.trim().length < 2 || !capacityCheck.ok || venueClash !== null}
             onClick={() => {
-              if (!capacityCheck.ok) return;
+              if (!capacityCheck.ok || venueClash) return;
               insert("venues", {
                 name: name.trim(),
                 address: null,
@@ -499,9 +512,15 @@ function VenuesSection() {
             <input
               className={inputCls}
               placeholder="e.g. Court 1"
+              aria-invalid={courtClash !== null}
               value={courtName}
               onChange={(e) => setCourtName(e.target.value)}
             />
+            {courtClash && (
+              <span className="mt-1 block text-[11px] font-semibold text-err">
+                {takenMessage("court", courtClash.name, "at this venue")}
+              </span>
+            )}
           </label>
           <label className="block">
             <span className={labelCls}>At venue</span>
@@ -522,8 +541,9 @@ function VenuesSection() {
             <Button
               variant="ghost"
               className="w-full"
-              disabled={courtName.trim().length < 1 || !courtVenueId}
+              disabled={courtName.trim().length < 1 || !courtVenueId || courtClash !== null}
               onClick={() => {
+                if (courtClash) return;
                 insert("courts", { venueId: courtVenueId, name: courtName.trim() });
                 setCourtName("");
               }}
@@ -739,6 +759,7 @@ function TeamsSection() {
   const [city, setCity] = useState("");
   const [openTeam, setOpenTeam] = useState<string | null>(null);
   const [seedMsg, setSeedMsg] = useState<string | null>(null);
+  const teamClash = nameTaken(name, db.teams);
 
   return (
     <div className="space-y-4">
@@ -802,9 +823,13 @@ function TeamsSection() {
             <input
               className={inputCls}
               placeholder="Full team name"
+              aria-invalid={teamClash !== null}
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
+            {teamClash && (
+              <span className="mt-1 block text-[11px] font-semibold text-err">{takenMessage("team", teamClash.name)}</span>
+            )}
           </label>
           <label className="block">
             <span className={labelCls}>Short name</span>
@@ -827,8 +852,9 @@ function TeamsSection() {
           <div className="flex flex-col justify-end">
             <Button
               className="w-full"
-              disabled={name.trim().length < 2}
+              disabled={name.trim().length < 2 || teamClash !== null}
               onClick={() => {
+                if (teamClash) return;
                 const t = insert("teams", {
                   name: name.trim(),
                   shortName: shortName.trim() || name.trim().slice(0, 3).toUpperCase(),

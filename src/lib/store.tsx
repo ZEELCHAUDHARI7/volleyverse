@@ -16,6 +16,7 @@ import type {
   StatEvent,
 } from "./types";
 import { EMPTY_DB } from "./types";
+import { pickCompetition } from "./competition";
 import type { Collection, DataProvider } from "./repository";
 import { seedU21IntoDb } from "./seed/u21-guardians-trophy";
 import { isSupabaseConfigured } from "./providers/supabase-client";
@@ -338,15 +339,8 @@ export function useMatch(matchId: string): MatchContext {
   };
 }
 
-/** Active league context: first active league, its seasons/tournaments. */
+/** The league, season and tournaments every console screen works in. */
 export function useActiveLeague() {
   const { db } = useStore();
-  const league = db.leagues.find((l) => l.status === "active") ?? db.leagues[0];
-  const seasons = league ? db.seasons.filter((s) => s.leagueId === league.id) : [];
-  const season =
-    seasons.find((s) => s.status === "active") ?? seasons[seasons.length - 1];
-  const tournaments = season
-    ? db.tournaments.filter((t) => t.seasonId === season.id)
-    : [];
-  return { league, season, tournaments };
+  return pickCompetition(db);
 }
