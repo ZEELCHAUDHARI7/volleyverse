@@ -355,6 +355,36 @@ export default function FreeRallyTracker() {
     [id],
   );
 
+  // A second tab scoring this match writes the same key, and `storage` fires
+  // in every OTHER tab of the browser. Without following it, this tab keeps the
+  // old score and its next point overwrites the other tab's. Applied with the
+  // raw setter, since re-persisting would echo straight back. A half-answered
+  // tap or an Undo bar here describes a court that may no longer exist.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STATE_KEY(id)) return;
+      let next: FreeMatchState | null = null;
+      if (e.newValue != null) {
+        try {
+          const parsed = JSON.parse(e.newValue) as FreeMatchState;
+          if (!(parsed.usLineup && parsed.oppLineup && parsed.rally)) return;
+          next = hydrate(parsed);
+        } catch {
+          return; // partial or corrupt payload — keep the court on screen
+        }
+      }
+      setState(next);
+      setArmed(null);
+      setFaulting(false);
+      setAsking(null);
+      setDuel(null);
+      setLastAction(null);
+      setNotice(null);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [id]);
+
   // Self-healing libero sync. Every path that changes the serve syncs the court
   // itself; this is the backstop for the paths that arrive from OUTSIDE a
   // handler — a session resumed from storage (including one saved before this
