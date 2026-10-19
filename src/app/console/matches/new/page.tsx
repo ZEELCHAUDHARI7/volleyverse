@@ -182,7 +182,7 @@ export default function NewMatchWizard() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {teams.map((t) => {
                   const role = homeId === t.id ? "HOME" : awayId === t.id ? "AWAY" : null;
                   // Starting a match goes straight to the line-ups, which a
@@ -218,7 +218,9 @@ export default function NewMatchWizard() {
                         )}
                       </span>
                       {role && (
-                        <span className="absolute right-2 top-2 rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent-ink">
+                        // On the border, not over the name: inside the corner it hid the end of
+                        // any name long enough to reach it, and reserving that width squeezed names.
+                        <span className="absolute -top-2 right-3 rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent-ink">
                           {role}
                         </span>
                       )}

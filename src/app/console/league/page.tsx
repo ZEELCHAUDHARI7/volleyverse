@@ -204,7 +204,7 @@ function CompetitionSection() {
               {league.name.slice(0, 2)}
             </span>
             <div className="min-w-0">
-              <p className="stat-display truncate text-base font-extrabold uppercase">
+              <p className="stat-display break-words text-base font-extrabold uppercase">
                 {league.name}
               </p>
               <p className="text-xs text-dim">
@@ -261,7 +261,7 @@ function CompetitionSection() {
               className="flex items-center justify-between gap-3 rounded-xl bg-surface2 px-4 py-2.5"
             >
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-ink">{t.name}</p>
+                <p className="break-words text-sm font-semibold text-ink">{t.name}</p>
                 <p className="text-xs text-dim">
                   {t.organizer ? `${t.organizer} · ` : ""}
                   {t.startDate ?? "dates TBC"}
@@ -411,7 +411,7 @@ function VenuesSection() {
           <div key={v.id} className="rounded-xl bg-surface2 px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-ink">{v.name}</p>
+                <p className="break-words text-sm font-semibold text-ink">{v.name}</p>
                 <p className="text-xs text-dim">
                   {v.city ?? "City TBC"}
                   {v.capacity ? ` · ${v.capacity.toLocaleString()} seats` : ""}
@@ -976,7 +976,7 @@ function TeamCard({
             {team.shortName.slice(0, 3)}
           </span>
           <div className="min-w-0">
-            <p className="stat-display truncate text-lg font-extrabold uppercase">
+            <p className="stat-display break-words text-lg font-extrabold uppercase">
               {team.name}
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -1016,7 +1016,7 @@ function TeamCard({
                   key={s.id}
                   className="flex items-center justify-between gap-3 rounded-xl bg-surface2 px-3 py-2"
                 >
-                  <span className="min-w-0 truncate text-sm">
+                  <span className="min-w-0 break-words text-sm">
                     <span className="font-semibold text-ink">{s.name}</span>
                     <span className="ml-2 text-xs text-dim">
                       {STAFF_ROLE_LABEL[s.role]}

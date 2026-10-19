@@ -1266,7 +1266,7 @@ export default function FreeRallyTracker() {
           subs={state.subs}
           onSub={onSub}
         />
-        <p className="min-w-0 flex-1 truncate text-xs text-dim">
+        <p className="min-w-0 flex-1 basis-48 break-words text-xs text-dim">
           {state.current.length > 0
             ? "Ball is live — substitute when the rally ends."
             : (notice ?? "Libero swaps run automatically on every change of serve.")}
