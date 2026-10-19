@@ -444,8 +444,8 @@ function MatchHistoryRow({
       href={`/console/matches/${match.id}/analytics`}
       className="card-premium flex flex-wrap items-center gap-x-5 gap-y-2 rounded-2xl p-4 transition-colors hover:border-accent/40"
     >
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-bold">
+      <div className="min-w-0 flex-1 basis-48">
+        <p className="break-words text-sm font-bold">
           {teamName(match.homeTeamId)} <span className="text-dim">vs</span> {teamName(match.awayTeamId)}
         </p>
         <p className="mt-0.5 text-xs text-dim">{match.dateISO} · {result}</p>

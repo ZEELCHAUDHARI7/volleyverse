@@ -241,8 +241,10 @@ export default function SuperAdminDashboard() {
             <div className="py-12 text-center text-xs text-slate-400">Loading user roles...</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
-                <thead>
+              {/* Below sm each user is a stacked row: as four columns, the email
+                  took a phone's width and pushed the role menu and action off screen. */}
+              <table className="block w-full text-left text-xs text-slate-300 sm:table">
+                <thead className="hidden sm:table-header-group">
                   <tr className="border-b border-[#1c2e54] text-[10px] font-bold uppercase tracking-wider text-slate-500">
                     <th className="py-3 px-4">User Email</th>
                     <th className="py-3 px-4">Current Role</th>
@@ -250,14 +252,17 @@ export default function SuperAdminDashboard() {
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#1c2e54]/40">
+                <tbody className="block divide-y divide-[#1c2e54]/40 sm:table-row-group">
                   {users.map((u) => (
-                    <tr key={u.email} className="hover:bg-[#142347]/40 transition-colors">
-                      <td className="py-3.5 px-4 font-mono font-semibold text-white">
+                    <tr
+                      key={u.email}
+                      className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3.5 transition-colors hover:bg-[#142347]/40 sm:table-row sm:py-0"
+                    >
+                      <td className="block w-full font-mono font-semibold text-white wrap-anywhere sm:table-cell sm:w-auto sm:px-4 sm:py-3.5">
                         {u.email}
                       </td>
 
-                      <td className="py-3.5 px-4">
+                      <td className="block sm:table-cell sm:px-4 sm:py-3.5">
                         {u.role === "super_admin" && (
                           <span className="inline-flex items-center gap-1 rounded-lg bg-amber-500/20 px-2.5 py-1 text-[10px] font-black uppercase text-amber-400 border border-amber-500/30">
                             👑 Super Admin
@@ -275,8 +280,9 @@ export default function SuperAdminDashboard() {
                         )}
                       </td>
 
-                      <td className="py-3.5 px-4">
+                      <td className="block sm:table-cell sm:px-4 sm:py-3.5">
                         <select
+                          aria-label={`Role for ${u.email}`}
                           value={u.role}
                           onChange={(e) => handleRoleChange(u.email, e.target.value as any)}
                           className="rounded-lg border border-[#1c2e54] bg-[#070e20] px-3 py-1 text-xs font-bold text-white focus:border-amber-500 focus:outline-none"
@@ -287,7 +293,7 @@ export default function SuperAdminDashboard() {
                         </select>
                       </td>
 
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="ml-auto block text-right sm:table-cell sm:px-4 sm:py-3.5">
                         {u.role !== "simple_user" ? (
                           <button
                             onClick={() => handleRevoke(u.email)}
@@ -308,8 +314,8 @@ export default function SuperAdminDashboard() {
                   ))}
 
                   {users.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="py-8 text-center text-xs text-slate-500">
+                    <tr className="block sm:table-row">
+                      <td colSpan={4} className="block py-8 text-center text-xs text-slate-500 sm:table-cell">
                         No roles configured in database yet. Run SQL migration to seed initial roles.
                       </td>
                     </tr>

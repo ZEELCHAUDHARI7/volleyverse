@@ -6,6 +6,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { Player, StatEvent, Match, Db } from "@/lib/types";
 import { playerLine } from "@/lib/metrics";
 import { PositionTag, Skeleton } from "@/components/ui";
+import { SyncStatus } from "@/components/sync-indicator";
 import { useActiveLeague, useStore } from "@/lib/store";
 import { FAN_SIGN_IN_PATH, isAuthPage, requiresAccount } from "@/lib/auth/routes";
 import { isAuthenticated, onAuthChange } from "@/lib/auth/temporary-auth";
@@ -470,8 +471,11 @@ export function ShowcaseFooter() {
               Staff sign in
             </Link>
           </nav>
-          <p className="text-xs text-dim">
-            Powered by <span className="font-semibold text-accent">VolleyVerse</span>
+          <p className="flex items-center gap-3 text-xs text-dim">
+            <SyncStatus />
+            <span>
+              Powered by <span className="font-semibold text-accent">VolleyVerse</span>
+            </span>
           </p>
         </div>
       </div>
