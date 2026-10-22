@@ -30,9 +30,8 @@ export async function createSupabaseServerClient(): Promise<SupabaseClient | nul
           }
         } catch {
           // Thrown when called from a Server Component, where the cookie
-          // store is read-only. Nothing depends on the write: the console has
-          // no sign-in, so there is no session to persist — server reads run
-          // on the anon key and RLS enforces the publish boundary.
+          // store is read-only. Safe to ignore: middleware refreshes the
+          // session cookie on every request.
         }
       },
     },

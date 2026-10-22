@@ -6,12 +6,14 @@ import { CursorSpotlight } from "@/components/match-night";
 import { SyncAlert } from "@/components/sync-indicator";
 
 export const metadata: Metadata = {
-  title: "Live Volleyball | VolleyVerse",
+  // The object form, as in the console layout: a plain string doubles the
+  // root suffix here and leaves the pages below with no suffix at all.
+  title: { default: "Live Volleyball", template: "%s | VolleyVerse" },
   description:
     "Official stats, standings, teams and match reports, tracked live courtside.",
 };
 
-/** Public Showcase shell: the Match Night arena. Zero login. */
+/** Public Showcase shell: the Match Night arena. Visitors need an account (see middleware.ts). */
 export default function ShowcaseLayout({
   children,
 }: {

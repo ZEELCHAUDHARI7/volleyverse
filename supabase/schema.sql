@@ -111,7 +111,8 @@ create table team_players (
   -- ("Not listed"). The frontend renders null as "Not listed", never a guess
   -- (src/lib/types.ts Player).
   jersey_no integer,
-  position text check (position in ('OH', 'OPP', 'MB', 'S', 'L', 'DS')),
+  -- 'U' is Universal, an all-round attacker (src/lib/types.ts PlayerPosition).
+  position text check (position in ('OH', 'OPP', 'MB', 'S', 'L', 'DS', 'U')),
   is_captain boolean not null default false,
   -- Registered as a reserve/standby rather than a main-squad player.
   is_reserve boolean not null default false,
@@ -293,19 +294,17 @@ select
 from per_match
 group by tournament_id, team_id;
 
--- ---------- Row Level Security: an open console ----------
--- The console has no sign-in (see README), so the browser reaches this
--- database as the anon role and nothing else. Policies that demanded
--- auth.role() = 'authenticated' therefore refused every write the tracker
--- made — "new row violates row-level security policy" — so the anon role
--- is granted read and write here instead.
+-- ---------- Row Level Security: the original open policies ----------
+-- These grant the anon role read and write. They date from before sign-in;
+-- the live database has since replaced them with the migrations in
+-- supabase/migrations/, which must be run after this file:
+--   2026-08-13-console-admins-and-rls.sql   writes need a console admin
+--   2026-08-31-user-roles-and-admin-panel.sql   admins come from user_roles
 --
--- The cost, stated plainly: the anon key ships in the public JS bundle,
--- so anyone who can reach the site can write to this database directly,
--- past every screen. `published` is now a display filter the showcase
--- honours, not a boundary the database enforces. Restore a sign-in and
--- swap these policies back to auth.role() = 'authenticated' before
--- running a league that matters.
+-- Reads are still open after those migrations: anyone with the anon key
+-- (it ships in the public JS bundle) can read every table, unpublished
+-- matches included. `published` is a filter the showcase honours, not a
+-- boundary the database enforces.
 
 alter table matches enable row level security;
 alter table stat_events enable row level security;

@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { createRunner } from "../console-ui.mjs";
 import { biggestRun, progression, rallyOutcomes, volleyballModule } from "./volleyball.ts";
+import { statText } from "./framework.ts";
 import { generateSummary } from "./narrative.ts";
 import { sideTotals } from "../metrics.ts";
 
@@ -121,6 +122,61 @@ t("a completed match keeps its winner and its write-up", () => {
 
 t("no MVP is named when nobody has made an impact", () => {
   assert.equal(kpi(analyze({}), "mvp"), "—");
+});
+
+qa.suite("A figure with no data reads as a dash");
+
+const played = (events) =>
+  analyze({ status: "completed", winnerTeamId: HOME, setScores: [set(1, 15, 10), set(2, 15, 12)] }, events);
+const stat = (a, side, key) => a.teamStats[side].stats.find((s) => s.key === key);
+const metric = (a, key) => a.comparison.find((c) => c.key === key);
+/** The same event, credited to a player on the match roster. */
+const by = (playerId, e) => ({ ...e, playerId });
+
+t("first-ball side-out has no value when receptions were not recorded", () => {
+  // The report: "First-ball side-out %" read 0% for a match scored without receptions.
+  const a = played([ev(HOME, "SERVE_ERR"), ev(HOME, "SPIKE_POINT")]);
+  assert.equal(stat(a, "home", "firstball").value, "—");
+});
+
+t("first-ball side-out is measured once receptions are recorded", () => {
+  const a = played([ev(HOME, "SERVE_ERR"), ev(HOME, "RECV_GOOD"), ev(HOME, "SPIKE_POINT")]);
+  assert.equal(stat(a, "home", "firstball").value, 100);
+});
+
+t("head-to-head percentages have no value for a side with no attempts", () => {
+  // The report: Reception % read 0% when no receptions were recorded.
+  const a = played([ev(HOME, "SPIKE_POINT")]);
+  assert.equal(metric(a, "attackPct").home, 100);
+  assert.equal(metric(a, "attackPct").away, null);
+  assert.equal(metric(a, "recvPct").home, null);
+  assert.equal(metric(a, "recvPct").away, null);
+});
+
+t("a dash never carries a unit", () => {
+  // The report: "—%" on the team stat sheet.
+  assert.equal(statText("—", "%"), "—");
+  assert.equal(statText(null, "%"), "—");
+});
+
+t("a number carries its unit", () => {
+  assert.equal(statText(41.5, "%"), "41.5%");
+  assert.equal(statText(3), "3");
+});
+
+t("the best defender's line counts each kind of dig once, in words", () => {
+  // The report: "1 digs"; and a super dig was counted again as a plain dig.
+  const a = played([by("a1", ev(AWAY, "DIG_SAVE")), by("a1", ev(AWAY, "DIG_SUPER"))]);
+  const d = a.performers.find((p) => p.award === "Best Defender");
+  assert.equal(d.detail, "1 dig · 1 super dig");
+  assert.equal(d.value, 3.5);
+});
+
+t("a performer with one of something is named in the singular", () => {
+  const a = played([by("h1", ev(HOME, "SERVE_ACE")), by("a1", ev(AWAY, "BLOCK_WIN"))]);
+  const award = (name) => a.performers.find((p) => p.award === name);
+  assert.equal(award("Best Server").unit, "ace");
+  assert.equal(award("Best Blocker").unit, "block");
 });
 
 qa.finish();

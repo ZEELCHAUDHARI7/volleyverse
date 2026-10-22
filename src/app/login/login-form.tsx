@@ -5,14 +5,20 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Checkbox,
+  GoogleButton,
   Notice,
   OrDivider,
   PasswordField,
-  SocialButtons,
   SubmitButton,
   TextField,
 } from "@/components/auth-ui";
-import { APP_HOME, ERROR_PARAM, NEXT_PARAM, safeNext } from "@/lib/auth/routes";
+import {
+  APP_HOME,
+  ERROR_PARAM,
+  NEXT_PARAM,
+  safeNext,
+  signInErrorMessage,
+} from "@/lib/auth/routes";
 import { login, resetPassword, signInWithGoogle } from "@/lib/auth/temporary-auth";
 import {
   hasErrors,
@@ -23,9 +29,6 @@ import {
 } from "@/lib/auth/validation";
 
 type Status = "idle" | "submitting" | "success" | "error";
-
-const NOT_AUTHORIZED_MESSAGE =
-  "That account doesn't have console access yet. Ask a league admin to add you.";
 
 /**
  * The staff sign-in form.
@@ -39,12 +42,7 @@ export function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = safeNext(params.get(NEXT_PARAM));
-  const errorCode = params.get(ERROR_PARAM);
-  const initialError = errorCode
-    ? errorCode === "not-authorized"
-      ? NOT_AUTHORIZED_MESSAGE
-      : errorCode
-    : null;
+  const initialError = signInErrorMessage(params.get(ERROR_PARAM));
 
   const emailId = useId();
   const passwordId = useId();
@@ -208,12 +206,8 @@ export function LoginForm() {
           />
 
           <OrDivider label="or continue with" />
-          <SocialButtons
-            onPick={(provider) => {
-              if (provider !== "Google") {
-                setNotice(`${provider} sign-in is not connected yet.`);
-                return;
-              }
+          <GoogleButton
+            onClick={() => {
               signInWithGoogle(next || APP_HOME).catch(() => {
                 setFormError("Something went wrong starting Google sign-in. Try again.");
               });

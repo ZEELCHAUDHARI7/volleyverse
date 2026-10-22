@@ -17,12 +17,15 @@ import {
 } from "recharts";
 import type { Player, StatEvent, Match, Team } from "@/lib/types";
 import {
+  DEFENCE_WEIGHTS,
+  defenceBreakdown,
   defensiveScore,
   lines,
   playerLine,
   seasonRecord,
   type RecordStat,
 } from "@/lib/metrics";
+import { formatScore } from "@/lib/format";
 
 /**
  * Analytics charts — fully prop-driven, token-themed.
@@ -406,11 +409,13 @@ export function DefendersLeaderboard({
         Floor Defenders
       </h3>
       <p className="mb-3 mt-0.5 text-xs text-dim">
-        Top defenders: blocks, digs and super digs combined.
+        Score: {DEFENCE_WEIGHTS.block} per block, {DEFENCE_WEIGHTS.dig} per dig,{" "}
+        {DEFENCE_WEIGHTS.superDig} per super dig.
       </p>
       <div className="space-y-1.5">
         {rows.map(({ l, score }, i) => {
           const p = players.find((pl) => pl.id === l.playerId)!;
+          const d = defenceBreakdown(l);
           return (
             <div
               key={l.playerId}
@@ -423,10 +428,10 @@ export function DefendersLeaderboard({
                 <span className="text-sm font-semibold">{p.fullName}</span>
               </span>
               <span className="tnum text-xs text-dim">
-                {l.blocks} blk · {l.saves} dig ·{" "}
-                <span className="font-bold text-ok">{l.superDigs} super</span>
+                {d.blocks} blk · {d.digs} dig ·{" "}
+                <span className="font-bold text-ok">{d.superDigs} super</span>
                 <span className="stat-display ml-3 text-base font-extrabold text-ink">
-                  {Math.round(score)}
+                  {formatScore(score)}
                 </span>
               </span>
             </div>

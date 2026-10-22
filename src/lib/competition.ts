@@ -1,4 +1,4 @@
-import type { Db, League, Season, Tournament } from "./types";
+import type { Db, League, Match, Season, Tournament } from "./types";
 
 export interface Competition {
   league: League | undefined;
@@ -50,4 +50,19 @@ function best<T extends { id: string; status: string }>(
       matches(b) - matches(a) ||
       a.id.localeCompare(b.id),
   )[0];
+}
+
+/**
+ * The number for a new match in a tournament: one past the highest in use, so
+ * a deleted match's number is never handed out again.
+ */
+export function nextMatchNo(
+  matches: Pick<Match, "tournamentId" | "matchNo">[],
+  tournamentId: string,
+): number {
+  let highest = 0;
+  for (const m of matches) {
+    if (m.tournamentId === tournamentId && m.matchNo != null) highest = Math.max(highest, m.matchNo);
+  }
+  return highest + 1;
 }

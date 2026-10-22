@@ -4,14 +4,20 @@ import { useId, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Checkbox,
+  GoogleButton,
   Notice,
   OrDivider,
   PasswordField,
-  SocialButtons,
   SubmitButton,
   TextField,
 } from "@/components/auth-ui";
-import { ERROR_PARAM, NEXT_PARAM, PUBLIC_HOME, safeNext } from "@/lib/auth/routes";
+import {
+  ERROR_PARAM,
+  NEXT_PARAM,
+  PUBLIC_HOME,
+  safeNext,
+  signInErrorMessage,
+} from "@/lib/auth/routes";
 import {
   fanLogin,
   resetFanPassword,
@@ -38,7 +44,7 @@ export function FanSignInForm() {
   // The gate sends signed-out visitors here with ?next=, so a fan lands
   // back on whatever they were trying to read.
   const next = safeNext(params.get(NEXT_PARAM), PUBLIC_HOME);
-  const errorCode = params.get(ERROR_PARAM);
+  const initialError = signInErrorMessage(params.get(ERROR_PARAM));
 
   const emailId = useId();
   const passwordId = useId();
@@ -50,7 +56,7 @@ export function FanSignInForm() {
   const [touched, setTouched] = useState({ email: false, password: false });
   const [errors, setErrors] = useState<FieldErrors>({});
   const [notice, setNotice] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(errorCode);
+  const [formError, setFormError] = useState<string | null>(initialError);
   const [status, setStatus] = useState<Status>("idle");
 
   const busy = status === "submitting" || status === "success";
@@ -164,12 +170,8 @@ export function FanSignInForm() {
         />
 
         <OrDivider label="or continue with" />
-        <SocialButtons
-          onPick={(provider) => {
-            if (provider !== "Google") {
-              setNotice(`${provider} sign-in is not connected yet.`);
-              return;
-            }
+        <GoogleButton
+          onClick={() => {
             signInWithGoogleAsFan(next).catch(() => {
               setFormError("Something went wrong starting Google sign-in. Try again.");
             });

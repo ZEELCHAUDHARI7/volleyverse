@@ -17,6 +17,7 @@ import type {
 } from "./types";
 import { EMPTY_DB } from "./types";
 import { pickCompetition } from "./competition";
+import { byShirtNumber } from "./squad";
 import type { Collection, DataProvider } from "./repository";
 import { seedU21IntoDb } from "./seed/u21-guardians-trophy";
 import { isSupabaseConfigured } from "./providers/supabase-client";
@@ -325,9 +326,11 @@ export function useMatch(matchId: string): MatchContext {
       match.rosters.filter((r) => r.teamId === teamId).map((r) => r.playerId),
     );
     // Fall back to the full team roster when no match roster was set.
-    return ids.size > 0
-      ? db.players.filter((p) => ids.has(p.id))
-      : db.players.filter((p) => p.teamId === teamId);
+    const roster =
+      ids.size > 0
+        ? db.players.filter((p) => ids.has(p.id))
+        : db.players.filter((p) => p.teamId === teamId);
+    return roster.sort(byShirtNumber);
   };
   return {
     match,

@@ -62,8 +62,9 @@ export interface TimelineItem {
 export interface ComparisonMetric {
   key: string;
   label: string;
-  home: number;
-  away: number;
+  /** null when the side had nothing to measure, e.g. a percentage with no attempts. */
+  home: number | null;
+  away: number | null;
   unit?: string;
   /** Radar normalisation ceiling; defaults to max(home, away). */
   max?: number;
@@ -192,4 +193,10 @@ export function listSports(): SportModule[] {
  */
 export function resolveSport(_match: Match): SportId {
   return "volleyball";
+}
+
+/** A figure with its unit, or "—" when there is none. A dash never takes the unit ("—%"). */
+export function statText(value: string | number | null | undefined, unit?: string): string {
+  if (value == null) return "—";
+  return typeof value === "number" ? `${value}${unit ?? ""}` : value;
 }

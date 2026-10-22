@@ -8,6 +8,7 @@ import {
   isAuthPage,
   requiresAccount,
   requiresAuth,
+  type SignInErrorCode,
 } from "@/lib/auth/routes";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -118,7 +119,7 @@ export async function middleware(request: NextRequest) {
 
   return response;
 
-  function redirectTo(destination: string, error?: string) {
+  function redirectTo(destination: string, error?: SignInErrorCode) {
     const dest = request.nextUrl.clone();
     dest.pathname = destination;
     dest.search = "";

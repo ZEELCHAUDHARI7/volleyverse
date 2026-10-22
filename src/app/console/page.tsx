@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useActiveLeague, useStore } from "@/lib/store";
 import { STARTING_SIX, squadShortBy } from "@/lib/squad";
 import { fixtureWarnings, localDateISO } from "@/lib/duplicates";
+import { nextMatchNo as nextMatchNoIn } from "@/lib/competition";
 import { FixtureWarning } from "@/components/fixture-warning";
 import {
   Button,
@@ -24,7 +25,7 @@ import type { Match, Team, Venue } from "@/lib/types";
  *
  * League Setup (/console/league) owns the registry: competition,
  * venues, teams, rosters. This screen owns the MATCH PIPELINE:
- * schedule a fixture, run it courtside (Rally Tracker), then publish
+ * schedule a fixture, score it courtside (/spikes), then publish
  * the result to the public site. Everything renders from the store —
  * no fixed team counts, no seeded fixtures.
  */
@@ -288,8 +289,7 @@ function ScheduleMatch({ tournaments }: { tournaments: string[] }) {
   const [totalSets, setTotalSets] = useState(5);
 
   const courts = db.courts.filter((c) => c.venueId === venueId);
-  const nextMatchNo =
-    db.matches.filter((m) => m.tournamentId === tournamentId).length + 1;
+  const nextMatchNo = nextMatchNoIn(db.matches, tournamentId);
 
   const valid =
     tournamentId &&
@@ -340,7 +340,7 @@ function ScheduleMatch({ tournaments }: { tournaments: string[] }) {
       <SectionHeading
         icon="📅"
         title="Schedule a Match"
-        hint="Create the fixture here, then run it courtside with the Rally Tracker."
+        hint="Create the fixture here, then press Start Match to score it courtside."
         trailing={
           <StatusChip tone="azure">Match {nextMatchNo} up next</StatusChip>
         }
@@ -460,7 +460,7 @@ function MatchPipeline() {
     return (
       <EmptyState
         title="No matches yet"
-        hint="Schedule your first fixture above, then run it courtside with the Rally Tracker."
+        hint="Schedule your first fixture above, then press Start Match to score it courtside."
       />
     );
   }

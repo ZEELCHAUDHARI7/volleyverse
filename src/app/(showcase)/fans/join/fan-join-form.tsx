@@ -4,10 +4,10 @@ import { useId, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Checkbox,
+  GoogleButton,
   Notice,
   OrDivider,
   PasswordField,
-  SocialButtons,
   StrengthMeter,
   SubmitButton,
   TextField,
@@ -176,12 +176,8 @@ export function FanJoinForm() {
         />
 
         <OrDivider label="or sign up with" />
-        <SocialButtons
-          onPick={(provider) => {
-            if (provider !== "Google") {
-              setNotice(`${provider} sign-up is not connected yet.`);
-              return;
-            }
+        <GoogleButton
+          onClick={() => {
             signInWithGoogleAsFan(next).catch(() => {
               setFormError("Something went wrong starting Google sign-in. Try again.");
             });

@@ -17,19 +17,14 @@ npm install
 npm run dev      # dev server
 npm run build    # production build (also the closest thing to a typecheck gate)
 npm run start    # run the production build
-npm test         # runs every *.test.mjs suite listed below, sequentially
+npm test         # runs every suite in package.json's test script, sequentially
 ```
 
 There is no lint script and no test framework/runner — tests are plain
 Node scripts using `node:assert/strict`, executed directly via
 `node --experimental-strip-types <file>.test.mjs` against the `.ts` source
-they import. `npm test` chains all five suites in one command:
-
-- `src/lib/rally.test.mjs` — rally/rotation state machine
-- `src/lib/spikes.test.mjs` — spike/attack tracking
-- `src/lib/free-rally.test.mjs` — free rally tracking
-- `src/lib/substitution.test.mjs` — substitution + libero swap rules
-- `src/lib/analytics/general.test.mjs` — analytics derivations
+they import (Node 22.6 or later). `npm test` chains every suite listed in
+`package.json`; a new `*.test.mjs` file only runs once it is added there.
 
 To run a single suite: `node --experimental-strip-types src/lib/rally.test.mjs`.
 `src/lib/console-ui.mjs` is a zero-dependency terminal renderer for these
@@ -61,8 +56,8 @@ load by `StoreProvider`:
   offline-first; the whole DB is one JSON document; cross-tab sync via the
   browser `storage` event. Used whenever Supabase env vars are absent.
 - **SupabaseBackend** (`src/lib/providers/supabase-store.ts`) — Postgres
-  as source of truth, Supabase Realtime for cross-client sync, RLS as the
-  publish boundary. `src/lib/providers/mappers.ts` handles all
+  as source of truth, Supabase Realtime for cross-client sync, RLS for
+  access (see **Access** below). `src/lib/providers/mappers.ts` handles all
   camelCase (`types.ts`) ↔ snake_case (`schema.sql`) translation.
 
 Because both satisfy `DataProvider`, **swapping providers requires no
@@ -83,7 +78,8 @@ a source of truth — `stat_events` remains authoritative.
 1:1: leagues, seasons, divisions, tournaments, groups, venues, courts,
 teams, staff, players (`roster_view`), matches, officials, match_sets,
 match_rosters, stat_events — plus derived `match_statistics` and
-`standings` views and RLS policies enforcing the publish boundary. There
+`standings` views and RLS policies. `schema.sql` predates the dated files
+in `supabase/migrations/`, which the live database has applied. There
 is no seed data in production paths — everything is created via
 **League Setup** in the console (`src/lib/seed/pvl-2025.ts` is demo-only
 seed data, not used at runtime by default).
@@ -91,8 +87,10 @@ seed data, not used at runtime by default).
 ### Rules engine
 
 `src/lib/rally.ts` is a pure FIVB state machine (rotation for both teams,
-side-out, toss alternation, 25/15 set targets). It works in abstract sides
-`US`/`OPP`, which the page level maps to home/away team ids.
+side-out, toss alternation, set targets). The console's scorer, `/spikes`,
+plays every set to 15 (`SET_TARGET`); the parked `/rally` tracker plays to
+25 with a 15-point deciding set. It works in abstract sides `US`/`OPP`,
+which the page level maps to home/away team ids.
 
 `src/lib/substitution.ts` handles everything that changes the court
 without a rally, on one principle: **a rotation slot is the identity, not
@@ -118,22 +116,34 @@ the player in it.**
 | `/live` | Live Match Centre (read-only second screen) |
 | `/matches`, `/matches/[id]` | Published results and match reports |
 | `/team`, `/players/[id]` | Teams, rosters and player profiles |
+| `/login` | Staff sign-in |
+| `/fans/sign-in`, `/fans/join` | Fan sign-in and sign-up |
+| `/reset-password`, `/auth/callback` | Password reset; landing route for Supabase Auth links |
 | `/console` | Match day home |
 | `/console/league` | League setup: competition, venues, teams, players, staff |
 | `/console/matches/new` | Schedule a match (tournament, teams, rosters) |
-| `/console/matches/[id]/rally` | Courtside rally tracker (toss → line-ups → live) |
+| `/console/matches/[id]/spikes` | Courtside scorer every console link opens (toss → line-ups → live) |
+| `/console/matches/[id]/rally` | Earlier full rally tracker: parked, loads by URL only |
 | `/console/matches/[id]` | Match dashboard + publish control |
 | `/console/matches/[id]/review` | Post-match corrections |
 | `/console/players`, `/console/analytics` | Player and season analytics |
+| `/admin` | Super-admin panel: who holds which role |
 
-`/` through `/players/[id]` live under the `(showcase)` route group.
+`/` through `/players/[id]` and `/fans/*` live under the `(showcase)` route group.
 
-**The console has no auth.** No login route, no auth middleware, no route
-guard — anything under `/console` is reachable by anyone who can reach the
-deployment. The `published` flag on a match is what gates public
-visibility (enforced via RLS when Supabase is configured), not any
-console access control. Don't assume console routes are protected when
-reasoning about data exposure.
+### Access
+
+`src/middleware.ts` gates routes with the predicates in
+`src/lib/auth/routes.ts`. `/console/*` needs an `admin` or `super_admin`
+row in `user_roles` (or a legacy `console_admins` row), `/admin` needs
+`super_admin`, every other page needs a signed-in account, and the sign-in
+pages are open. Staff and fans are one Supabase Auth account system. With
+no Supabase env vars, `next dev` lets every route through.
+
+Middleware is routing; RLS is the security boundary. Writes need a console
+admin, but reads are open to the anon key, unpublished matches included,
+so `published` is a filter the showcase honours rather than a boundary the
+database enforces. Keep that in mind when reasoning about data exposure.
 
 ### Path alias
 

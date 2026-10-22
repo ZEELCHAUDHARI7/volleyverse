@@ -20,6 +20,7 @@ import {
   RankingBars,
 } from "@/components/analytics";
 import { RecordsStrip, DefendersLeaderboard } from "@/components/charts";
+import { plural } from "@/lib/format";
 import {
   BestSetBlocks,
   BlockLeaderboard,
@@ -277,6 +278,7 @@ export default function SeasonAnalytics() {
           title="Team Deep-dive"
           trailing={
             <select
+              aria-label="Team"
               className="min-h-10 rounded-xl border border-line bg-surface2 px-3 text-sm text-ink focus:border-accent focus:outline-none"
               value={focusTeam}
               onChange={(e) => setTeamId(e.target.value)}
@@ -365,6 +367,7 @@ export default function SeasonAnalytics() {
           title="Head to Head"
           trailing={
             <select
+              aria-label="Opponent"
               className="min-h-10 rounded-xl border border-line bg-surface2 px-3 text-sm text-ink focus:border-accent focus:outline-none"
               value={oppId}
               onChange={(e) => setOppId(e.target.value)}
@@ -412,7 +415,7 @@ export default function SeasonAnalytics() {
 
       {/* Match history */}
       <section className="space-y-3">
-        <SectionHeading icon="🗂️" title="Match History" trailing={<StatusChip tone="dim">{tracked.length} matches</StatusChip>} />
+        <SectionHeading icon="🗂️" title="Match History" trailing={<StatusChip tone="dim">{plural(tracked.length, "match", "matches")}</StatusChip>} />
         <div className="space-y-2">
           {[...tracked].sort((a, b) => b.dateISO.localeCompare(a.dateISO)).map((m) => (
             <MatchHistoryRow key={m.id} match={m} teamName={teamName} teamShort={teamShort} />

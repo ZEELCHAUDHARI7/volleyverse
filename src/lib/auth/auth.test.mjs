@@ -25,6 +25,7 @@ import {
   FAN_SIGN_IN_PATH,
   FAN_JOIN_PATH,
   AUTH_CALLBACK_PATH,
+  signInErrorMessage,
 } from "./routes.ts";
 import { fanDisplayName, fanInitials } from "./temporary-fan-auth.ts";
 import {
@@ -176,5 +177,31 @@ check("strength mixed case", passwordStrength("Abcdefgh").score, 2);
 check("strength long mixed digits", passwordStrength("Abcdefghij12").score, 4);
 check("strength caps at four", passwordStrength("Abcdefghij12!@#$").score, 4);
 check("strength label", passwordStrength("Abcdefghij12").label, "Strong");
+
+// --- ?error= carries a code. The page never repeats text from the link. ---
+check("no code, no message", signInErrorMessage(null), null);
+check(
+  "not-authorized explains itself",
+  signInErrorMessage("not-authorized"),
+  "That account doesn't have console access yet. Ask a league admin to add you.",
+);
+check("unavailable", signInErrorMessage("unavailable"), "Sign-in is not available right now.");
+check("link-invalid", signInErrorMessage("link-invalid"), "That link is invalid or has expired.");
+check(
+  "super-admin-required no longer shows the raw code",
+  signInErrorMessage("super-admin-required").includes("super-admin-required"),
+  false,
+);
+// The report: any text in /login?error=… was shown as the error message.
+check(
+  "text from the link is never repeated",
+  signInErrorMessage("Call 555-0100 to unlock your account").includes("555"),
+  false,
+);
+check(
+  "an unknown code still says sign-in failed",
+  signInErrorMessage("Call 555-0100 to unlock your account"),
+  signInErrorMessage("sign-in-failed"),
+);
 
 console.log(`auth: ${passed} checks passed`);

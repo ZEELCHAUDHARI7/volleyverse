@@ -34,6 +34,7 @@ import type {
   Tone,
 } from "@/lib/analytics";
 import type { Insight } from "@/lib/analytics";
+import { statText } from "@/lib/analytics";
 
 /**
  * ANALYTICS UI — reusable, fully prop-driven, token-themed visualisations.
@@ -148,7 +149,9 @@ export function KpiGrid({ kpis }: { kpis: Kpi[] }) {
             }`}
           >
             {k.value}
-            {k.unit && <span className="ml-0.5 text-base text-dim">{k.unit}</span>}
+            {k.unit && typeof k.value === "number" && (
+              <span className="ml-0.5 text-base text-dim">{k.unit}</span>
+            )}
           </div>
           {k.hint && <div className="mt-1 text-[11px] text-dim/70">{k.hint}</div>}
         </div>
@@ -172,11 +175,14 @@ export function ComparisonRadar({
 }) {
   const t = theme();
   const data = metrics.map((m) => {
-    const ceil = m.max ?? Math.max(m.home, m.away, 1);
+    // The radar needs a point on every axis; a side with no figure sits at the centre.
+    const home = m.home ?? 0;
+    const away = m.away ?? 0;
+    const ceil = m.max ?? Math.max(home, away, 1);
     return {
       metric: m.label,
-      home: Math.round((m.home / ceil) * 100),
-      away: Math.round((m.away / ceil) * 100),
+      home: Math.round((home / ceil) * 100),
+      away: Math.round((away / ceil) * 100),
     };
   });
   return (
@@ -215,27 +221,32 @@ export function ComparisonBars({
       </div>
       <div className="space-y-3">
         {metrics.map((m) => {
-          const total = Math.max(m.home + m.away, 1);
-          const hp = (m.home / total) * 100;
+          const h = m.home;
+          const a = m.away;
+          const total = Math.max((h ?? 0) + (a ?? 0), 1);
+          const hp = ((h ?? 0) / total) * 100;
           const better = m.higherIsBetter === false ? "lower" : "higher";
-          const homeWins = better === "higher" ? m.home > m.away : m.home < m.away;
-          const awayWins = better === "higher" ? m.away > m.home : m.away < m.home;
+          // Only two figures can be compared; a side with none wins nothing.
+          const homeWins = h != null && a != null && (better === "higher" ? h > a : h < a);
+          const awayWins = h != null && a != null && (better === "higher" ? a > h : a < h);
           return (
             <div key={m.key}>
               <div className="mb-1 flex items-center justify-between text-xs">
                 <span className={`tnum font-bold ${homeWins ? "text-accent" : "text-dim"}`}>
-                  {m.home}
-                  {m.unit ?? ""}
+                  {statText(h, m.unit)}
                 </span>
                 <span className="text-[11px] uppercase tracking-wider text-dim">{m.label}</span>
                 <span className={`tnum font-bold ${awayWins ? "text-azure" : "text-dim"}`}>
-                  {m.away}
-                  {m.unit ?? ""}
+                  {statText(a, m.unit)}
                 </span>
               </div>
               <div className="flex h-2 overflow-hidden rounded-full bg-surface2">
-                <div style={{ width: `${hp}%`, background: t.accent }} />
-                <div style={{ width: `${100 - hp}%`, background: t.azure }} />
+                {(h != null || a != null) && (
+                  <>
+                    <div style={{ width: `${hp}%`, background: t.accent }} />
+                    <div style={{ width: `${100 - hp}%`, background: t.azure }} />
+                  </>
+                )}
               </div>
             </div>
           );
@@ -484,15 +495,14 @@ export function TeamStatSheet({
           return (
             <div key={s.key} className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 py-2 text-sm">
               <span className={`tnum text-right font-bold ${muted ? "text-dim/50" : hb ? "text-accent" : "text-ink"}`}>
-                {s.value}
-                {s.unit ?? ""}
+                {statText(s.value, s.unit)}
               </span>
               <span className="min-w-[9rem] text-center text-[11px] uppercase tracking-wider text-dim" title={s.note}>
                 {s.label}
                 {s.note && <span className="ml-1 text-dim/50">*</span>}
               </span>
               <span className={`tnum font-bold ${muted ? "text-dim/50" : ab ? "text-azure" : "text-ink"}`}>
-                {a ? `${a.value}${a.unit ?? ""}` : "—"}
+                {a ? statText(a.value, a.unit) : "—"}
               </span>
             </div>
           );

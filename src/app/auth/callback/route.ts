@@ -3,11 +3,13 @@ import type { EmailOtpType } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/providers/supabase-server";
 import {
   CONSOLE_PREFIX,
+  ERROR_PARAM,
   FAN_SIGN_IN_PATH,
   LOGIN_PATH,
   NEXT_PARAM,
   PUBLIC_HOME,
   safeNext,
+  type SignInErrorCode,
 } from "@/lib/auth/routes";
 
 /**
@@ -29,15 +31,17 @@ export async function GET(request: NextRequest) {
     ? LOGIN_PATH
     : FAN_SIGN_IN_PATH;
 
-  const fail = (message: string) => {
+  // A code, not Supabase's sentence: the sign-in form shows only known codes,
+  // so nobody can put words on that page with a crafted link.
+  const fail = (code: SignInErrorCode) => {
     const url = new URL(fallbackSignIn, origin);
     url.searchParams.set(NEXT_PARAM, next);
-    url.searchParams.set("error", message);
+    url.searchParams.set(ERROR_PARAM, code);
     return NextResponse.redirect(url);
   };
 
   const supabase = await createSupabaseServerClient();
-  if (!supabase) return fail("Sign-in is not available right now.");
+  if (!supabase) return fail("unavailable");
 
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
@@ -45,7 +49,7 @@ export async function GET(request: NextRequest) {
 
   if (tokenHash && type) {
     const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
-    if (error) return fail(error.message);
+    if (error) return fail("link-invalid");
     if (type === "recovery") {
       const reset = new URL("/reset-password", origin);
       reset.searchParams.set(NEXT_PARAM, next);
@@ -56,9 +60,9 @@ export async function GET(request: NextRequest) {
 
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) return fail(error.message);
+    if (error) return fail("sign-in-failed");
     return NextResponse.redirect(new URL(next, origin));
   }
 
-  return fail("That link is invalid or has expired.");
+  return fail("link-invalid");
 }

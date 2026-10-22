@@ -37,6 +37,8 @@ type Row = Record<string, unknown>;
 const s = (v: unknown): string => (v == null ? "" : String(v));
 const ns = (v: unknown): string | null => (v == null ? null : String(v));
 const ni = (v: unknown): number | null => (v == null ? null : Number(v));
+/** Postgres `time` reads back as HH:MM:SS; the app's times are HH:MM. */
+const clockTime = (v: unknown): string | null => (v == null ? null : String(v).slice(0, 5));
 
 // ---------------------------------------------------------------------
 // Collection (Db key) <-> table name
@@ -308,7 +310,7 @@ export function matchFromRow(
     groupId: ns(r.group_id),
     matchNo: ni(r.match_no),
     dateISO: s(r.date),
-    time: ns(r.time),
+    time: clockTime(r.time),
     venueId: ns(r.venue_id),
     courtId: ns(r.court_id),
     homeTeamId: s(r.home_team_id),

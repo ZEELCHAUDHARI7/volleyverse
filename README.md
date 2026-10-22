@@ -12,16 +12,17 @@ showcase.
   reception percentages, standings, season records — is derived in
   `src/lib/metrics.ts`. Nothing is hand-stored.
 - **Repository boundary.** The UI talks only to the `DataProvider`
-  surface (`src/lib/repository.ts`). Today that is the localStorage
-  `LocalProvider` (`src/lib/store.tsx`, offline-first courtside queue);
-  `src/lib/providers/supabase.ts` is the stub for the PostgreSQL
-  swap — no screen changes required.
+  surface (`src/lib/repository.ts`). `StoreProvider` picks one
+  implementation at load: the localStorage `LocalProvider`
+  (`src/lib/store.tsx`, offline-first) when no Supabase env vars are set,
+  otherwise the Supabase backend (`src/lib/providers/supabase-store.ts`,
+  Postgres plus Realtime). Screens are the same either way.
 - **Relational model.** TypeScript entities (`src/lib/types.ts`) mirror
   the PostgreSQL schema (`supabase/schema.sql`) 1:1: leagues, seasons,
   divisions, tournaments, groups, venues, courts, teams, staff,
   players (`roster_view`), matches, officials, match_sets,
   match_rosters, stat_events — plus derived `match_statistics` and
-  `standings` views and RLS policies for the publish boundary.
+  `standings` views and RLS policies (see **Access** below).
 - **No seed data in the platform itself.** Everything is created in the
   console under **League Setup**. The one exception is first run offline:
   an empty localStorage store seeds itself with the Guardians Trophy U21
@@ -39,33 +40,53 @@ showcase.
 | `/live` | Live Match Centre (read-only second screen) |
 | `/matches`, `/matches/[id]` | Published results and match reports |
 | `/team`, `/players/[id]` | Teams, rosters and player profiles |
+| `/login` | Staff sign-in |
+| `/fans/sign-in`, `/fans/join` | Fan sign-in and sign-up |
+| `/reset-password`, `/auth/callback` | Password reset; landing route for Supabase Auth links |
 | `/console` | Match day home |
 | `/console/league` | League setup: competition, venues, teams, players, staff |
 | `/console/matches/new` | Schedule a match (tournament, teams, rosters) |
-| `/console/matches/[id]/rally` | Courtside rally tracker (toss → line-ups → live) |
+| `/console/matches/[id]/spikes` | Courtside scorer every console link opens (toss → line-ups → live) |
+| `/console/matches/[id]/rally` | Earlier full rally tracker: parked, loads by URL only |
 | `/console/matches/[id]` | Match dashboard + publish control |
 | `/console/matches/[id]/review` | Post-match corrections |
 | `/console/players`, `/console/analytics` | Player and season analytics |
+| `/admin` | Super-admin panel: who holds which role |
 
-The console has **no sign-in**: there is no login route, no auth middleware
-and no route guard. Everything under `/console` is open to whoever can reach
-the deployment — put it behind a network boundary if that matters.
+## Access
 
-Because there is no session, the browser reaches Supabase as the `anon`
-role, and the RLS policies grant that role read and write (see the header
-of `supabase/schema.sql`). Two consequences worth being clear about: the
-anon key is in the public JS bundle, so anyone who can load the site can
-write to the database directly, past every screen; and `published` is a
-filter the showcase honours rather than a boundary the database enforces.
-Restore a sign-in and swap the policies back to
-`auth.role() = 'authenticated'` before running a league that matters.
+Routes are gated in `src/middleware.ts`, with the predicates in
+`src/lib/auth/routes.ts`:
+
+| Route | Needs |
+| --- | --- |
+| `/login`, `/fans/sign-in`, `/fans/join`, `/auth/callback` | nothing |
+| `/console/*` | an `admin` or `super_admin` row in `user_roles` (or a legacy `console_admins` row) |
+| `/admin` | `super_admin` |
+| everything else | any signed-in account |
+
+Staff and fans are one Supabase Auth account system
+(`src/lib/auth/temporary-auth.ts` and `temporary-fan-auth.ts`; the names
+outlived the stand-ins they replaced). Fans create their own accounts at
+`/fans/join`; console access comes from a role in `user_roles`, which a
+super admin grants at `/admin`.
+With no Supabase env vars nothing can be verified, so `next dev` lets every
+route through and a production build refuses instead.
+
+Middleware is routing; row-level security is the boundary. Writes need a
+console admin. Reads are still open to the anon key, which ships in the
+public JS bundle, so anyone can read every table, unpublished matches
+included: `published` is a filter the showcase honours, not a boundary the
+database enforces.
 
 ## Rules engine
 
 `src/lib/rally.ts` is a pure FIVB state machine (rotation for both
-teams, side-out, toss alternation, 25/15 set targets). The engine's
-abstract sides `US`/`OPP` map to the **home**/**away** team at the page
-level. Tests: `node src/lib/rally.test.mjs`.
+teams, side-out, toss alternation, set targets). The console's scorer,
+`/spikes`, plays every set to 15 (`SET_TARGET`); the parked `/rally`
+tracker plays to 25 with a 15-point deciding set. The engine's abstract
+sides `US`/`OPP` map to the **home**/**away** team at the page level.
+Tests: `node --experimental-strip-types src/lib/rally.test.mjs`.
 
 `src/lib/substitution.ts` handles everything that changes the court
 without a rally, on one principle: **a rotation slot is the identity, not
@@ -84,65 +105,25 @@ the player in it.**
 
 Ordering contract: on a side-out, **rotate first, then sync the liberos**.
 Design note: `docs/superpowers/specs/2026-08-11-substitution-libero-design.md`.
-Tests: `node src/lib/substitution.test.mjs`.
+Tests: `node --experimental-strip-types src/lib/substitution.test.mjs`.
 
 ## Development
 
 ```bash
 npm install
 npm run dev
+npm test     # Node 22.6 or later
 ```
 
-First run: sign in at `/login` (see below), then open `/console/league`,
-create your league, season, a tournament, venues, at least two teams with
-6+ players each, then schedule a match from Match Day.
+First run: open `/console/league` (with Supabase configured, sign in at
+`/login` first), create your league, season, a tournament, venues, at
+least two teams with 6+ players each, then schedule a match from Match Day.
 
-## Authentication (temporary)
+## Supabase
 
-`/console/*` is gated by a **temporary, UI-only** sign-in while the real
-auth architecture is being decided. Any valid email plus an 8-character
-password opens the console. Credentials are never checked against a
-provider.
-
-All of the stand-in logic lives in `src/lib/auth/temporary-auth.ts`
-(`login` / `logout` / `isAuthenticated` / `getTemporaryUser`), the guard
-predicate in `src/lib/auth/routes.ts`, and the cookie check in
-`src/middleware.ts`. Replacing those bodies with a real provider is the
-whole migration. The login UI at `src/app/login/` does not change.
-
-The session cookie is unsigned and trivially forgeable. It exists so the
-app routes correctly; it is **not** a security boundary and must not ship
-as one.
-
-### Fan accounts (also temporary)
-
-The showcase is gated too. Visitors need an account before any content,
-so `/`, `/live`, `/matches`, `/team` and player pages all redirect to
-`/fans/sign-in?next=...` when signed out. Fans sign in there or create an
-account at `/fans/join`, backed by `src/lib/auth/temporary-fan-auth.ts`
-and a separate `vv_temp_fan` cookie.
-
-A console session counts on the public side, so staff never create a
-second account. A fan session never opens the console. Keeping the two
-cookies apart means either layer can move to real auth first.
-
-Gate summary, all of it in `src/middleware.ts` and
-`src/lib/auth/routes.ts`:
-
-| Route | Needs |
-| --- | --- |
-| `/login`, `/fans/sign-in`, `/fans/join` | nothing |
-| `/console/*` | staff session |
-| everything else | staff or fan session |
-
-## Backend integration (next step)
-
-Apply `supabase/schema.sql` to a Supabase project and implement
-`createSupabaseProvider()` per the notes in
-`src/lib/providers/supabase.ts` (queries, mutations, realtime channels).
-Everything runs on the anon key — there is no console sign-in — so the RLS
-policies grant `anon` read and write, and the publish boundary is a UI
-filter rather than a database one. If you applied an earlier copy of the
-schema, run `supabase/migrations/2026-08-11-open-console-writes.sql` once:
-the original policies demanded an authenticated session that this client
-never creates, and every write was refused by row-level security.
+Apply `supabase/schema.sql` to a new project, then the dated files in
+`supabase/migrations/`: the schema file predates them, and its row-level
+security notes say which migrations replace its open policies. Set
+`NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to switch the
+app from local mode to the database. `REALTIME_SYNC.md` covers reads,
+writes, the offline queue and conflicts.

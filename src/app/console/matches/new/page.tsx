@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useActiveLeague, useStore } from "@/lib/store";
 import { STARTING_SIX, squadShortBy } from "@/lib/squad";
 import { fixtureWarnings, localDateISO } from "@/lib/duplicates";
+import { nextMatchNo } from "@/lib/competition";
 import { FixtureWarning } from "@/components/fixture-warning";
 import {
   Button,
@@ -113,7 +114,7 @@ export default function NewMatchWizard() {
   const start = () => {
     if (!twoChosen || !dateISO || competitionUnknown) return;
     const tid = ensureTournamentId();
-    const matchNo = db.matches.filter((m) => m.tournamentId === tid).length + 1;
+    const matchNo = nextMatchNo(db.matches, tid);
     const match = createMatch({
       tournamentId: tid,
       groupId: null,

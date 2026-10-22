@@ -4,6 +4,9 @@ import { useMemo, useState } from "react";
 import { useActiveLeague, useStore } from "@/lib/store";
 import { checkCapacity, checkHeightCm, checkShirtNumber } from "@/lib/number-fields";
 import { nameTaken, takenMessage } from "@/lib/duplicates";
+import { dateRangeProblem } from "@/lib/date-range";
+import { plural } from "@/lib/format";
+import { byShirtNumber } from "@/lib/squad";
 import { loadPvl2025 } from "@/lib/seed/pvl-2025";
 import {
   U21_LEAGUE_NAME,
@@ -152,6 +155,7 @@ function CompetitionSection() {
 
   const { league, season, tournaments } = useActiveLeague();
   const tournClash = nameTaken(tournName, tournaments);
+  const tournDates = dateRangeProblem(tournStart, tournEnd);
 
   return (
     <Card className="space-y-5 p-6">
@@ -333,16 +337,20 @@ function CompetitionSection() {
               <input
                 type="date"
                 className={inputCls}
+                aria-invalid={tournDates !== null}
                 value={tournEnd}
                 onChange={(e) => setTournEnd(e.target.value)}
               />
+              {tournDates && (
+                <span className="mt-1 block text-[11px] font-semibold text-err">{tournDates}</span>
+              )}
             </label>
             <div className="flex items-end">
               <Button
                 className="w-full"
-                disabled={tournName.trim().length < 2 || tournClash !== null}
+                disabled={tournName.trim().length < 2 || tournClash !== null || tournDates !== null}
                 onClick={() => {
-                  if (tournClash) return;
+                  if (tournClash || tournDates) return;
                   insert("tournaments", {
                     seasonId: season.id,
                     divisionId: null,
@@ -794,7 +802,7 @@ function TeamsSection() {
               setSeedMsg(
                 r.teamsAdded === 0
                   ? "All PVL teams are already loaded — nothing to add."
-                  : `Added ${r.teamsAdded} teams and ${r.playersAdded} players.` +
+                  : `Added ${plural(r.teamsAdded, "team")} and ${plural(r.playersAdded, "player")}.` +
                       (r.skipped.length ? ` Skipped ${r.skipped.length} existing.` : ""),
               );
             }}
@@ -915,7 +923,16 @@ function TeamCard({
   update: ReturnType<typeof useStore>["update"];
 }) {
   const { db, insert, remove } = useStore();
-  const roster = db.players.filter((p) => p.teamId === team.id);
+  const members = db.players.filter((p) => p.teamId === team.id);
+  // Shirt-number order as of opening the roster or adding or removing a player.
+  // Shirt boxes save as they are typed, so re-sorting on every keystroke would
+  // move the row away from the box being typed in.
+  const memberIds = members.map((p) => p.id).join(",");
+  const rank = useMemo(
+    () => new Map([...members].sort(byShirtNumber).map((p, i) => [p.id, i])),
+    [memberIds, open], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const roster = [...members].sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
   const staff = db.staff.filter((s) => s.teamId === team.id);
 
   // player form
@@ -1034,6 +1051,7 @@ function TeamCard({
                 onChange={(e) => setSName(e.target.value)}
               />
               <select
+                aria-label="Staff role"
                 className={inputCls}
                 value={sRole}
                 onChange={(e) => setSRole(e.target.value as StaffRole)}
@@ -1207,6 +1225,7 @@ function TeamCard({
                 onChange={(e) => setPJersey(e.target.value)}
               />
               <select
+                aria-label="Position"
                 className={inputCls}
                 value={pPosition}
                 onChange={(e) => setPPosition(e.target.value as PlayerPosition | "")}

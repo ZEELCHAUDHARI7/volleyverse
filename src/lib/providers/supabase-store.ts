@@ -15,6 +15,7 @@ import { EMPTY_DB } from "../types";
 import type { Collection, DataProvider, SyncStatus } from "../repository";
 import { getSupabase } from "./supabase-client";
 import * as M from "./mappers";
+import { describeRejection } from "./write-errors";
 
 type Row = Record<string, unknown>;
 
@@ -49,28 +50,6 @@ function isRefusedByDatabase(err: unknown): boolean {
     return false;
   const code = typeof e?.code === "string" ? e.code : "";
   return code.length > 0;
-}
-
-/** Turn a PostgREST error into something a courtside human can act on. */
-function describe(op: PendingOp, err: unknown): string {
-  const e = err as { code?: string; message?: string; details?: string } | null;
-  const what =
-    op.kind === "upsert"
-      ? `write to ${op.table}`
-      : op.kind === "update"
-        ? `update to ${op.table}`
-        : `delete from ${op.table}`;
-  const code = e?.code ?? "";
-  const base = e?.message ?? String(err ?? "unknown error");
-  if (code === "23514")
-    return `The database rejected a ${what}: a value is outside what the schema allows (${base}). A migration is probably missing — run the SQL in supabase/migrations/.`;
-  if (code === "23503") return `The database rejected a ${what}: it references a row that does not exist (${base}).`;
-  // There is no sign-in in this console (see supabase-client.ts): every
-  // request runs on the anon key. So 42501 is never an expired session — it
-  // is always a database whose policies still demand an authenticated role.
-  if (code === "42501")
-    return `The database rejected a ${what}: row-level security will not let the anon role write (${base}). Run supabase/FIX-RLS-NOW.sql in the Supabase SQL editor, then press Retry.`;
-  return `The database rejected a ${what}${code ? ` [${code}]` : ""}: ${base}`;
 }
 
 /** Group child rows by a foreign-key column. */
@@ -145,7 +124,7 @@ export function useSupabaseBackend(): DataProvider {
    * collecting a match into a database that is throwing it away.
    */
   const park = useCallback((op: PendingOp, err: unknown) => {
-    const message = describe(op, err);
+    const message = describeRejection(op, err);
     rejectedRef.current.push({ op, message, at: Date.now() });
     try {
       window.localStorage.setItem(REJECTED_KEY, JSON.stringify(rejectedRef.current));

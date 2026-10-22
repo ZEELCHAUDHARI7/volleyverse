@@ -5,7 +5,8 @@ import type {
   PlayerPosition,
   StatEvent,
 } from "../types";
-import { lines, defensiveScore, type PlayerLine } from "../metrics.ts";
+import { defenceBreakdown, defensiveScore, lines, type PlayerLine } from "../metrics.ts";
+import { plural, pluralWord } from "../format.ts";
 import { decidedWinner, hasRecordedPlay, setTally } from "./general.ts";
 import {
   registerSport,
@@ -381,7 +382,14 @@ function teamStatLine(
       { key: "blocks", label: "Block Points", value: blocks },
       { key: "digs", label: "Digs", value: digs },
       { key: "sideout", label: "Side-out %", value: pct(sideOuts, sideOutChances) ?? "—", unit: "%" },
-      { key: "firstball", label: "First-ball Side-out %", value: pct(firstBall, sideOutChances) ?? "—", unit: "%" },
+      // A first-ball side-out is recognised by the reception before the kill,
+      // so with no receptions recorded the share cannot be known.
+      {
+        key: "firstball",
+        label: "First-ball Side-out %",
+        value: recvAttempts > 0 ? (pct(firstBall, sideOutChances) ?? "—") : "—",
+        unit: "%",
+      },
       { key: "break", label: "Break Point %", value: pct(breaks, serveChances) ?? "—", unit: "%" },
       { key: "soloBlk", label: "Solo Blocks", value: "—", note: "Not captured courtside" },
       { key: "blkAssist", label: "Block Assists", value: "—", note: "Not captured courtside" },
@@ -407,14 +415,15 @@ function comparison(
   /** Points from the attack — spikes and checkouts — over every attempt. */
   const attackPoints = (c: Record<EventType, number>) =>
     num(c.SPIKE_POINT) + num(c.SPIKE_TOOL);
-  const attackPct = (c: Record<EventType, number>) => {
+  // A side with no attempts has no percentage, rather than 0%.
+  const attackPct = (c: Record<EventType, number>): number | null => {
     const att =
       attackPoints(c) + num(c.SPIKE_IN) + num(c.SPIKE_ERR) + num(c.SPIKE_BLOCKED);
-    return att ? Math.round((attackPoints(c) / att) * 100) : 0;
+    return att ? Math.round((attackPoints(c) / att) * 100) : null;
   };
-  const recvPct = (c: Record<EventType, number>) => {
+  const recvPct = (c: Record<EventType, number>): number | null => {
     const att = num(c.RECV_PERFECT) + num(c.RECV_GOOD) + num(c.RECV_POOR) + num(c.RECV_ERR);
-    return att ? Math.round(((num(c.RECV_PERFECT) + num(c.RECV_GOOD)) / att) * 100) : 0;
+    return att ? Math.round(((num(c.RECV_PERFECT) + num(c.RECV_GOOD)) / att) * 100) : null;
   };
   const homePts = match.setScores.reduce((s, x) => s + x.homePoints, 0);
   const awayPts = match.setScores.reduce((s, x) => s + x.awayPoints, 0);
@@ -505,6 +514,16 @@ export function playerAnalytics(ctx: MatchContext): PlayerAnalytic[] {
   });
 }
 
+/** "1 block · 2 digs · 1 super dig", leaving out what the player did not do. */
+function defenceSummary(l: PlayerLine): string {
+  const d = defenceBreakdown(l);
+  const parts: string[] = [];
+  if (d.blocks) parts.push(plural(d.blocks, "block"));
+  if (d.digs) parts.push(plural(d.digs, "dig"));
+  if (d.superDigs) parts.push(plural(d.superDigs, "super dig"));
+  return parts.join(" · ");
+}
+
 function performers(analytics: PlayerAnalytic[]): Performer[] {
   const active = analytics.filter(
     (a) => a.points + a.aces + a.blocks + a.assists + a.saves > 0,
@@ -527,15 +546,15 @@ function performers(analytics: PlayerAnalytic[]): Performer[] {
   const mvp = top(active, (a) => a.contribution);
   if (mvp) out.push(to(mvp, "MVP", Math.round(mvp.contribution), "impact", `${mvp.points} pts · ${mvp.teamShort}`));
   const server = top(active, (a) => a.aces * 10 + (a.serveAttempts - a.serveErrors));
-  if (server && server.aces > 0) out.push(to(server, "Best Server", server.aces, "aces"));
+  if (server && server.aces > 0) out.push(to(server, "Best Server", server.aces, pluralWord(server.aces, "ace")));
   const attacker = top(active, (a) => a.points);
   if (attacker && attacker.points > 0) out.push(to(attacker, "Best Attacker", attacker.points, "attack pts", attacker.successRate != null ? `${attacker.successRate}%` : undefined));
   const blocker = top(active, (a) => a.blocks);
-  if (blocker && blocker.blocks > 0) out.push(to(blocker, "Best Blocker", blocker.blocks, "blocks"));
+  if (blocker && blocker.blocks > 0) out.push(to(blocker, "Best Blocker", blocker.blocks, pluralWord(blocker.blocks, "block")));
   const defender = top(active, (a) => defensiveScore(a));
-  if (defender && defensiveScore(defender) > 0) out.push(to(defender, "Best Defender", Math.round(defensiveScore(defender)), "def. score", `${defender.saves} digs`));
+  if (defender && defensiveScore(defender) > 0) out.push(to(defender, "Best Defender", defensiveScore(defender), "def. score", defenceSummary(defender)));
   const setter = top(active, (a) => a.assists);
-  if (setter && setter.assists > 0) out.push(to(setter, "Best Setter", setter.assists, "assists"));
+  if (setter && setter.assists > 0) out.push(to(setter, "Best Setter", setter.assists, pluralWord(setter.assists, "assist")));
   return out;
 }
 

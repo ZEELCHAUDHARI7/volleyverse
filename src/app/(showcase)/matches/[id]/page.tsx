@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { lines, teamTotals, topBy, topDefender } from "@/lib/metrics";
+import { plural } from "@/lib/format";
 import {
   Aurora,
   CountUp,
@@ -71,13 +72,17 @@ export default function PublicMatchReport() {
   // topBy/topDefender name nobody when nobody has the stat; say so plainly.
   const heroes = [
     scorer
-      ? { label: "Top scorer", value: name(scorer.playerId), stat: `${scorer.points} points` }
+      ? { label: "Top scorer", value: name(scorer.playerId), stat: plural(scorer.points, "point") }
       : { label: "Top scorer", value: "—", stat: "No points recorded" },
     setter
-      ? { label: "Best setter", value: name(setter.playerId), stat: `${setter.assists} assists` }
+      ? { label: "Best setter", value: name(setter.playerId), stat: plural(setter.assists, "assist") }
       : { label: "Best setter", value: "—", stat: "No assists recorded" },
     defender
-      ? { label: "Wall of the match", value: name(defender.playerId), stat: `${defender.blocks} blocks · ${defender.saves} saves` }
+      ? {
+          label: "Wall of the match",
+          value: name(defender.playerId),
+          stat: `${plural(defender.blocks, "block")} · ${plural(defender.saves, "save")}`,
+        }
       : { label: "Wall of the match", value: "—", stat: "No blocks or saves recorded" },
   ];
   // Every point of the match, from the set scores. The player lines only

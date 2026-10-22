@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { createRunner } from "./console-ui.mjs";
 import { fixtureClashes, fixtureWarnings, localDateISO, nameTaken, takenMessage } from "./duplicates.ts";
-import { pickCompetition } from "./competition.ts";
+import { nextMatchNo, pickCompetition } from "./competition.ts";
 
 const qa = createRunner({
   title: "VOLLEYVERSE QA AGENT",
@@ -155,6 +155,27 @@ t("no league means no season and no tournaments", () => {
   assert.equal(none.league, undefined);
   assert.equal(none.season, undefined);
   assert.deepEqual(none.tournaments, []);
+});
+
+qa.suite("Match numbers");
+
+const numbered = (matchNo, tournamentId = "T1") => ({ id: `m${matchNo}${tournamentId}`, tournamentId, matchNo });
+
+t("the first match of a tournament is number 1", () => {
+  assert.equal(nextMatchNo([], "T1"), 1);
+});
+
+t("a deleted match's number is not handed out again", () => {
+  // The report: with match 2 deleted, the next match was numbered 3 a second time.
+  assert.equal(nextMatchNo([numbered(1), numbered(3)], "T1"), 4);
+});
+
+t("each tournament counts its own matches", () => {
+  assert.equal(nextMatchNo([numbered(1), numbered(7, "T2")], "T1"), 2);
+});
+
+t("a match with no number does not stop the count", () => {
+  assert.equal(nextMatchNo([{ id: "x", tournamentId: "T1", matchNo: null }, numbered(2)], "T1"), 3);
 });
 
 qa.finish();

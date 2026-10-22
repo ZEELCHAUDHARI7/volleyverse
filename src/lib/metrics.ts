@@ -448,9 +448,22 @@ function leader(ls: PlayerLine[], score: (l: PlayerLine) => number): PlayerLine 
   return best;
 }
 
+/** Points per action in the defensive score. Floor Defenders prints these, so a score can be checked by hand. */
+export const DEFENCE_WEIGHTS = { block: 2, dig: 1, superDig: 2.5 } as const;
+
+/** Blocks, plain digs and super digs. `saves` counts every dig, super digs included. */
+export function defenceBreakdown(l: Pick<PlayerLine, "blocks" | "saves" | "superDigs">): {
+  blocks: number;
+  digs: number;
+  superDigs: number;
+} {
+  return { blocks: l.blocks, digs: l.saves - l.superDigs, superDigs: l.superDigs };
+}
+
 /** Defensive score: blocks + digs, super digs weighted (the hero stat). */
 export function defensiveScore(l: PlayerLine): number {
-  return l.blocks * 2 + (l.saves - l.superDigs) + l.superDigs * 2.5;
+  const d = defenceBreakdown(l);
+  return d.blocks * DEFENCE_WEIGHTS.block + d.digs * DEFENCE_WEIGHTS.dig + d.superDigs * DEFENCE_WEIGHTS.superDig;
 }
 
 export function topDefender(ls: PlayerLine[]): PlayerLine | undefined {

@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { createRunner } from "./console-ui.mjs";
-import { topBy, topDefender } from "./metrics.ts";
+import { defenceBreakdown, topBy, topDefender } from "./metrics.ts";
 
 const qa = createRunner({
   title: "VOLLEYVERSE QA AGENT",
@@ -45,6 +45,15 @@ t("a tie names the same player whatever order the list comes in", () => {
   const d1 = line("p-a", { saves: 2 });
   const d2 = line("p-b", { saves: 2 });
   assert.equal(topDefender([d1, d2])?.playerId, topDefender([d2, d1])?.playerId);
+});
+
+t("a super dig is counted once, as a super dig, not also as a dig", () => {
+  // The report: Floor Defenders read "2 dig · 1 super" for one dig and one super dig.
+  assert.deepEqual(defenceBreakdown(line("p", { blocks: 1, saves: 2, superDigs: 1 })), {
+    blocks: 1,
+    digs: 1,
+    superDigs: 1,
+  });
 });
 
 qa.finish();
