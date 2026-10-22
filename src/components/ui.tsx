@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { PlayerPosition } from "@/lib/types";
 import { POSITION_LABEL } from "@/lib/types";
 
@@ -276,6 +276,66 @@ export function StatusChip({
   );
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * The panel of a modal dialog. While mounted it holds keyboard focus: the first
+ * control takes focus, Tab and Shift+Tab wrap around inside the panel, and on
+ * unmount focus goes back to whatever had it before.
+ */
+export function DialogPanel({
+  labelledBy,
+  className = "",
+  children,
+}: {
+  labelledBy?: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const panel = ref.current;
+    if (!panel) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const controls = () => [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)];
+    (controls()[0] ?? panel).focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const list = controls();
+      const first = list[0];
+      const last = list[list.length - 1];
+      const at = document.activeElement;
+      if (!first || !last) {
+        e.preventDefault();
+      } else if (e.shiftKey && (at === first || !panel.contains(at))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (at === last || !panel.contains(at))) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      opener?.focus();
+    };
+  }, []);
+  return (
+    <div
+      ref={ref}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={labelledBy}
+      className={`outline-none ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
 /**
  * Modal — centred glass dialog over a dimmed backdrop. Closes on Escape and
  * backdrop click. Body scroll is locked while open. Pure presentation; the
@@ -309,20 +369,18 @@ export function Modal({
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[100] grid place-items-center p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={labelledBy}
-    >
+    <div className="fixed inset-0 z-[100] grid place-items-center p-4">
       <div
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         aria-hidden
         onClick={onClose}
       />
-      <div className="card-premium relative z-10 w-full max-w-md rounded-3xl p-6 shadow-2xl">
+      <DialogPanel
+        labelledBy={labelledBy}
+        className="card-premium relative z-10 w-full max-w-md rounded-3xl p-6 shadow-2xl"
+      >
         {children}
-      </div>
+      </DialogPanel>
     </div>
   );
 }

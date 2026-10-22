@@ -37,7 +37,7 @@ export const PUBLIC_HOME = "/";
 /** Query param used to bounce the user back to where they were headed. */
 export const NEXT_PARAM = "next";
 
-/** Query param carrying a sanitised message back to a sign-in form. */
+/** Query param carrying a SignInErrorCode back to a sign-in form. */
 export const ERROR_PARAM = "error";
 
 /** Where Supabase auth links (OAuth, email confirmation, password reset) land. */
@@ -100,4 +100,26 @@ export function safeNext(
   const path = next.split("?")[0];
   if (isAuthPage(path)) return fallback;
   return next;
+}
+
+const SIGN_IN_ERRORS = {
+  "not-authorized": "That account doesn't have console access yet. Ask a league admin to add you.",
+  "super-admin-required": "That account can't open the admin panel. Ask a super admin for access.",
+  unavailable: "Sign-in is not available right now.",
+  "link-invalid": "That link is invalid or has expired.",
+  "sign-in-failed": "Sign-in didn't go through. Please try again.",
+} as const;
+
+/** What a redirect may put in ERROR_PARAM. */
+export type SignInErrorCode = keyof typeof SIGN_IN_ERRORS;
+
+/**
+ * The message for an ERROR_PARAM value. Anything that is not a known code gets
+ * the generic failure, so text typed into a link is never shown on the page.
+ */
+export function signInErrorMessage(code: string | null): string | null {
+  if (!code) return null;
+  return Object.prototype.hasOwnProperty.call(SIGN_IN_ERRORS, code)
+    ? SIGN_IN_ERRORS[code as SignInErrorCode]
+    : SIGN_IN_ERRORS["sign-in-failed"];
 }

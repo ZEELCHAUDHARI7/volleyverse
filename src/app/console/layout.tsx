@@ -4,7 +4,9 @@ import { SyncAlert } from "@/components/sync-indicator";
 import { ConsoleNav } from "./console-nav";
 
 export const metadata: Metadata = {
-  title: "Console | VolleyVerse",
+  // A plain string would get the root template's suffix a second time and
+  // drop the template for pages below; the object form keeps both right.
+  title: { default: "Console", template: "%s | VolleyVerse" },
   description: "League setup, match day and stat entry.",
 };
 
@@ -27,7 +29,9 @@ export default function ConsoleLayout({
   return (
     <StoreProvider>
       <div className="relative min-h-dvh overflow-x-clip">
-        <div className="pointer-events-none absolute inset-0" aria-hidden>
+        {/* Clipped, or the bottom orb hangs below the content and the page
+            scrolls on into empty space. */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
           <div className="orb orb-accent left-[-12%] top-[-8%] h-[420px] w-[420px]" />
           <div className="orb orb-azure right-[-10%] top-[24%] h-[380px] w-[380px]" />
           <div className="orb orb-violet bottom-[-14%] left-[28%] h-[360px] w-[360px]" />

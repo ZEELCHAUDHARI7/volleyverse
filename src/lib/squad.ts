@@ -8,3 +8,15 @@ export function squadShortBy(players: Pick<Player, "teamId">[], teamId: string):
   const size = players.filter((p) => p.teamId === teamId).length;
   return Math.max(0, STARTING_SIX - size);
 }
+
+type RosterSortable = Pick<Player, "jerseyNo" | "fullName">;
+
+/** Roster order: shirt number up, players without one last, then by name. */
+export function byShirtNumber(a: RosterSortable, b: RosterSortable): number {
+  if (a.jerseyNo !== b.jerseyNo) {
+    if (a.jerseyNo === null) return 1;
+    if (b.jerseyNo === null) return -1;
+    return a.jerseyNo - b.jerseyNo;
+  }
+  return a.fullName.localeCompare(b.fullName);
+}

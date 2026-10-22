@@ -7,6 +7,7 @@ import { useMatch, useStore } from "@/lib/store";
 import { pushLiveState } from "@/lib/providers/live-state";
 import { breaksRecord, lines } from "@/lib/metrics";
 import type { Match, Player, Team } from "@/lib/types";
+import { DialogPanel } from "@/components/ui";
 import {
   BACK_ROW,
   FRONT_ROW,
@@ -956,8 +957,11 @@ function LiveScreen({
       {/* Deciding-set toss (FIVB 6.3.2/7.1) - blocks scoring until taken. */}
       {needsDecidingToss && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg/90 px-4 backdrop-blur">
-          <div className="card-premium w-full max-w-md rounded-3xl p-6">
-            <p className="mb-1 text-center text-[11px] font-bold uppercase tracking-[0.2em] text-accent">
+          <DialogPanel labelledBy="deciding-toss-title" className="card-premium w-full max-w-md rounded-3xl p-6">
+            <p
+              id="deciding-toss-title"
+              className="mb-1 text-center text-[11px] font-bold uppercase tracking-[0.2em] text-accent"
+            >
               Deciding set &middot; new toss required
             </p>
             <p className="mb-5 text-center text-xs text-dim">
@@ -1001,7 +1005,7 @@ function LiveScreen({
             >
               Start deciding set
             </button>
-          </div>
+          </DialogPanel>
         </div>
       )}
       {/* Scoreboard */}

@@ -362,14 +362,6 @@ function GoogleMark() {
   );
 }
 
-function AppleMark() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden>
-      <path d="M16.4 12.7c0-2.4 2-3.6 2.1-3.6-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.6.9-.8 0-1.9-.9-3.1-.8-1.6 0-3.1.9-3.9 2.4-1.7 2.9-.4 7.2 1.2 9.6.8 1.2 1.7 2.4 3 2.4 1.2 0 1.6-.8 3.1-.8 1.4 0 1.8.8 3.1.7 1.3 0 2.1-1.2 2.9-2.3.9-1.3 1.3-2.6 1.3-2.7-.1 0-2.6-1-2.6-3.9ZM14 4.9c.7-.8 1.1-2 1-3.1-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.9-1 3 1.1.1 2.2-.6 2.9-1.4Z" />
-    </svg>
-  );
-}
-
 export function OrDivider({ label }: { label: string }) {
   return (
     <div className="my-7 flex items-center gap-3">
@@ -382,30 +374,17 @@ export function OrDivider({ label }: { label: string }) {
   );
 }
 
-/** Social buttons are UI only. `onPick` reports which one was pressed. */
-export function SocialButtons({
-  onPick,
-}: {
-  onPick: (provider: string) => void;
-}) {
-  const providers = [
-    { label: "Google", mark: <GoogleMark /> },
-    { label: "Apple", mark: <AppleMark /> },
-  ];
+/** Google, the one social sign-in that is connected. Presentation only: `onClick` starts the flow. */
+export function GoogleButton({ onClick }: { onClick: () => void }) {
   return (
-    <div className="grid grid-cols-2 gap-3">
-      {providers.map((p) => (
-        <button
-          key={p.label}
-          type="button"
-          onClick={() => onPick(p.label)}
-          className="btn-premium inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-line bg-surface/40 px-4 text-sm font-semibold text-ink transition-colors hover:border-accent/45 hover:bg-surface2"
-        >
-          {p.mark}
-          {p.label}
-        </button>
-      ))}
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className="btn-premium inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface/40 px-4 text-sm font-semibold text-ink transition-colors hover:border-accent/45 hover:bg-surface2"
+    >
+      <GoogleMark />
+      Google
+    </button>
   );
 }
 

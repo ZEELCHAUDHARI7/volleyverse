@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { createRunner } from "./console-ui.mjs";
-import { STARTING_SIX, squadShortBy } from "./squad.ts";
+import { STARTING_SIX, byShirtNumber, squadShortBy } from "./squad.ts";
 
 const qa = createRunner({
   title: "VOLLEYVERSE QA AGENT",
@@ -34,6 +34,27 @@ t("six or more is enough", () => {
 
 t("only the team's own players count", () => {
   assert.equal(squadShortBy([...squad("A", 2), ...squad("B", 12)], "A"), 4);
+});
+
+qa.suite("Roster order");
+
+const shirt = (jerseyNo, fullName) => ({ id: fullName, fullName, jerseyNo });
+const names = (ps) => ps.map((p) => p.fullName);
+
+t("a roster reads in shirt-number order", () => {
+  // The report: rosters were listed in the order players were added.
+  const roster = [shirt(9, "Nine"), shirt(2, "Two"), shirt(14, "Fourteen"), shirt(1, "One")];
+  assert.deepEqual(names([...roster].sort(byShirtNumber)), ["One", "Two", "Nine", "Fourteen"]);
+});
+
+t("players with no shirt number come last, by name", () => {
+  const roster = [shirt(null, "Zed"), shirt(3, "Amy"), shirt(null, "Bob")];
+  assert.deepEqual(names([...roster].sort(byShirtNumber)), ["Amy", "Bob", "Zed"]);
+});
+
+t("two players with one number fall back to their names", () => {
+  const roster = [shirt(7, "Yara"), shirt(7, "Asha")];
+  assert.deepEqual(names([...roster].sort(byShirtNumber)), ["Asha", "Yara"]);
 });
 
 qa.finish();

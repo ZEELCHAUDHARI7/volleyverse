@@ -12,9 +12,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *     LocalProvider (localStorage + cross-tab sync). Nothing throws.
  *
  * createBrowserClient keeps its auth storage in a cookie rather than
- * localStorage, so server components can read it. There is no sign-in in the
- * console, so today that cookie is never populated; every request runs on the
- * anon key. See REALTIME_SYNC.md.
+ * localStorage, so middleware and server components can read it. Signing in
+ * (src/lib/auth/temporary-auth.ts) fills that cookie, and requests then run as
+ * the signed-in user; signed out, they run on the anon key. See REALTIME_SYNC.md.
  */
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

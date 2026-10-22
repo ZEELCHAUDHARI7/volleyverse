@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { useMatch, useStore } from "@/lib/store";
 import { lines } from "@/lib/metrics";
 import { winnerOnSets } from "@/lib/analytics/general";
-import { removedSets } from "@/lib/set-scores";
+import { removedSets, setScoreProblems } from "@/lib/set-scores";
 import {
   Button,
   Card,
@@ -324,9 +324,8 @@ function SetScoreEditor({
     // 0-0 means "not played": dropping it is how a set gets removed.
     .filter((s) => s.homePoints > 0 || s.awayPoints > 0);
 
-  // Sets must be consecutive from 1 — a score for set 3 with set 2 blank would
-  // silently renumber nothing and read as a two-set match with a gap.
-  const gap = built.some((s, i) => s.setNo !== i + 1);
+  // Gaps, level sets, scores no set ends on, and sets after the match was won.
+  const problems = setScoreProblems(built, match.totalSets);
 
   const tally = built.reduce(
     (t, s) => ({
@@ -335,7 +334,6 @@ function SetScoreEditor({
     }),
     { home: 0, away: 0 },
   );
-  const drawnSet = built.some((s) => s.homePoints === s.awayPoints);
 
   // A blank set means "not played", so clearing boxes deletes saved scores.
   // That goes through a question first; a plain correction saves straight away.
@@ -382,21 +380,16 @@ function SetScoreEditor({
         on sets.
       </p>
 
-      {gap && (
-        <p className="text-xs text-err">
-          Sets have to run consecutively from set 1 — fill the gap before saving.
+      {problems.map((p) => (
+        <p key={p} className="text-xs text-err">
+          {p}
         </p>
-      )}
-      {drawnSet && (
-        <p className="text-xs text-err">
-          A set cannot finish level. Check the scores above.
-        </p>
-      )}
+      ))}
 
       <div className="flex gap-2">
         <Button
           onClick={() => (removed.length > 0 ? setConfirming(true) : onSave(built))}
-          disabled={gap || drawnSet}
+          disabled={problems.length > 0}
         >
           Save set scores
         </Button>

@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import type { PlayerPosition } from "@/lib/types";
 import { standings } from "@/lib/metrics";
+import { plural } from "@/lib/format";
+import { byShirtNumber } from "@/lib/squad";
 import {
   Aurora,
   PlayerCard,
@@ -44,11 +46,18 @@ export default function TeamsPage() {
     return r ? `${r.won}W – ${r.lost}L` : "No results yet";
   };
 
-  const players = db.players.filter(
-    (p) =>
-      (teamFilter === "ALL" || p.teamId === teamFilter) &&
-      (posFilter === "ALL" || p.position === posFilter),
-  );
+  // Team by team, in the order the teams are listed, each by shirt number.
+  const teamOrder = new Map(db.teams.map((t, i) => [t.id, i]));
+  const players = db.players
+    .filter(
+      (p) =>
+        (teamFilter === "ALL" || p.teamId === teamFilter) &&
+        (posFilter === "ALL" || p.position === posFilter),
+    )
+    .sort(
+      (a, b) =>
+        (teamOrder.get(a.teamId) ?? 0) - (teamOrder.get(b.teamId) ?? 0) || byShirtNumber(a, b),
+    );
 
   return (
     <div className="relative overflow-hidden">
@@ -108,7 +117,7 @@ export default function TeamsPage() {
                     </p>
                   </div>
                   <p className="text-[10px] uppercase tracking-wider text-dim">
-                    {db.players.filter((p) => p.teamId === t.id).length} players
+                    {plural(db.players.filter((p) => p.teamId === t.id).length, "player")}
                   </p>
                 </div>
               </button>
