@@ -1,12 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import {
+  ADMIN_PREFIX,
   ERROR_PARAM,
-  FAN_SIGN_IN_PATH,
   LOGIN_PATH,
   NEXT_PARAM,
   isAuthPage,
-  requiresAccount,
   requiresAuth,
   type SignInErrorCode,
 } from "@/lib/auth/routes";
@@ -15,13 +14,13 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 /**
- * Gates the site behind a verified Supabase session.
+ * Gates the console behind a verified Supabase session.
  *
- *   /console/*  needs a session AND that email in `console_admins`, or
- *               bounces to /login
- *   everything  needs any verified session, or bounces to /fans/sign-in
- *   else        (a console admin's session counts there too, so they are
- *               not asked to create a second account)
+ *   /console/*  needs a session AND that email in `user_roles` (or the
+ *               legacy `console_admins` allowlist), or bounces to /login
+ *   /admin      needs a session AND a super_admin role, or bounces to /login
+ *   everything  open to anyone, signed in or not — the public showcase.
+ *   else
  *
  * The account pages themselves are always reachable.
  *
@@ -40,17 +39,19 @@ export async function middleware(request: NextRequest) {
 
   if (isAuthPage(pathname)) return NextResponse.next();
 
+  // The public showcase needs no session at all — skip the Supabase round
+  // trip entirely for it. Only console and admin reach past this point.
+  const gated = pathname.startsWith(ADMIN_PREFIX) || requiresAuth(pathname);
+  if (!gated) return NextResponse.next();
+
   if (!url || !anonKey) {
     // No Supabase configured: local dev runs fully offline (see
-    // CLAUDE.md), so nothing can be verified either way. Passing
-    // through matches that documented mode. A production build with no
-    // env vars can verify no one, so it fails closed instead of
-    // exposing an unlocked console.
-    const blocked =
-      process.env.NODE_ENV === "production" &&
-      (requiresAuth(pathname) || requiresAccount(pathname));
-    if (!blocked) return NextResponse.next();
-    return redirectTo(requiresAuth(pathname) ? LOGIN_PATH : FAN_SIGN_IN_PATH);
+    // CLAUDE.md), so nothing can be verified either way. Passing through
+    // matches that documented mode. A production build with no env vars
+    // can verify no one, so it fails closed instead of exposing an
+    // unlocked console or admin panel.
+    if (process.env.NODE_ENV === "production") return redirectTo(LOGIN_PATH);
+    return NextResponse.next();
   }
 
   let response = NextResponse.next({ request });
@@ -113,10 +114,6 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  if (requiresAccount(pathname) && !email) {
-    return redirectTo(FAN_SIGN_IN_PATH);
-  }
-
   return response;
 
   function redirectTo(destination: string, error?: SignInErrorCode) {
@@ -132,8 +129,8 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Everything except Next internals and static assets. The whole site
-     * is gated now, so matching narrowly would leave holes.
+     * Everything except Next internals and static assets — the function
+     * body itself decides what, if anything, needs a session.
      */
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|woff2?)$).*)",
   ],

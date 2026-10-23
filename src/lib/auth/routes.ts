@@ -5,14 +5,13 @@
  * unit-tested without constructing a request, and so middleware, both
  * sign-in screens and the nav all agree on one set of paths.
  *
- * There are two gates:
+ * There is one gate: /console/* (staff) and /admin (super admin) need a
+ * session; every other page — the public showcase — is open to anyone,
+ * signed in or not. A fan account exists for whoever wants one, but no
+ * page requires it.
  *
- *   /console/*  staff only. Needs a console session.
- *   everything  needs an account of either kind. The showcase is no
- *   else        longer open to anonymous visitors.
- *
- * The account pages themselves are the only routes open to everyone, or
- * the redirects would loop forever.
+ * The account pages themselves are always reachable, or the redirects
+ * would loop forever.
  */
 
 /** Staff sign-in for the console. */
@@ -71,18 +70,6 @@ export function requiresAuth(pathname: string): boolean {
   return (
     pathname === CONSOLE_PREFIX || pathname.startsWith(`${CONSOLE_PREFIX}/`)
   );
-}
-
-/**
- * True when `pathname` needs an account of either kind.
- *
- * That is every page except the console, which has its own stricter
- * gate, and the account pages themselves.
- */
-export function requiresAccount(pathname: string): boolean {
-  if (isAuthPage(pathname)) return false;
-  if (requiresAuth(pathname)) return false;
-  return true;
 }
 
 /**

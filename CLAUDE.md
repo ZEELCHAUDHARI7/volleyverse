@@ -136,9 +136,10 @@ the player in it.**
 `src/middleware.ts` gates routes with the predicates in
 `src/lib/auth/routes.ts`. `/console/*` needs an `admin` or `super_admin`
 row in `user_roles` (or a legacy `console_admins` row), `/admin` needs
-`super_admin`, every other page needs a signed-in account, and the sign-in
-pages are open. Staff and fans are one Supabase Auth account system. With
-no Supabase env vars, `next dev` lets every route through.
+`super_admin`. Every other page — the public showcase — is open to
+anyone, signed in or not; a fan account exists for whoever wants one, but
+no page requires it. Staff and fans are one Supabase Auth account system.
+With no Supabase env vars, `next dev` lets every route through.
 
 Middleware is routing; RLS is the security boundary. Writes need a console
 admin, but reads are open to the anon key, unpublished matches included,

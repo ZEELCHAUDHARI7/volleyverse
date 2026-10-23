@@ -15,7 +15,6 @@
 import assert from "node:assert/strict";
 import {
   requiresAuth,
-  requiresAccount,
   isAuthPage,
   safeNext,
   buildCallbackUrl,
@@ -69,22 +68,9 @@ check("fan join is an account page", isAuthPage(FAN_JOIN_PATH), true);
 check("home is not an account page", isAuthPage("/"), false);
 check("console is not an account page", isAuthPage("/console"), false);
 
-// --- Account gate: every other page needs an account of either kind. ---
-check("home needs an account", requiresAccount("/"), true);
-check("live needs an account", requiresAccount("/live"), true);
-check("matches needs an account", requiresAccount("/matches"), true);
-check("match detail needs an account", requiresAccount("/matches/abc-123"), true);
-check("players needs an account", requiresAccount("/players/abc"), true);
-check("teams needs an account", requiresAccount("/team"), true);
-
-// The console has its own stricter gate, so it is not double-counted.
-check("console excluded from account gate", requiresAccount("/console"), false);
-check("console nested excluded", requiresAccount("/console/league"), false);
-
-// Account pages stay open to everyone.
-check("login open", requiresAccount(LOGIN_PATH), false);
-check("fan sign-in open", requiresAccount(FAN_SIGN_IN_PATH), false);
-check("fan join open", requiresAccount(FAN_JOIN_PATH), false);
+// There is only one gate now (the console/admin check above): the public
+// showcase — home, live, matches, players, team — needs no account at all,
+// which the `requiresAuth(...) === false` checks above already establish.
 
 // Lookalike prefixes are not the console.
 check("console-lookalike", requiresAuth("/consoles"), false);
