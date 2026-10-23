@@ -8,7 +8,7 @@ import { playerLine } from "@/lib/metrics";
 import { PositionTag, Skeleton } from "@/components/ui";
 import { SyncStatus } from "@/components/sync-indicator";
 import { useActiveLeague, useStore } from "@/lib/store";
-import { FAN_SIGN_IN_PATH, isAuthPage, requiresAccount } from "@/lib/auth/routes";
+import { isAuthPage } from "@/lib/auth/routes";
 import { isAuthenticated, onAuthChange } from "@/lib/auth/temporary-auth";
 import {
   fanInitials,
@@ -257,7 +257,6 @@ function Wordmark() {
  */
 function FanControls({ onAccountPage }: { onAccountPage: boolean }) {
   const router = useRouter();
-  const pathname = usePathname();
   const [fan, setFan] = useState<TemporaryFan | null>(null);
 
   useEffect(() => {
@@ -276,11 +275,10 @@ function FanControls({ onAccountPage }: { onAccountPage: boolean }) {
     };
   }, []);
 
-  // Every public page needs an account, so it cannot stay on screen once the
-  // session ends: go where the next reload would send this visitor anyway.
+  // No page requires an account, so signing out just drops back to the
+  // signed-out view of whatever page this already is.
   async function signOut() {
     await fanLogout();
-    if (requiresAccount(pathname)) router.replace(FAN_SIGN_IN_PATH);
     router.refresh();
   }
 
