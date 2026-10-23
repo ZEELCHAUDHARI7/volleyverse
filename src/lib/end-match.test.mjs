@@ -7,7 +7,7 @@ import { createRunner } from "./console-ui.mjs";
 import { planEndMatch } from "./end-match.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "End Match Suite",
   file: "src/lib/end-match.test.mjs",
 });

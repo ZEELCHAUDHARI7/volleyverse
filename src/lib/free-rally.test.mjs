@@ -16,7 +16,7 @@ import {
 } from "./free-rally.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Free Rally Engine Verification Suite",
   file: "src/lib/free-rally.test.mjs",
 });

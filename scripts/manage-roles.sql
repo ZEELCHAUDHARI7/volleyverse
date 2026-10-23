@@ -1,5 +1,5 @@
 -- =====================================================================
--- VOLLEYVERSE — SUPER ADMIN MANAGEMENT QUICK SCRIPTS
+-- VOLLEYTICS — SUPER ADMIN MANAGEMENT QUICK SCRIPTS
 -- =====================================================================
 -- Copy and paste any of these 1-line queries into your Supabase SQL Editor:
 

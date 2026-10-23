@@ -81,7 +81,7 @@ import { createRunner } from "./console-ui.mjs";
 import { spikeLine, spikeLines } from "./spikes.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Spike Tally Verification Suite",
   file: "src/lib/spikes.test.mjs",
 });
@@ -343,7 +343,7 @@ import {
 } from "./spike-session.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Spike Session Verification Suite",
   file: "src/lib/spike-session.test.mjs",
 });
@@ -827,7 +827,7 @@ import type { EventType, Player } from "@/lib/types";
  * otherwise never appear.
  */
 
-const SESSION_KEY = (matchId: string) => `volleyverse:spikes:${matchId}`;
+const SESSION_KEY = (matchId: string) => `volleytics:spikes:${matchId}`;
 
 const OUTCOMES: { type: EventType; glyph: string; label: string; sub: string; cls: string }[] = [
   {

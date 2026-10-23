@@ -21,7 +21,7 @@ import {
 } from "./substitution.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Substitution & Libero Verification Suite",
   file: "src/lib/substitution.test.mjs",
 });

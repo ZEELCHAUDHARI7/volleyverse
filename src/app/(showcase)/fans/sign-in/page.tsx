@@ -7,7 +7,7 @@ import { FanSignInForm } from "./fan-sign-in-form";
 export const metadata: Metadata = {
   title: "Fan sign in",
   description:
-    "Sign in to your VolleyVerse fan account to follow teams and keep match night close.",
+    "Sign in to your Volleytics fan account to follow teams and keep match night close.",
 };
 
 export default function FanSignInPage() {

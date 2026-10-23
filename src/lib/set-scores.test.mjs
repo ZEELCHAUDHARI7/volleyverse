@@ -7,7 +7,7 @@ import { createRunner } from "./console-ui.mjs";
 import { removedSets, setScoreProblems } from "./set-scores.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Set Score Correction Suite",
   file: "src/lib/set-scores.test.mjs",
 });

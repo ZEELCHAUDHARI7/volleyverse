@@ -1,5 +1,5 @@
 /**
- * console-ui.mjs — premium terminal renderer for the VolleyVerse QA Agent.
+ * console-ui.mjs — premium terminal renderer for the Volleytics QA Agent.
  * Zero dependencies. Pure presentation: no test logic lives here.
  *
  * Renders: banner, grouped suites, numbered steps, status badges,

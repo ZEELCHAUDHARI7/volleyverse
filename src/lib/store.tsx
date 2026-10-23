@@ -37,7 +37,10 @@ import { useSupabaseBackend } from "./providers/supabase-store";
 // v3: league-platform data model (two real teams per match, persisted
 // set scores, standard positions). Bump intentionally discards v2
 // prototype data — see REFACTOR_AUDIT.md, risk #2.
-const KEY = "volleyverse:db:v3";
+const KEY = "volleytics:db:v3";
+// Pre-rename key (VolleyVerse). Read as a fallback so nobody's saved data
+// disappears after the rename; the next persist() writes it under KEY.
+const LEGACY_KEY = "volleyverse:db:v3";
 
 /**
  * Records that this browser has already been offered the first-run dataset.
@@ -45,12 +48,13 @@ const KEY = "volleyverse:db:v3";
  * deleting every team. Without it, a deliberately emptied registry would
  * refill on the next reload and there would be no way to keep it empty.
  */
-const SEEDED_KEY = "volleyverse:seeded:v1";
+const SEEDED_KEY = "volleytics:seeded:v1";
+const LEGACY_SEEDED_KEY = "volleyverse:seeded:v1";
 
 function load(): Db {
   if (typeof window === "undefined") return EMPTY_DB;
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(KEY) ?? window.localStorage.getItem(LEGACY_KEY);
     if (raw) return { ...EMPTY_DB, ...(JSON.parse(raw) as Partial<Db>) };
   } catch {
     // corrupted storage → start clean
@@ -92,7 +96,7 @@ function autoSeed(db: Db): Db {
   if (process.env.NEXT_PUBLIC_AUTOSEED === "off") return db;
   if (db.teams.length > 0) return db;
   try {
-    if (window.localStorage.getItem(SEEDED_KEY)) return db;
+    if (window.localStorage.getItem(SEEDED_KEY) ?? window.localStorage.getItem(LEGACY_SEEDED_KEY)) return db;
     const seeded = seedU21IntoDb(db);
     persist(seeded);
     window.localStorage.setItem(SEEDED_KEY, new Date().toISOString());

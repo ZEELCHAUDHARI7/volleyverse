@@ -133,7 +133,7 @@ export function LoginForm() {
           🏐
         </span>
         <span className="stat-display text-sm font-extrabold uppercase tracking-[0.28em] text-ink">
-          VolleyVerse
+          Volleytics
         </span>
         <span className="rounded-md bg-accent/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-accent ring-1 ring-accent/25">
           Console

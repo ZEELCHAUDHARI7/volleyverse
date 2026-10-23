@@ -1,5 +1,5 @@
 -- =====================================================================
--- VolleyVerse — professional volleyball league management platform
+-- Volleytics — professional volleyball league management platform
 -- PostgreSQL / Supabase schema. Mirrors src/lib/types.ts 1:1
 -- (snake_case ↔ camelCase). stat_events is the single source of truth:
 -- statistics and standings are VIEWS, never hand-stored numbers.

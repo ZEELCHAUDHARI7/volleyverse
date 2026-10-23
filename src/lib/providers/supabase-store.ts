@@ -25,8 +25,12 @@ type PendingOp =
   | { kind: "update"; table: string; id: string; row: Row }
   | { kind: "delete"; table: string; match: Row };
 
-const QUEUE_KEY = "volleyverse:sync-queue:v1";
-const REJECTED_KEY = "volleyverse:sync-rejected:v1";
+const QUEUE_KEY = "volleytics:sync-queue:v1";
+const REJECTED_KEY = "volleytics:sync-rejected:v1";
+// Pre-rename keys (VolleyVerse): read as a fallback on load so a queued or
+// rejected write from before the rename isn't silently dropped.
+const LEGACY_QUEUE_KEY = "volleyverse:sync-queue:v1";
+const LEGACY_REJECTED_KEY = "volleyverse:sync-rejected:v1";
 
 /** A write the database refused, parked so it cannot block the queue. */
 type RejectedOp = { op: PendingOp; message: string; at: number };
@@ -131,7 +135,7 @@ export function useSupabaseBackend(): DataProvider {
     } catch {
       /* storage full — the in-memory list still drives the UI this session */
     }
-    console.error("[volleyverse] write rejected by the database", { op, err });
+    console.error("[volleytics] write rejected by the database", { op, err });
     setRejected(rejectedRef.current.length);
     setLastError(message);
   }, []);
@@ -356,7 +360,7 @@ export function useSupabaseBackend(): DataProvider {
         // the collection as it stands and say so — an empty chart the collector
         // reads as real data is worse than no refresh at all.
         const message = err instanceof Error ? err.message : String(err);
-        console.error("[volleyverse] refresh failed", collection, err);
+        console.error("[volleytics] refresh failed", collection, err);
         setLastError(`${message} — still showing the last data that loaded.`);
       }
     },
@@ -390,7 +394,7 @@ export function useSupabaseBackend(): DataProvider {
 
     // Restore any writes queued in a previous (offline) session.
     try {
-      const raw = window.localStorage.getItem(QUEUE_KEY);
+      const raw = window.localStorage.getItem(QUEUE_KEY) ?? window.localStorage.getItem(LEGACY_QUEUE_KEY);
       if (raw) {
         queueRef.current = JSON.parse(raw) as PendingOp[];
         setPending(queueRef.current.length);
@@ -402,7 +406,7 @@ export function useSupabaseBackend(): DataProvider {
     // Restore writes a previous session could not land, so the warning
     // survives a reload instead of the data quietly staying missing.
     try {
-      const raw = window.localStorage.getItem(REJECTED_KEY);
+      const raw = window.localStorage.getItem(REJECTED_KEY) ?? window.localStorage.getItem(LEGACY_REJECTED_KEY);
       if (raw) {
         rejectedRef.current = JSON.parse(raw) as RejectedOp[];
         setRejected(rejectedRef.current.length);
@@ -422,7 +426,7 @@ export function useSupabaseBackend(): DataProvider {
           return await run();
         } catch (err) {
           failures.push(err instanceof Error ? err.message : String(err));
-          console.error(`[volleyverse] initial load failed: ${what}`, err);
+          console.error(`[volleytics] initial load failed: ${what}`, err);
           return empty;
         }
       };
@@ -466,7 +470,7 @@ export function useSupabaseBackend(): DataProvider {
       );
     };
 
-    const channel: RealtimeChannel = supabase.channel("volleyverse:db");
+    const channel: RealtimeChannel = supabase.channel("volleytics:db");
     for (const table of M.REALTIME_TABLES) {
       channel.on(
         "postgres_changes",

@@ -1,4 +1,4 @@
-# VolleyVerse — Project Overview
+# Volleytics — Project Overview
 
 A live volleyball league platform: an operator **Console** for running matches courtside, and a public **Showcase** site for fans. Every statistic on every screen is derived from a single append-only event log — nothing is hand-typed and nothing aggregated is stored.
 
@@ -291,7 +291,7 @@ src/
 
 `src/lib/repository.ts` defines one interface, `DataProvider`, and contains no runtime code. Two implementations satisfy it, and **swapping them requires no screen changes**:
 
-- `LocalStoreProvider` (in `store.tsx`) — one JSON document at `localStorage["volleyverse:db:v3"]`.
+- `LocalStoreProvider` (in `store.tsx`) — one JSON document at `localStorage["volleytics:db:v3"]`.
 - `useSupabaseBackend()` (in `providers/supabase-store.ts`) — Postgres + Realtime.
 
 `StoreProvider` picks between them once, on `isSupabaseConfigured()`. The branch is stable across renders because env vars don't change at runtime, so hook order stays consistent.
@@ -314,15 +314,15 @@ The interface surface:
 1. **Operator arms a player and presses ✓ / O / ✗.** The action was inferred, never asked. `resolveTrio()` (pure) returns `{ event, pointTo, nextPhase, nextSide }`.
 2. **`store.addEvent(...)`** is called. Assist attribution and milestone checks run here.
 3. **Provider write:**
-   - *Local mode* — build the event, `setDb` + persist the whole `Db` to `volleyverse:db:v3`. Other tabs of the same browser pick it up via the `storage` event.
-   - *Cloud mode* — mint a UUID, **enqueue** `{ upsert, stat_events, row }` into a durable FIFO queue at `volleyverse:sync-queue:v1`, and patch local state immediately so the tap appears within a frame.
+   - *Local mode* — build the event, `setDb` + persist the whole `Db` to `volleytics:db:v3`. Other tabs of the same browser pick it up via the `storage` event.
+   - *Cloud mode* — mint a UUID, **enqueue** `{ upsert, stat_events, row }` into a durable FIFO queue at `volleytics:sync-queue:v1`, and patch local state immediately so the tap appears within a frame.
 4. **Flush → Postgres.** `flush()` drains the queue in order. Three outcomes:
    - **Success** → shift, persist, and when the queue empties, `syncStatus: "synced"`.
    - **Network error** → `setOnline(false)` and stop; `syncStatus: "offline"`. A `window` `"online"` listener re-runs the flush in order.
-   - **Database refusal** → the op is *parked* in `volleyverse:sync-rejected:v1` and **shifted out so draining continues**. Without this, one rejected `stat_event` at the head of a FIFO queue silently blocks every later write and the rest of the match never reaches Postgres.
-5. **Realtime fan-out.** Postgres publishes the change; every other client on channel `"volleyverse:db"` maps the table to its collections, and re-fetches that **whole collection**, debounced 150 ms per collection. Convergence, not guesswork. The writer's own echo reconciles its optimistic row.
+   - **Database refusal** → the op is *parked* in `volleytics:sync-rejected:v1` and **shifted out so draining continues**. Without this, one rejected `stat_event` at the head of a FIFO queue silently blocks every later write and the rest of the match never reaches Postgres.
+5. **Realtime fan-out.** Postgres publishes the change; every other client on channel `"volleytics:db"` maps the table to its collections, and re-fetches that **whole collection**, debounced 150 ms per collection. Convergence, not guesswork. The writer's own echo reconciles its optimistic row.
 6. **Every screen re-derives.** Nothing aggregated is stored, so `metrics.ts`, `analytics/*` and the narrative generator all recompute from `db.events` + `match.setScores`.
-7. **Scoreboard projection (a second, independent channel).** The tracker also calls `pushLiveState(matchId, state)`, upserting one JSONB row into `match_live_state`. On the fan side `useLiveMatch()` finds the first live match, reads the localStorage cache, layers a **2 s poll** plus a `storage` listener as a fallback, and subscribes to `volleyverse:live:<matchId>`. `stat_events` remains the durable truth — this row can always be rebuilt from it.
+7. **Scoreboard projection (a second, independent channel).** The tracker also calls `pushLiveState(matchId, state)`, upserting one JSONB row into `match_live_state`. On the fan side `useLiveMatch()` finds the first live match, reads the localStorage cache, layers a **2 s poll** plus a `storage` listener as a fallback, and subscribes to `volleytics:live:<matchId>`. `stat_events` remains the durable truth — this row can always be rebuilt from it.
 8. **Undo** removes the events it created, including the assist-upgrade swap.
 9. **Banking a set** is a keyed upsert on `(match_id, set_no)` — which is what makes replay idempotent.
 
@@ -365,7 +365,7 @@ Realtime: `replica identity full` + added to the `supabase_realtime` publication
 | | Supabase configured | Not configured |
 | --- | --- | --- |
 | Provider | `useSupabaseBackend()` | `LocalStoreProvider` |
-| Source of truth | PostgreSQL | `localStorage["volleyverse:db:v3"]` |
+| Source of truth | PostgreSQL | `localStorage["volleytics:db:v3"]` |
 | Starting data | whatever is in Postgres | empty — the platform ships with no data |
 | Multi-user sync | Realtime, 17 tables, 150 ms debounce | none — only `storage` across tabs of one browser |
 | Live scoreboard | `match_live_state` + dedicated channel | localStorage + `storage` + 2 s poll |
@@ -590,11 +590,11 @@ Flagged honestly so nobody rediscovers them the hard way.
 
 | Key | Written by | Contents |
 | --- | --- | --- |
-| `volleyverse:db:v3` | `LocalStoreProvider` | the whole `Db` as one JSON document |
-| `volleyverse:rally:<matchId>` | Rally Tracker | resumable `MatchState` + the live-state cache |
-| `volleyverse:free:<matchId>` | Spike Tracker | resumable `FreeMatchState` |
-| `volleyverse:sync-queue:v1` | Supabase backend | durable FIFO of pending writes |
-| `volleyverse:sync-rejected:v1` | Supabase backend | writes the database refused |
+| `volleytics:db:v3` | `LocalStoreProvider` | the whole `Db` as one JSON document |
+| `volleytics:rally:<matchId>` | Rally Tracker | resumable `MatchState` + the live-state cache |
+| `volleytics:free:<matchId>` | Spike Tracker | resumable `FreeMatchState` |
+| `volleytics:sync-queue:v1` | Supabase backend | durable FIFO of pending writes |
+| `volleytics:sync-rejected:v1` | Supabase backend | writes the database refused |
 | `vv-lights-up` (sessionStorage) | homepage | one-per-session intro flag |
 
 The `v3` in the db key is intentional: it discards v2 prototype data.

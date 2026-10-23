@@ -7,7 +7,7 @@ import { createRunner } from "./console-ui.mjs";
 import { defenceBreakdown, topBy, topDefender } from "./metrics.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Best Player Suite",
   file: "src/lib/leaders.test.mjs",
 });

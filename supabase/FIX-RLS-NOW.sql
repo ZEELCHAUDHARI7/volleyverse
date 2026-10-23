@@ -1,5 +1,5 @@
 -- =====================================================================
--- VOLLEYVERSE — FIX "new row violates row-level security policy"
+-- VOLLEYTICS — FIX "new row violates row-level security policy"
 --
 -- Paste this whole file into the Supabase SQL editor and press Run.
 -- Safe to run more than once. It never deletes, rewrites or rejects any

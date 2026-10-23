@@ -9,7 +9,7 @@ import { fixtureClashes, fixtureWarnings, localDateISO, nameTaken, takenMessage 
 import { nextMatchNo, pickCompetition } from "./competition.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Duplicates Suite",
   file: "src/lib/duplicates.test.mjs",
 });

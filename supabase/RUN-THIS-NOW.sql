@@ -1,5 +1,5 @@
 -- =====================================================================
--- VOLLEYVERSE — RECOVER LOST MATCH DATA
+-- VOLLEYTICS — RECOVER LOST MATCH DATA
 --
 -- Paste this whole file into the Supabase SQL editor and press Run.
 -- Safe to run more than once. It only widens what the table accepts;

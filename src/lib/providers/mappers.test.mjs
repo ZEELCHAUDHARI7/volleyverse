@@ -7,7 +7,7 @@ import { createRunner } from "../console-ui.mjs";
 import { matchFromRow } from "./mappers.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Row Mapping Suite",
   file: "src/lib/providers/mappers.test.mjs",
 });

@@ -7,7 +7,7 @@ import { createRunner } from "./console-ui.mjs";
 import { trackerView } from "./tracker-view.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Tracker View Suite",
   file: "src/lib/tracker-view.test.mjs",
 });

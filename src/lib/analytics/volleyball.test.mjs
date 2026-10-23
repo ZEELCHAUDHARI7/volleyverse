@@ -10,7 +10,7 @@ import { generateSummary } from "./narrative.ts";
 import { sideTotals } from "../metrics.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Match Analytics Rally Suite",
   file: "src/lib/analytics/volleyball.test.mjs",
 });

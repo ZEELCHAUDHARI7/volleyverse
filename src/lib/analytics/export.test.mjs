@@ -8,7 +8,7 @@ import { matchCsv, tableCsv } from "./export.ts";
 import { volleyballModule } from "./volleyball.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "CSV Export Suite",
   file: "src/lib/analytics/export.test.mjs",
 });

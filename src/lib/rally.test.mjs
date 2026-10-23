@@ -33,7 +33,7 @@ import {
 } from "./rally.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Rally Engine Verification Suite",
   file: "src/lib/rally.test.mjs",
 });

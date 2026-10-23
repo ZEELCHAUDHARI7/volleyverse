@@ -1,4 +1,4 @@
-# VolleyVerse
+# Volleytics
 
 A professional volleyball **league management platform**: competition
 structure (League → Season → Tournament → Match), two-team live match

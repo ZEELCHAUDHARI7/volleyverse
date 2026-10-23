@@ -4,7 +4,7 @@ import { ResetPasswordForm } from "./reset-password-form";
 
 export const metadata: Metadata = {
   title: "Reset password",
-  description: "Set a new password for your VolleyVerse account.",
+  description: "Set a new password for your Volleytics account.",
 };
 
 /**

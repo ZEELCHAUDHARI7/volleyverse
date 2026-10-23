@@ -29,8 +29,14 @@ import type { Lineup, Position, Side } from "@/lib/rally";
  * behind `match.published` elsewhere in the showcase.
  */
 
-/** Where each scoring screen keeps its session: /spikes first, then /rally. */
+/**
+ * Where each scoring screen keeps its session: /spikes first, then /rally.
+ * The `volleyverse:` keys are pre-rename and kept as a fallback so a match
+ * already in progress at deploy time doesn't lose its live follow.
+ */
 const LOCAL_KEYS = (matchId: string) => [
+  `volleytics:free:${matchId}`,
+  `volleytics:rally:${matchId}`,
   `volleyverse:free:${matchId}`,
   `volleyverse:rally:${matchId}`,
 ];

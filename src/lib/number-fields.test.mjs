@@ -7,7 +7,7 @@ import { createRunner } from "./console-ui.mjs";
 import { checkCapacity, checkHeightCm, checkShirtNumber } from "./number-fields.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Number Fields Suite",
   file: "src/lib/number-fields.test.mjs",
 });

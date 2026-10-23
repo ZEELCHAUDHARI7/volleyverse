@@ -12,7 +12,7 @@ import { createRunner } from "../console-ui.mjs";
 import { pushLiveState } from "./live-state.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Live Scoreboard Push Verification Suite",
   file: "src/lib/providers/live-state.test.mjs",
 });

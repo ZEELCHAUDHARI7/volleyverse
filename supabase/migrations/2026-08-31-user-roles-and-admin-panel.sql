@@ -1,5 +1,5 @@
 -- =====================================================================
--- VOLLEYVERSE — 3-ROLE ACCESS CONTROL & SUPER ADMIN MIGRATION
+-- VOLLEYTICS — 3-ROLE ACCESS CONTROL & SUPER ADMIN MIGRATION
 -- =====================================================================
 
 -- 1. Create user_roles table

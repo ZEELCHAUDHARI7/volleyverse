@@ -1,6 +1,6 @@
 # Real-Time Synchronization (Issue #3)
 
-VolleyVerse now behaves as a collaborative real-time platform: data created or
+Volleytics now behaves as a collaborative real-time platform: data created or
 updated by one user becomes visible to every other connected user within a
 moment, with no manual refresh. This document explains how it works, how to
 turn it on, how conflicts and offline edits are handled, and the contract that
@@ -109,7 +109,7 @@ still merge safely because they are append-only.
 
 Writes never block on the network. Each mutation updates local state and enqueues
 a durable, serializable operation in `localStorage`
-(`volleyverse:sync-queue:v1`). The queue flushes in order whenever the browser
+(`volleytics:sync-queue:v1`). The queue flushes in order whenever the browser
 regains connectivity (`online` event) or on next load. Because queued operations
 are idempotent upserts/deletes keyed by id, replaying them after a reconnect —
 even after a page refresh mid-outage — is safe. The sync badge shows "Offline —

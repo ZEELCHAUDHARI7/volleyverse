@@ -88,7 +88,10 @@ import {
  *   · one always-visible Undo; every tap persists locally within a frame
  */
 
-const RALLY_KEY = (matchId: string) => `volleyverse:rally:${matchId}`;
+const RALLY_KEY = (matchId: string) => `volleytics:rally:${matchId}`;
+// Pre-rename key (VolleyVerse): read as a fallback so a match already in
+// progress at deploy time resumes instead of landing back at setup.
+const LEGACY_RALLY_KEY = (matchId: string) => `volleyverse:rally:${matchId}`;
 
 /**
  * A session saved before substitutions existed carries no libero or sub fields.
@@ -139,7 +142,7 @@ export default function RallyTracker() {
   useEffect(() => {
     if (!ready || !match) return;
     try {
-      const raw = window.localStorage.getItem(RALLY_KEY(match.id));
+      const raw = window.localStorage.getItem(RALLY_KEY(match.id)) ?? window.localStorage.getItem(LEGACY_RALLY_KEY(match.id));
       if (raw) {
         const parsed = JSON.parse(raw) as MatchState;
         if (parsed.oppLineup && parsed.usLineup) setState(hydrate(parsed));

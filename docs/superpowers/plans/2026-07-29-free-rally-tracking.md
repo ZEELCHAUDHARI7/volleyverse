@@ -254,7 +254,7 @@ import {
 } from "./free-rally.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Free Rally Engine Verification Suite",
   file: "src/lib/free-rally.test.mjs",
 });
@@ -796,7 +796,7 @@ import type { Player } from "@/lib/types";
  * manual scoreboard, because every rally-ending event has a tap behind it.
  */
 
-const STATE_KEY = (matchId: string) => `volleyverse:free:${matchId}`;
+const STATE_KEY = (matchId: string) => `volleytics:free:${matchId}`;
 
 interface Snapshot {
   usScore: number;
