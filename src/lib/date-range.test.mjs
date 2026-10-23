@@ -7,7 +7,7 @@ import { createRunner } from "./console-ui.mjs";
 import { dateRangeProblem } from "./date-range.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Date Range Suite",
   file: "src/lib/date-range.test.mjs",
 });

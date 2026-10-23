@@ -7,7 +7,7 @@ import { getSupabase } from "./supabase-client.ts";
  *
  * Both scoring screens own a rich courtside state (lineups, running score,
  * current rally). Locally it is persisted to localStorage
- * (`volleyverse:free:<id>` on /spikes, `volleyverse:rally:<id>` on /rally),
+ * (`volleytics:free:<id>` on /spikes, `volleytics:rally:<id>` on /rally),
  * which syncs tabs of ONE browser but not other users.
  *
  * These two helpers mirror that same state through Supabase
@@ -118,7 +118,7 @@ export function subscribeLiveState(
     });
 
   const channel = supabase
-    .channel(`volleyverse:live:${matchId}`)
+    .channel(`volleytics:live:${matchId}`)
     .on(
       "postgres_changes",
       {

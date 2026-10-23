@@ -6,7 +6,7 @@ import { ConsoleNav } from "./console-nav";
 export const metadata: Metadata = {
   // A plain string would get the root template's suffix a second time and
   // drop the template for pages below; the object form keeps both right.
-  title: { default: "Console", template: "%s | VolleyVerse" },
+  title: { default: "Console", template: "%s | Volleytics" },
   description: "League setup, match day and stat entry.",
 };
 

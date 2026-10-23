@@ -90,7 +90,10 @@ import type { EventType, Player, StatEvent } from "@/lib/types";
  * manual scoreboard, because every rally-ending event has a tap behind it.
  */
 
-const STATE_KEY = (matchId: string) => `volleyverse:free:${matchId}`;
+const STATE_KEY = (matchId: string) => `volleytics:free:${matchId}`;
+// Pre-rename key (VolleyVerse): read as a fallback below so a match already
+// in progress at deploy time resumes instead of landing back at setup.
+const LEGACY_STATE_KEY = (matchId: string) => `volleyverse:free:${matchId}`;
 
 interface Snapshot {
   usScore: number;
@@ -330,7 +333,7 @@ export default function FreeRallyTracker() {
   useEffect(() => {
     if (!store.ready) return;
     try {
-      const raw = window.localStorage.getItem(STATE_KEY(id));
+      const raw = window.localStorage.getItem(STATE_KEY(id)) ?? window.localStorage.getItem(LEGACY_STATE_KEY(id));
       if (raw) {
         const parsed = JSON.parse(raw) as FreeMatchState;
         if (parsed.usLineup && parsed.oppLineup && parsed.rally) setState(hydrate(parsed));

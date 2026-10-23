@@ -3,8 +3,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "VolleyVerse",
-    template: "%s | VolleyVerse",
+    default: "Volleytics",
+    template: "%s | Volleytics",
   },
   description:
     "Professional volleyball league management. Courtside stat entry, live scoreboards, standings and player analytics.",

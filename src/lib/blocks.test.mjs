@@ -7,7 +7,7 @@ import { createRunner } from "./console-ui.mjs";
 import { blockLine, blockLines, blockLeaders, duels, bestSetBlocks } from "./blocks.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Block Tally Verification Suite",
   file: "src/lib/blocks.test.mjs",
 });

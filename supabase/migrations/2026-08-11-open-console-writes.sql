@@ -1,5 +1,5 @@
 -- =====================================================================
--- VOLLEYVERSE — OPEN THE CONSOLE'S WRITES
+-- VOLLEYTICS — OPEN THE CONSOLE'S WRITES
 --
 -- Paste this whole file into the Supabase SQL editor and press Run.
 -- Safe to run more than once: it only replaces policies by name.

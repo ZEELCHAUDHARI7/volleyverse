@@ -1,4 +1,4 @@
-# VolleyVerse — Self-Hosted Deployment Plan
+# Volleytics — Self-Hosted Deployment Plan
 
 **Status:** proposal — nothing purchased or changed yet.
 **Goal:** move off Vercel onto a domain + VPS we own, at minimum

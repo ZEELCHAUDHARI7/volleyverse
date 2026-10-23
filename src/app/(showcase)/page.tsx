@@ -112,7 +112,7 @@ export default function ShowcaseHome() {
     ];
   });
 
-  const wordmark = league?.name ?? "VolleyVerse";
+  const wordmark = league?.name ?? "Volleytics";
   const words = wordmark.trim().split(/\s+/);
   const lead = words.slice(0, -1).join(" ");
   const accent = words[words.length - 1];

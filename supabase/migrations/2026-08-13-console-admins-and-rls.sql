@@ -1,5 +1,5 @@
 -- =====================================================================
--- VOLLEYVERSE — CONSOLE ADMIN ALLOWLIST + RLS HARDENING
+-- VOLLEYTICS — CONSOLE ADMIN ALLOWLIST + RLS HARDENING
 --
 -- Paste this whole file into the Supabase SQL editor and press Run.
 --

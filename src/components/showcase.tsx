@@ -224,7 +224,7 @@ const NAV_LINKS = [
  * falls back to the platform name until a league exists. */
 export function useWordmark(): { lead: string; accent: string; full: string } {
   const { league } = useActiveLeague();
-  if (!league) return { lead: "Volley", accent: "Verse", full: "VolleyVerse" };
+  if (!league) return { lead: "", accent: "Volleytics", full: "Volleytics" };
   const words = league.name.trim().split(/\s+/);
   if (words.length === 1) return { lead: "", accent: words[0], full: league.name };
   return {
@@ -474,7 +474,7 @@ export function ShowcaseFooter() {
           <p className="flex items-center gap-3 text-xs text-dim">
             <SyncStatus />
             <span>
-              Powered by <span className="font-semibold text-accent">VolleyVerse</span>
+              Powered by <span className="font-semibold text-accent">Volleytics</span>
             </span>
           </p>
         </div>

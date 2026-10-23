@@ -8,7 +8,7 @@ import { createRunner } from "../console-ui.mjs";
 import { describeRejection } from "./write-errors.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Write Rejection Suite",
   file: "src/lib/providers/write-errors.test.mjs",
 });

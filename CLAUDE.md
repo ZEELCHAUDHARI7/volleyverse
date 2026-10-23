@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-VolleyVerse: a volleyball **league management platform** — competition
+Volleytics: a volleyball **league management platform** — competition
 structure (League → Season → Tournament → Match), two-team live match
 tracking, derived statistics, standings, and a broadcast-styled public
 showcase. Next.js 15 (App Router) + React 19 + TypeScript, Tailwind v4,

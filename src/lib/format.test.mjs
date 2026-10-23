@@ -7,7 +7,7 @@ import { createRunner } from "./console-ui.mjs";
 import { formatScore, plural, pluralWord } from "./format.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Wording Suite",
   file: "src/lib/format.test.mjs",
 });

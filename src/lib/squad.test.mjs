@@ -7,7 +7,7 @@ import { createRunner } from "./console-ui.mjs";
 import { STARTING_SIX, byShirtNumber, squadShortBy } from "./squad.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Squad Size Suite",
   file: "src/lib/squad.test.mjs",
 });

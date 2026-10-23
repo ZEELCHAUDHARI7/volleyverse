@@ -20,7 +20,7 @@ import {
 } from "./general.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Season Analytics Counting Rules",
   file: "src/lib/analytics/general.test.mjs",
 });

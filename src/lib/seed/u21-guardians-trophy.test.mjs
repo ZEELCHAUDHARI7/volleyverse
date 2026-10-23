@@ -21,7 +21,7 @@ import {
 } from "./u21-guardians-trophy.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Guardians Trophy U21 Seed Suite",
   file: "src/lib/seed/u21-guardians-trophy.test.mjs",
 });

@@ -7,7 +7,7 @@ import { createRunner } from "./console-ui.mjs";
 import { spikeLine, spikeLines } from "./spikes.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Spike Tally Verification Suite",
   file: "src/lib/spikes.test.mjs",
 });

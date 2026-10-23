@@ -14,7 +14,7 @@ import {
 } from "./removal.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "League Setup Removal Suite",
   file: "src/lib/removal.test.mjs",
 });

@@ -192,7 +192,7 @@ export function isDecidingSet(set: number, totalSets: number): boolean {
  *
  * FIVB Rule 7.1 only fixes the first service of SET 1 (from the pre-match
  * toss) and of the DECIDING SET (from a NEW toss - see `firstServerForSet`).
- * The Rules are SILENT on sets 2..(totalSets-1). VolleyVerse follows the
+ * The Rules are SILENT on sets 2..(totalSets-1). Volleytics follows the
  * near-universal competition convention that first service alternates from
  * the set-1 server. This is a STATED ASSUMPTION, not a rule in the uploaded
  * FIVB document - surfaced here rather than hidden.

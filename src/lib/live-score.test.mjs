@@ -8,7 +8,7 @@ import { createRunner } from "./console-ui.mjs";
 import { kickoffISO, pickLiveMatch, pickNextFixture } from "./live-score.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Live Match Selection Verification Suite",
   file: "src/lib/live-score.test.mjs",
 });

@@ -8,7 +8,7 @@ import { createRunner } from "./console-ui.mjs";
 import { matchHighs, matchLog, rate, searchDirectory, totalPoints } from "./player-profile.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Player Profile Suite",
   file: "src/lib/player-profile.test.mjs",
 });

@@ -5,7 +5,7 @@ import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = {
   title: "Sign in",
-  description: "Sign in to the VolleyVerse league operations console.",
+  description: "Sign in to the Volleytics league operations console.",
 };
 
 /**

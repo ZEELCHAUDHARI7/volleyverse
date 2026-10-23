@@ -81,7 +81,7 @@ export function ConsoleNav() {
           <Link href="/" className="flex items-center gap-2">
             <span aria-hidden className="text-base leading-none">🏐</span>
             <span className="stat-display sr-only text-sm font-extrabold uppercase tracking-widest text-ink sm:not-sr-only">
-              VolleyVerse
+              Volleytics
             </span>
             <span className="rounded-md bg-accent/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-accent ring-1 ring-accent/25">
               Console

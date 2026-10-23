@@ -1,5 +1,5 @@
 /**
- * VolleyVerse domain types — professional league management platform.
+ * Volleytics domain types — professional league management platform.
  *
  * These interfaces mirror the relational schema in supabase/schema.sql
  * 1:1 (camelCase ↔ snake_case). Player/Match embed a few child rows

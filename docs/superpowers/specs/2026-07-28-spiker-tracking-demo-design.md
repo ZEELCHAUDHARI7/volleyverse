@@ -103,8 +103,8 @@ Undo does not cross a set boundary: `END SET` banks the score and clears the
 stack, so the first action of a new set is the oldest thing undo can reach.
 
 Score, current set number and the undo stack persist together to
-`volleyverse:spikes:<matchId>`, so a reload mid-match loses nothing and undo still works.
-This must **not** reuse `volleyverse:rally:<matchId>` — `src/components/live-match.tsx:30`
+`volleytics:spikes:<matchId>`, so a reload mid-match loses nothing and undo still works.
+This must **not** reuse `volleytics:rally:<matchId>` — `src/components/live-match.tsx:30`
 reads that key and expects a full `MatchState` with both lineups.
 
 Three constraints confirmed against the schema:

@@ -33,7 +33,7 @@ export default function PlayersDirectoryPage() {
       <section className="grain relative border-b border-[#1c2e54] overflow-hidden py-16 px-4 md:px-8">
         <Aurora />
         <div className="relative mx-auto max-w-6xl text-center">
-          <SectionLabel>VolleyVerse League</SectionLabel>
+          <SectionLabel>Volleytics League</SectionLabel>
           <h1 className="stat-display text-5xl font-black uppercase tracking-wider text-white sm:text-7xl">
             Player <span className="text-gradient">Directory</span>
           </h1>

@@ -7,7 +7,7 @@ import { FanJoinForm } from "./fan-join-form";
 export const metadata: Metadata = {
   title: "Join as a fan",
   description:
-    "Create a VolleyVerse fan account to follow teams and keep match night close.",
+    "Create a Volleytics fan account to follow teams and keep match night close.",
 };
 
 export default function FanJoinPage() {

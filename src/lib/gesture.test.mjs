@@ -13,7 +13,7 @@ import {
 } from "./gesture.ts";
 
 const qa = createRunner({
-  title: "VOLLEYVERSE QA AGENT",
+  title: "VOLLEYTICS QA AGENT",
   subtitle: "Hold-and-Drag Gesture Verification Suite",
   file: "src/lib/gesture.test.mjs",
 });

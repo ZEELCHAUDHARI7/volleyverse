@@ -37,7 +37,7 @@ export function matchCsv(
   meta: { home: string; away: string; date: string },
 ): string {
   const lines: string[] = [];
-  lines.push(csvRow(["VolleyVerse Match Analytics"]));
+  lines.push(csvRow(["Volleytics Match Analytics"]));
   lines.push(csvRow(["Fixture", `${meta.home} vs ${meta.away}`]));
   lines.push(csvRow(["Date", meta.date]));
   lines.push(csvRow(["Result", a.result.scoreline]));
@@ -103,7 +103,7 @@ export async function shareAnalytics(
   a: MatchAnalytics,
   meta: { home: string; away: string },
 ): Promise<"shared" | "copied" | "failed"> {
-  const text = `${meta.home} ${a.result.scoreline} ${meta.away} — VolleyVerse analytics.\n${a.headline
+  const text = `${meta.home} ${a.result.scoreline} ${meta.away} — Volleytics analytics.\n${a.headline
     .slice(0, 4)
     .map((k) => `${k.label}: ${statText(k.value, k.unit)}`)
     .join(" · ")}`;

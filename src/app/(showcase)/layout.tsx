@@ -8,7 +8,7 @@ import { SyncAlert } from "@/components/sync-indicator";
 export const metadata: Metadata = {
   // The object form, as in the console layout: a plain string doubles the
   // root suffix here and leaves the pages below with no suffix at all.
-  title: { default: "Live Volleyball", template: "%s | VolleyVerse" },
+  title: { default: "Live Volleyball", template: "%s | Volleytics" },
   description:
     "Official stats, standings, teams and match reports, tracked live courtside.",
 };

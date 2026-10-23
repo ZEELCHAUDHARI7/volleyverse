@@ -1,4 +1,4 @@
-# VolleyVerse — Dummy Data Audit & Refactor Plan
+# Volleytics — Dummy Data Audit & Refactor Plan
 
 **Date:** 2026-07-14 · **Status:** Awaiting approval — no code changed yet.
 Goal: prototype → production-ready professional volleyball league management platform (Supabase/PostgreSQL-ready).
